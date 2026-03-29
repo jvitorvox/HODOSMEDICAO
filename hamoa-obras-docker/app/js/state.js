@@ -37,6 +37,12 @@ const H = {
     };
     return `<span class="badge ${map[s]||'b-draft'}">${s||'—'}</span>`;
   },
+  tipoBadge(tipo) {
+    if (!tipo || tipo === 'Normal') return '';
+    if (tipo === 'Adiantamento')   return `<span class="med-tipo-badge med-tipo-adt">💰 ADT</span>`;
+    if (tipo === 'Avanco_Fisico')  return `<span class="med-tipo-badge med-tipo-avfis">📐 AV.FÍS</span>`;
+    return '';
+  },
   progressBar(pct, cls='') { return `<div class="pw"><div class="pb"><div class="pf ${cls}" style="width:${Math.min(pct,100)}%"></div></div><span class="pp">${pct}%</span></div>`; },
   nextLevel(status) {
     if(status==='Aguardando N1') return 'N1';

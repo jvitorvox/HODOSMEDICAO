@@ -33,7 +33,27 @@ const Medicoes = {
         if(current) contsFilt.unshift(current);
       }
     }
+    const tipoAtual = m?.tipo || 'Normal';
     return `
+    <!-- Seletor de Tipo de Medição -->
+    <div class="fsec" style="padding-bottom:0">
+      <div class="fsec-title">TIPO DE MEDIÇÃO</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;margin-bottom:4px">
+        ${[
+          { val:'Normal',       ico:'📋', label:'Normal',         desc:'Mede execução física e gera pagamento (padrão)' },
+          { val:'Adiantamento', ico:'💰', label:'Adiantamento',   desc:'Pagamento antecipado — sem avanço físico na obra' },
+          { val:'Avanco_Fisico',ico:'📐', label:'Avanço Físico',  desc:'Registra execução física — sem valor financeiro (fecha descompasso)' },
+        ].map(t => `
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:10px 14px;border-radius:8px;cursor:pointer;border:2px solid ${tipoAtual===t.val?'var(--accent)':'var(--border)'};background:${tipoAtual===t.val?'var(--accent3)':'var(--surface)'};transition:all .15s;flex:1;min-width:180px">
+            <input type="radio" name="mf-tipo" value="${t.val}" ${tipoAtual===t.val?'checked':''}
+              onchange="Medicoes._onTipoChange()" style="margin-top:2px;accent-color:var(--accent)">
+            <div>
+              <div style="font-weight:600;font-size:13px">${t.ico} ${t.label}</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">${t.desc}</div>
+            </div>
+          </label>`).join('')}
+      </div>
+    </div>
     <div class="fsec">
       <div class="fsec-title">IDENTIFICAÇÃO</div>
       <div class="fgrid">
@@ -66,11 +86,33 @@ const Medicoes = {
           <input class="fi" id="mf-codigo" value="${m?.codigo||H.genCodigo()}" readonly></div>
       </div>
     </div>
-    <div class="fsec">
+
+    <!-- Seção exclusiva: Adiantamento (valor avulso) -->
+    <div class="fsec" id="mf-sec-adt" style="${tipoAtual!=='Adiantamento'?'display:none':''}">
+      <div class="fsec-title" style="color:#d97706">💰 VALOR DO ADIANTAMENTO</div>
+      <div class="ibox warn" style="margin-bottom:12px;font-size:12px">
+        ⚠️ Este valor será registrado como pagamento antecipado e <strong>não avançará o progresso físico</strong> da obra nem do cronograma.
+        O descompasso financeiro-físico ficará visível no contrato até ser compensado por uma Medição de Avanço Físico.
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">Valor do Adiantamento (R$) *</label>
+          <input class="fi" type="number" id="mf-valor-adt" min="0" step="0.01"
+            value="${m?.valor_medicao||''}" placeholder="0,00"
+            style="font-family:var(--font-m);font-size:15px;font-weight:600;color:var(--accent)">
+          <div class="hint">Informe o valor financeiro a ser adiantado ao fornecedor.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Seção de itens: Normal e Avanço Físico -->
+    <div class="fsec" id="mf-sec-itens" style="${tipoAtual==='Adiantamento'?'display:none':''}">
       <div class="fsec-title" style="display:flex;justify-content:space-between;align-items:center">
-        ITENS DE MEDIÇÃO
+        ${tipoAtual==='Avanco_Fisico'?'📐 ITENS DE AVANÇO FÍSICO':'ITENS DE MEDIÇÃO'}
         <button class="btn btn-o btn-xs" onclick="Medicoes._addItem('un')" title="Adiciona item não vinculado ao contrato">+ Item Avulso</button>
       </div>
+      ${tipoAtual==='Avanco_Fisico'?`<div class="ibox info" style="margin-bottom:10px;font-size:12px">
+        📐 Registre as quantidades físicas executadas. <strong>Valor financeiro = R$ 0,00</strong> — este tipo fecha o descompasso com adiantamentos anteriores.
+      </div>`:''}
       <div class="ibox info" id="mf-acum-banner" style="margin-bottom:10px;font-size:11px;${m?.itens?.length?'':'display:none'}"></div>
       <div id="mf-itens">${(m?.itens||[]).map((it,i)=>Medicoes._itemRowHTML(it,i)).join('')||`<div class="items-empty" id="mf-itens-empty">Nenhum item adicionado. Use os botões acima para adicionar itens de medição.</div>`}</div>
       <div class="item-totais" id="mf-totais" style="${!(m?.itens||[]).length?'display:none':''}">
@@ -94,6 +136,26 @@ const Medicoes = {
         ${(m?.evidencias||[]).map(f=>`<div class="fitem"><span style="font-size:14px">${f.tipo==='img'?'🖼':f.tipo==='pdf'?'📄':'🎬'}</span><span class="fitem-name">${f.nome}</span><span class="fitem-sz">${f.tamanho}</span><span class="fitem-rm" onclick="this.closest('.fitem').remove()">×</span></div>`).join('')}
       </div>
     </div>`;
+  },
+
+  _onTipoChange() {
+    const tipo = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
+    const secAdt   = H.el('mf-sec-adt');
+    const secItens = H.el('mf-sec-itens');
+    if (secAdt)   secAdt.style.display   = tipo === 'Adiantamento' ? '' : 'none';
+    if (secItens) secItens.style.display = tipo === 'Adiantamento' ? 'none' : '';
+    // Atualiza visual dos radio cards
+    document.querySelectorAll('input[name="mf-tipo"]').forEach(r => {
+      const card = r.closest('label');
+      if (!card) return;
+      card.style.borderColor  = r.checked ? 'var(--accent)' : 'var(--border)';
+      card.style.background   = r.checked ? 'var(--accent3)' : 'var(--surface)';
+    });
+    // Atualiza label da seção de itens
+    const tituloItens = secItens?.querySelector('.fsec-title');
+    if (tituloItens) {
+      tituloItens.textContent = tipo === 'Avanco_Fisico' ? '📐 ITENS DE AVANÇO FÍSICO' : 'ITENS DE MEDIÇÃO';
+    }
   },
 
   _bindFormEvents() {
@@ -365,19 +427,29 @@ const Medicoes = {
     const periodo      = H.el('mf-periodo')?.value;
     const codigo       = H.el('mf-codigo')?.value;
     const descricao    = H.el('mf-descricao')?.value || '';
+    const tipo         = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
     if(!empresa_id||!obra_id||!fornecedor_id||!contrato_id||!periodo) { UI.toast('Preencha os campos obrigatórios de identificação','error'); return null; }
 
+    // ── Adiantamento: valor avulso ──
+    if (tipo === 'Adiantamento') {
+      const valor_adiantamento = parseFloat(H.el('mf-valor-adt')?.value) || 0;
+      if (valor_adiantamento <= 0) { UI.toast('Informe o valor do adiantamento','error'); return null; }
+      return { empresa_id, obra_id, fornecedor_id, contrato_id, periodo, codigo, descricao,
+               tipo, valor_adiantamento,
+               pct_anterior: 0, pct_mes: 0, pct_total: 0, itens: [] };
+    }
+
+    // ── Normal / Avanço Físico: usa itens ──
     const rows = document.querySelectorAll('#mf-itens .item-row');
     if(!rows.length) { UI.toast('Adicione pelo menos um item de medição','error'); return null; }
 
     const itens = Array.from(rows).map((row,i) => {
       const qtdMes  = parseFloat(row.querySelector('.item-qtd-mes')?.value)||0;
       const qtdAnt  = parseFloat(row.querySelector('.item-qtd-ant')?.value)||0;
-      const vun     = parseFloat(row.querySelector('.item-vun')?.value)||0;
+      const vun     = tipo === 'Avanco_Fisico' ? 0 : (parseFloat(row.querySelector('.item-vun')?.value)||0);
       const citemId = parseInt(row.dataset.citemId) || null;
-      // Unidade: para item travado pega do disabled select via value
-      const unEl = row.querySelector('.item-un');
-      const un = unEl ? (unEl.value || unEl.options?.[unEl.selectedIndex]?.value || '%') : '%';
+      const unEl    = row.querySelector('.item-un');
+      const un      = unEl ? (unEl.value || unEl.options?.[unEl.selectedIndex]?.value || '%') : '%';
       return {
         ordem:             i,
         contrato_item_id:  citemId,
@@ -393,53 +465,76 @@ const Medicoes = {
     });
     if(itens.some(it=>!it.descricao)) { UI.toast('Todos os itens precisam ter descrição','error'); return null; }
     if(!itens.some(it=>it.qtd_mes>0)) { UI.toast('Informe a quantidade deste mês em pelo menos um item','error'); return null; }
-    // Valida saldo disponível
-    for(const it of itens) {
-      if(!it.contrato_item_id || it.qtd_mes <= 0) continue;
-      const saldo = parseFloat(it.qtd_contrato) - parseFloat(it.qtd_anterior);
-      if(it.qtd_mes > saldo + 0.0001) {
-        UI.toast(`Item "${it.descricao}": ${it.qtd_mes} excede o saldo disponível de ${parseFloat(saldo.toFixed(4))} ${it.unidade}`, 'error');
-        return null;
+    // Valida saldo (apenas Normal — Avanço Físico não tem restrição financeira)
+    if (tipo === 'Normal') {
+      for(const it of itens) {
+        if(!it.contrato_item_id || it.qtd_mes <= 0) continue;
+        const saldo = parseFloat(it.qtd_contrato) - parseFloat(it.qtd_anterior);
+        if(it.qtd_mes > saldo + 0.0001) {
+          UI.toast(`Item "${it.descricao}": ${it.qtd_mes} excede o saldo disponível de ${parseFloat(saldo.toFixed(4))} ${it.unidade}`, 'error');
+          return null;
+        }
       }
     }
 
-    const valor_medicao   = itens.reduce((s,it)=>s+it.qtd_mes*it.valor_unitario,0);
-    const valor_acumulado = itens.reduce((s,it)=>s+it.qtd_acumulada*it.valor_unitario,0);
+    const valor_medicao   = tipo === 'Avanco_Fisico' ? 0 : itens.reduce((s,it)=>s+it.qtd_mes*it.valor_unitario,0);
+    const valor_acumulado = tipo === 'Avanco_Fisico' ? 0 : itens.reduce((s,it)=>s+it.qtd_acumulada*it.valor_unitario,0);
 
-    // Retrocompat: pct values from % items
-    const pctItens = itens.filter(it=>it.unidade==='%');
-    const pct_mes      = pctItens.reduce((s,it)=>s+it.qtd_mes,0);
-    const pct_anterior = pctItens.length ? pctItens.reduce((s,it)=>s+it.qtd_anterior,0) : 0;
-    const pct_total    = Math.min(pct_anterior + pct_mes, 100);
+    const pctItens    = itens.filter(it=>it.unidade==='%');
+    const pct_mes     = pctItens.reduce((s,it)=>s+it.qtd_mes,0);
+    const pct_anterior= pctItens.length ? pctItens.reduce((s,it)=>s+it.qtd_anterior,0) : 0;
+    const pct_total   = Math.min(pct_anterior + pct_mes, 100);
 
     return { empresa_id, obra_id, fornecedor_id, contrato_id, periodo, codigo, descricao,
-             valor_medicao, valor_acumulado, pct_anterior, pct_mes, pct_total, itens };
+             tipo, valor_medicao, valor_acumulado, pct_anterior, pct_mes, pct_total, itens };
   },
 
   async saveDraft() {
-    const data = this._collectForm();
-    if(!data) { UI.toast('Preencha os campos obrigatórios','error'); return; }
+    let data;
+    try { data = this._collectForm(); } catch(e) {
+      console.error('[saveDraft] Erro em _collectForm:', e);
+      UI.toast('Erro no formulário: ' + e.message, 'error'); return;
+    }
+    if(!data) return; // toast já mostrado por _collectForm
     data.status = 'Rascunho';
+    const btn = H.el('mm-btn-draft');
+    if(btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
     try {
       if(State.editingId) await API.updateMedicao(State.editingId, data);
       else await API.createMedicao(data);
       UI.closeModal('modal-medicao');
       UI.toast(`Medição ${data.codigo} salva como rascunho`, 'info');
       await Pages.medicoes();
-    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+    } catch(e) {
+      console.error('[saveDraft] Erro na API:', e);
+      UI.toast('Erro ao salvar: ' + e.message, 'error');
+    } finally {
+      if(btn) { btn.disabled = false; btn.textContent = '💾 Salvar Rascunho'; }
+    }
   },
 
   async launch() {
-    const data = this._collectForm();
-    if(!data) { UI.toast('Preencha todos os campos obrigatórios','error'); return; }
+    let data;
+    try { data = this._collectForm(); } catch(e) {
+      console.error('[launch] Erro em _collectForm:', e);
+      UI.toast('Erro no formulário: ' + e.message, 'error'); return;
+    }
+    if(!data) return; // toast já mostrado por _collectForm
     data.status = 'Aguardando N1';
+    const btn = H.el('mm-btn-launch');
+    if(btn) { btn.disabled = true; btn.textContent = '⏳ Lançando...'; }
     try {
       if(State.editingId) await API.updateMedicao(State.editingId, data);
       else await API.createMedicao(data);
       UI.closeModal('modal-medicao');
       UI.toast(`✓ Medição ${data.codigo} lançada — enviada para aprovação N1`, 'success');
       await Pages.medicoes();
-    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+    } catch(e) {
+      console.error('[launch] Erro na API:', e);
+      UI.toast('Erro ao lançar: ' + e.message, 'error');
+    } finally {
+      if(btn) { btn.disabled = false; btn.textContent = '🚀 Lançar'; }
+    }
   },
 
   openAprovar(id) {
@@ -492,7 +587,7 @@ const Medicoes = {
       const m = await API.medicao(id);
       const aprs = m.aprovacoes || [];
       const evids = m.evidencias || [];
-      H.el('det-title').innerHTML = `<span class="cc" style="font-size:14px">${m.codigo}</span> ${H.statusBadge(m.status)}`;
+      H.el('det-title').innerHTML = `<span class="cc" style="font-size:14px">${m.codigo}</span> ${H.tipoBadge(m.tipo)} ${H.statusBadge(m.status)}`;
       const stepState = (lv) => {
         const a = aprs.find(a=>a.nivel===lv);
         if(a?.acao==='reprovado') return 'rej';
@@ -501,6 +596,29 @@ const Medicoes = {
         return '';
       };
       H.el('det-body').innerHTML = `
+        ${m.tipo === 'Adiantamento' ? `
+        <div class="ibox warn" style="margin-bottom:16px;display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:22px">💰</span>
+          <div>
+            <div style="font-weight:700;margin-bottom:4px">Medição de Adiantamento Financeiro</div>
+            <div style="font-size:12px;color:var(--text2)">
+              Esta medição registra um pagamento antecipado de <strong>R$ ${H.fmt(m.valor_medicao)}</strong> ao fornecedor.
+              Ela <strong>não avança o progresso físico</strong> da obra nem do cronograma.
+              O descompasso financeiro-físico ficará registrado no contrato até ser compensado por uma <em>Medição de Avanço Físico</em>.
+            </div>
+          </div>
+        </div>` : ''}
+        ${m.tipo === 'Avanco_Fisico' ? `
+        <div class="ibox info" style="margin-bottom:16px;display:flex;gap:10px;align-items:flex-start">
+          <span style="font-size:22px">📐</span>
+          <div>
+            <div style="font-weight:700;margin-bottom:4px">Medição de Avanço Físico</div>
+            <div style="font-size:12px;color:var(--text2)">
+              Esta medição registra a execução física da obra: <strong>${m.pct_mes||0}% neste período</strong>, acumulado <strong>${m.pct_total||0}%</strong>.
+              Valor financeiro: R$ 0,00 (já adiantado anteriormente). Atualiza o cronograma e fecha o descompasso do contrato.
+            </div>
+          </div>
+        </div>` : ''}
         <div style="margin-bottom:20px">
           <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px">FLUXO DE APROVAÇÃO</div>
           <div class="aflow" style="max-width:480px">

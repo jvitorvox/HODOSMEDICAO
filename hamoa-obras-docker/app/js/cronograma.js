@@ -166,17 +166,19 @@ const Cronograma = (() => {
   }
 
   function _clearWBS() {
+    // O CSS define #cron-wbs-wrap { display:flex } via #page-cronograma.active
+    // Ocultamos com display:none e mostramos o empty state (flex via CSS também)
     const wbsEl   = H.el('cron-wbs-wrap');
     const emptyEl = H.el('cron-empty-state');
-    if (wbsEl)   { wbsEl.style.display   = 'none'; }
-    if (emptyEl) { emptyEl.style.display = 'flex'; }
+    if (wbsEl)   wbsEl.style.display   = 'none';
+    if (emptyEl) emptyEl.style.display = '';   // volta ao valor definido no CSS (flex)
   }
 
   function _showWBS() {
     const wbsEl   = H.el('cron-wbs-wrap');
     const emptyEl = H.el('cron-empty-state');
-    if (wbsEl)   { wbsEl.style.display   = 'block'; }
-    if (emptyEl) { emptyEl.style.display = 'none'; }
+    if (wbsEl)   wbsEl.style.display   = '';   // volta ao valor CSS (flex)
+    if (emptyEl) emptyEl.style.display = 'none';
   }
 
   // ── Carrega e renderiza a árvore WBS ───────────────────────
@@ -187,7 +189,7 @@ const Cronograma = (() => {
     if (!tbody) return;
 
     _showWBS();
-    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text3);padding:20px;text-align:center">Carregando atividades...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text3);padding:20px;text-align:center">Carregando atividades...</td></tr>';
 
     try {
       _atividades = await API.cronogramaAtividades(cronId);
@@ -197,14 +199,14 @@ const Cronograma = (() => {
       _childMap = _buildChildMap(_atividades);
 
       if (!_atividades.length) {
-        tbody.innerHTML = '<tr><td colspan="8" style="color:var(--text3);padding:20px;text-align:center">Nenhuma atividade encontrada neste cronograma.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text3);padding:20px;text-align:center">Nenhuma atividade encontrada neste cronograma.</td></tr>';
         if (countEl) countEl.textContent = '';
         return;
       }
 
       _renderWBS();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="8" style="color:var(--red);padding:20px">${H.esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:20px">${H.esc(e.message)}</td></tr>`;
     }
   }
 
@@ -227,7 +229,7 @@ const Cronograma = (() => {
     }
 
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text3);padding:20px;text-align:center">${term ? '🔍 Nenhuma atividade encontrada.' : 'Nenhuma atividade.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--text3);padding:20px;text-align:center">${term ? '🔍 Nenhuma atividade encontrada.' : 'Nenhuma atividade.'}</td></tr>`;
       if (countEl) countEl.textContent = '';
       return;
     }
@@ -243,28 +245,29 @@ const Cronograma = (() => {
 
   function _atividadeRowHTML(a, searchMode) {
     const indent   = a.nivel * 16;
-    const pctReal  = parseFloat(a.pct_realizado_calc) || 0;
-    const pctPlan  = parseFloat(a.pct_planejado) || 0;
-    const desvio   = pctReal - pctPlan;
-    const color    = _barColor(pctReal);
+    const pctPlan  = parseFloat(a.pct_planejado)       || 0;
+    const pctMed   = a.pct_medicoes != null ? parseFloat(a.pct_medicoes) : null;
+    const pctMan   = parseFloat(a.pct_realizado)       || 0;
+    const pctEfet  = parseFloat(a.pct_realizado_calc)  || 0;  // medições → manual → 0
+    const qtdCont  = parseInt(a.qtd_contratos)         || 0;
+    const qtdMed   = parseInt(a.qtd_com_medicoes)      || 0;
     const isResume = a.eh_resumo;
     const rowClass = isResume ? 'wbs-row-summary' : 'wbs-row-leaf';
     const isCol    = !searchMode && _collapsed.has(a.id);
     const hasKids  = ((_childMap[a.id] || []).length > 0);
 
-    // Toggle expand/collapse
+    // ── Toggle expand/collapse ────────────────────────────────
     let toggleEl;
     if (isResume && hasKids && !searchMode) {
       toggleEl = `<span class="wbs-toggle" onclick="event.stopPropagation();Cronograma.toggleCollapse(${a.id})"
-                        title="${isCol ? 'Expandir' : 'Recolher'}"
-                        style="cursor:pointer;color:var(--text3);font-size:10px;flex-shrink:0;min-width:14px;display:inline-block;text-align:center;user-select:none"
-                  >${isCol ? '▶' : '▼'}</span>`;
+                        title="${isCol ? 'Expandir' : 'Recolher'}">${isCol ? '▶' : '▼'}</span>`;
     } else if (isResume) {
       toggleEl = `<span style="color:var(--text3);font-size:10px;flex-shrink:0;min-width:14px;display:inline-block;text-align:center">■</span>`;
     } else {
-      toggleEl = `<span style="color:var(--text3);font-size:10px;flex-shrink:0;min-width:14px;display:inline-block;text-align:center">·</span>`;
+      toggleEl = `<span style="color:transparent;font-size:10px;flex-shrink:0;min-width:14px;display:inline-block">·</span>`;
     }
 
+    // ── Chips dos contratos vinculados ────────────────────────
     const contratos = Array.isArray(a.contratos_vinculados) && a.contratos_vinculados.length
       ? `<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px">
            ${a.contratos_vinculados.map(c =>
@@ -273,12 +276,57 @@ const Cronograma = (() => {
          </div>`
       : '';
 
+    // ── Coluna "Por Medições" ─────────────────────────────────
+    // Mostra barra + % calculado das medições aprovadas.
+    // Se não há contrato vinculado: hint cinza. Se há contrato mas sem medições: 0% pendente.
+    let colMedicoes;
+    if (qtdCont === 0) {
+      // sem contrato vinculado
+      colMedicoes = `<span style="font-size:10px;color:var(--text3);font-style:italic">sem contrato</span>`;
+    } else {
+      const pctVal  = pctMed !== null ? pctMed : 0;
+      const barCol  = _barColor(pctVal);
+      const semMed  = qtdMed === 0;
+      const label   = semMed
+        ? `<span style="font-size:9px;color:var(--text3)">sem medição</span>`
+        : `<span style="font-size:11px;font-weight:700;color:${barCol};min-width:38px;text-align:right">${_fmt(pctVal)}</span>`;
+      const desvMed = pctVal - pctPlan;
+      const desvTag = !semMed && pctPlan > 0
+        ? `<div style="font-size:9px;margin-top:1px;color:${desvMed >= 0 ? 'var(--green)' : 'var(--red)'}">
+             ${desvMed > 0 ? '▲' : '▼'} ${Math.abs(desvMed).toFixed(1)}% vs. plan.
+           </div>`
+        : '';
+      const nMed = qtdMed > 0
+        ? `<div style="font-size:9px;color:var(--text3);margin-top:1px">${qtdMed} medição${qtdMed !== 1 ? 'ões' : ''} · ${qtdCont} contrato${qtdCont !== 1 ? 's' : ''}</div>`
+        : `<div style="font-size:9px;color:var(--text3);margin-top:1px">${qtdCont} contrato${qtdCont !== 1 ? 's' : ''} · aguarda medição</div>`;
+      colMedicoes = `
+        <div style="display:flex;align-items:center;gap:7px">
+          <div class="wbs-bar-bg" style="flex:1;${semMed ? 'opacity:.4' : ''}">
+            <div class="wbs-bar-fill" style="width:${Math.min(100, pctVal)}%;background:${barCol}"></div>
+          </div>
+          ${label}
+        </div>
+        ${desvTag}
+        ${nMed}`;
+    }
+
+    // ── Coluna "Manual" ───────────────────────────────────────
+    // Valor de pct_realizado digitado manualmente; usado como fallback
+    // quando não há contratos vinculados.
+    const manColor = qtdCont > 0 ? 'var(--text3)' : _barColor(pctMan);
+    const manStyle = qtdCont > 0
+      ? 'color:var(--text3);font-size:11px;text-decoration:line-through;opacity:.6'
+      : `color:${manColor};font-size:11px;font-weight:700`;
+    const manHint  = qtdCont > 0
+      ? `<div style="font-size:9px;color:var(--text3);margin-top:1px">substituído por medições</div>`
+      : (pctMan > 0 ? '' : `<div style="font-size:9px;color:var(--text3);margin-top:1px">não definido</div>`);
+
     return `<tr class="${rowClass}" data-id="${a.id}" title="${H.esc(a.nome)}">
       <td style="padding-left:${indent + 6}px;min-width:0">
         <div style="display:flex;align-items:flex-start;gap:5px">
           ${toggleEl}
           <div style="min-width:0;flex:1">
-            <div class="wbs-nome" style="${isResume ? 'font-weight:600' : ''}">${H.esc(a.nome)}</div>
+            <div class="wbs-nome">${H.esc(a.nome)}</div>
             ${contratos}
           </div>
         </div>
@@ -288,20 +336,18 @@ const Cronograma = (() => {
       <td class="tc">${_fmtDate(a.data_termino)}</td>
       <td class="tc">${a.duracao != null ? a.duracao + 'd' : '—'}</td>
       <td class="tc">${_fmt(pctPlan)}</td>
-      <td style="min-width:150px">
-        <div style="display:flex;align-items:center;gap:7px">
-          <div class="wbs-bar-bg" style="flex:1">
-            <div class="wbs-bar-fill" style="width:${Math.min(100, pctReal)}%;background:${color}"></div>
-          </div>
-          <span style="font-size:11px;font-weight:600;color:${color};min-width:36px;text-align:right">${_fmt(pctReal)}</span>
+
+      <!-- Coluna: Por Medições -->
+      <td style="min-width:190px">${colMedicoes}</td>
+
+      <!-- Coluna: Manual (pct_realizado) -->
+      <td style="min-width:110px;vertical-align:middle">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="${manStyle}">${pctMan > 0 ? _fmt(pctMan) : '—'}</span>
+          <button class="btn btn-xs btn-o" onclick="Cronograma.openEditAtividade(${a.id})"
+                  title="Editar atividade" style="padding:2px 6px;font-size:10px">✏</button>
         </div>
-        ${desvio !== 0 && pctPlan > 0
-          ? `<div style="font-size:9px;margin-top:2px;color:${desvio >= 0 ? 'var(--green)' : 'var(--red)'}">
-               ${desvio > 0 ? '▲' : '▼'} ${Math.abs(desvio).toFixed(1)}% vs. plan.
-             </div>` : ''}
-      </td>
-      <td class="tc">
-        <button class="btn btn-xs btn-o" onclick="Cronograma.openEditAtividade(${a.id})" title="Editar">✏</button>
+        ${manHint}
       </td>
     </tr>`;
   }

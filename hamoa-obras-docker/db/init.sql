@@ -33,17 +33,20 @@ CREATE TABLE IF NOT EXISTS obras (
 
 -- ── Fornecedores ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS fornecedores (
-    id            SERIAL PRIMARY KEY,
-    razao_social  VARCHAR(200) NOT NULL,
-    nome_fantasia VARCHAR(200),
-    cnpj          VARCHAR(20) NOT NULL UNIQUE,
-    tel           VARCHAR(30),
-    email         VARCHAR(150),
-    email_nf      VARCHAR(150),
-    email_assin   VARCHAR(150),
-    ativo         BOOLEAN NOT NULL DEFAULT TRUE,
-    criado_em     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    atualizado_em TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    id                  SERIAL PRIMARY KEY,
+    razao_social        VARCHAR(200) NOT NULL,
+    nome_fantasia       VARCHAR(200),
+    cnpj                VARCHAR(20) NOT NULL UNIQUE,
+    tel                 VARCHAR(30),
+    email               VARCHAR(150),
+    email_nf            VARCHAR(150),
+    email_assin         VARCHAR(150),
+    endereco            VARCHAR(500),
+    representante       VARCHAR(200),
+    cargo_representante VARCHAR(100),
+    ativo               BOOLEAN NOT NULL DEFAULT TRUE,
+    criado_em           TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    atualizado_em       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- ── Contratos ─────────────────────────────────────────────────
@@ -86,6 +89,44 @@ CREATE TABLE IF NOT EXISTS medicoes (
     criado_em       TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     atualizado_em   TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- ── Itens de Contrato ─────────────────────────────────────────
+-- Planilha orçamentária do contrato: lista de serviços/itens
+-- com quantidades previstas e preços unitários.
+CREATE TABLE IF NOT EXISTS contrato_itens (
+    id              SERIAL PRIMARY KEY,
+    contrato_id     INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+    ordem           SMALLINT NOT NULL DEFAULT 0,
+    descricao       VARCHAR(500) NOT NULL,
+    unidade         VARCHAR(20)  NOT NULL DEFAULT 'un',
+    qtd_total       NUMERIC(15,4) NOT NULL DEFAULT 0,
+    valor_unitario  NUMERIC(15,4) NOT NULL DEFAULT 0,
+    valor_total     NUMERIC(15,2) NOT NULL DEFAULT 0,
+    criado_em       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_contrato_itens_contrato ON contrato_itens(contrato_id);
+
+-- ── Itens de Medição ──────────────────────────────────────────
+-- Cada medição pode ter N itens com unidades distintas:
+-- % (percentual), m², m, kg, l, un, vb, t, h, etc.
+-- contrato_item_id vincula ao item do contrato para rastrear saldo.
+CREATE TABLE IF NOT EXISTS medicao_itens (
+    id                SERIAL PRIMARY KEY,
+    medicao_id        INTEGER NOT NULL REFERENCES medicoes(id) ON DELETE CASCADE,
+    contrato_item_id  INTEGER REFERENCES contrato_itens(id) ON DELETE SET NULL,
+    ordem             SMALLINT NOT NULL DEFAULT 0,
+    descricao         VARCHAR(500) NOT NULL,
+    unidade           VARCHAR(20) NOT NULL DEFAULT '%',
+    qtd_contrato      NUMERIC(15,4) NOT NULL DEFAULT 0,
+    qtd_anterior      NUMERIC(15,4) NOT NULL DEFAULT 0,
+    qtd_mes           NUMERIC(15,4) NOT NULL DEFAULT 0,
+    qtd_acumulada     NUMERIC(15,4) NOT NULL DEFAULT 0,
+    valor_unitario    NUMERIC(15,4) NOT NULL DEFAULT 0,
+    valor_item        NUMERIC(15,2) NOT NULL DEFAULT 0,
+    criado_em         TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_medicao_itens_medicao        ON medicao_itens(medicao_id);
+CREATE INDEX IF NOT EXISTS idx_medicao_itens_contrato_item  ON medicao_itens(contrato_item_id);
 
 -- ── Evidências de Medições ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS evidencias (
@@ -188,3 +229,56 @@ BEGIN
         ', t, t, t, t);
     END LOOP;
 END$$;
+-- ══════════════════════════════════════════════════════════════
+-- HAMOA OBRAS — Migração: Módulo de Cronograma de Obra
+-- Execute manualmente no banco após o deploy:
+--   docker exec -i hamoa-obras-db psql -U hamoa -d hamoa_obras < db/migrate_cronograma.sql
+-- ══════════════════════════════════════════════════════════════
+
+-- ── Cronogramas (cabeçalho de cada importação) ────────────────
+CREATE TABLE IF NOT EXISTS cronogramas (
+    id            SERIAL PRIMARY KEY,
+    obra_id       INTEGER NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
+    nome          VARCHAR(255) NOT NULL,
+    versao        INTEGER NOT NULL DEFAULT 1,
+    arquivo_nome  VARCHAR(300),
+    data_inicio   DATE,
+    data_termino  DATE,
+    importado_em  TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    importado_por VARCHAR(150),
+    ativo         BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- ── Atividades do cronograma (WBS) ────────────────────────────
+-- Suporta hierarquia ilimitada via parent_id (adjacency list)
+CREATE TABLE IF NOT EXISTS atividades_cronograma (
+    id              SERIAL PRIMARY KEY,
+    cronograma_id   INTEGER NOT NULL REFERENCES cronogramas(id) ON DELETE CASCADE,
+    parent_id       INTEGER REFERENCES atividades_cronograma(id) ON DELETE SET NULL,
+    wbs             VARCHAR(50),
+    nome            VARCHAR(500) NOT NULL,
+    data_inicio     DATE,
+    data_termino    DATE,
+    duracao         INTEGER,           -- duração em dias
+    nivel           INTEGER NOT NULL DEFAULT 0,
+    pct_planejado   NUMERIC(5,2) NOT NULL DEFAULT 0,
+    pct_realizado   NUMERIC(5,2) NOT NULL DEFAULT 0,   -- atualizado via contratos vinculados
+    eh_resumo       BOOLEAN NOT NULL DEFAULT FALSE,    -- TRUE = nó pai/grupo no WBS
+    ordem           INTEGER NOT NULL DEFAULT 0,        -- ordem original do MPP
+    uid_externo     INTEGER                            -- UniqueID original do MS Project
+);
+
+-- ── Vínculo Contrato ↔ Atividade(s) ──────────────────────────
+CREATE TABLE IF NOT EXISTS contratos_atividades (
+    id            SERIAL PRIMARY KEY,
+    contrato_id   INTEGER NOT NULL REFERENCES contratos(id)              ON DELETE CASCADE,
+    atividade_id  INTEGER NOT NULL REFERENCES atividades_cronograma(id)  ON DELETE CASCADE,
+    UNIQUE (contrato_id, atividade_id)
+);
+
+-- ── Índices de performance ────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_cronogramas_obra       ON cronogramas(obra_id);
+CREATE INDEX IF NOT EXISTS idx_atividades_cronograma  ON atividades_cronograma(cronograma_id);
+CREATE INDEX IF NOT EXISTS idx_atividades_parent      ON atividades_cronograma(parent_id);
+CREATE INDEX IF NOT EXISTS idx_contratos_atividades_c ON contratos_atividades(contrato_id);
+CREATE INDEX IF NOT EXISTS idx_contratos_atividades_a ON contratos_atividades(atividade_id);

@@ -48,7 +48,18 @@ router.get('/', auth, async (req, res) => {
       COALESCE(ex.valor_executado, 0)::NUMERIC(15,2) AS valor_executado_real,
       CASE WHEN c.valor_total > 0
            THEN LEAST(100, ROUND(COALESCE(ex.valor_executado,0) / c.valor_total * 100, 2))
-           ELSE 0 END AS pct_executado_real
+           ELSE 0 END AS pct_executado_real,
+      -- ── Dados de adiantamento e descompasso financeiro-físico ──────────────
+      COALESCE(adt.total_adiantado, 0)::NUMERIC(15,2)   AS total_adiantado,
+      COALESCE(adt.total_financeiro, 0)::NUMERIC(15,2)  AS total_financeiro_pago,
+      COALESCE(adt.pct_fisico, 0)::NUMERIC(5,2)         AS pct_fisico_executado,
+      -- Descompasso = financeiro pago - (% físico × valor total)
+      CASE WHEN c.valor_total > 0
+           THEN ROUND(
+             COALESCE(adt.total_financeiro, 0)
+             - c.valor_total * COALESCE(adt.pct_fisico, 0) / 100,
+           2)
+           ELSE 0 END::NUMERIC(15,2) AS descompasso
     FROM contratos c
     JOIN obras        o ON c.obra_id       = o.id
     JOIN fornecedores f ON c.fornecedor_id = f.id
@@ -58,8 +69,27 @@ router.get('/', auth, async (req, res) => {
       FROM medicao_itens mi
       JOIN medicoes m ON m.id = mi.medicao_id
       WHERE m.status NOT IN ('Rascunho','Reprovado')
+        AND COALESCE(m.tipo,'Normal') = 'Normal'
       GROUP BY m.contrato_id
-    ) ex ON ex.contrato_id = c.id`;
+    ) ex ON ex.contrato_id = c.id
+    LEFT JOIN (
+      SELECT
+        m.contrato_id,
+        -- Total de adiantamentos aprovados
+        SUM(CASE WHEN COALESCE(m.tipo,'Normal') = 'Adiantamento'
+                      AND m.status NOT IN ('Rascunho','Reprovado')
+                 THEN m.valor_medicao ELSE 0 END) AS total_adiantado,
+        -- Total financeiro pago (Normal + Adiantamento)
+        SUM(CASE WHEN COALESCE(m.tipo,'Normal') IN ('Normal','Adiantamento')
+                      AND m.status NOT IN ('Rascunho','Reprovado')
+                 THEN m.valor_medicao ELSE 0 END) AS total_financeiro,
+        -- % físico acumulado (Normal + Avanço Físico)
+        MAX(CASE WHEN COALESCE(m.tipo,'Normal') IN ('Normal','Avanco_Fisico')
+                      AND m.status NOT IN ('Rascunho','Reprovado')
+                 THEN m.pct_total END) AS pct_fisico
+      FROM medicoes m
+      GROUP BY m.contrato_id
+    ) adt ON adt.contrato_id = c.id`;
 
   const params     = [];
   const conditions = [];

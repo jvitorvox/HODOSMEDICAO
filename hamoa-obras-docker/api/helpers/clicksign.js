@@ -85,17 +85,18 @@ function _reqOnce(baseUrl, token, method, path, body, stepName) {
   });
 }
 
-// Retry automático em caso de 429 (rate limit): aguarda e tenta até 4x
+// Retry automático em caso de 429 (rate limit): backoff exponencial, até 5 tentativas
+// Delays: 10s → 20s → 40s → 60s (total máx ~130s de espera)
 async function _req(baseUrl, token, method, path, body, stepName) {
-  const maxRetries = 4;
-  const baseDelay  = 3000; // 3 s
+  const maxRetries = 5;
+  const delays     = [10000, 20000, 40000, 60000]; // ms entre tentativas
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await _reqOnce(baseUrl, token, method, path, body, stepName);
     } catch (err) {
       if (err.statusCode === 429 && attempt < maxRetries) {
-        const wait = baseDelay * attempt; // 3 s, 6 s, 9 s
-        console.warn(`[ClickSign] Rate limit (429) na etapa ${stepName} — aguardando ${wait/1000}s antes de tentar novamente (tentativa ${attempt}/${maxRetries})`);
+        const wait = delays[attempt - 1] || 60000;
+        console.warn(`[ClickSign] Rate limit (429) na etapa [${stepName}] — aguardando ${wait/1000}s (tentativa ${attempt}/${maxRetries})`);
         await _sleep(wait);
       } else {
         throw err;
@@ -128,10 +129,19 @@ async function findSignerByEmail(baseUrl, token, email) {
     // ClickSign aceita filtro por email na listagem de signatários
     const r = await _req(baseUrl, token, 'GET',
       `/api/v1/signers?search[email]=${encodeURIComponent(email)}`, null, 'findSigner');
-    // Resposta: { signers: [...] }
-    const list = r.signers || r.data || [];
-    return list.find(s => (s.email || '').toLowerCase() === email.toLowerCase()) || null;
-  } catch (_) {
+    // Resposta pode ser: { signers: [...] } ou { data: [...] } ou [...]
+    const list = Array.isArray(r) ? r : (r.signers || r.data || []);
+    const found = list.find(s => {
+      const e = s.email || s.signer?.email || '';
+      return e.toLowerCase() === email.toLowerCase();
+    });
+    if (found) {
+      // Normaliza: garante que retornamos o objeto com .key no nível superior
+      return found.signer || found;
+    }
+    return null;
+  } catch (findErr) {
+    console.warn('[ClickSign][findSigner] Falha ao buscar signatário existente:', findErr.message);
     return null; // Se busca falhar, retorna null e deixa o erro original aparecer
   }
 }
@@ -153,13 +163,18 @@ async function createSigner(baseUrl, token, { email, phone, name, auths }) {
     }
   }
 
+  // ClickSign exige nome completo (mínimo nome + sobrenome)
+  let fullName = (name || '').trim();
+  if (!fullName) fullName = 'Representante Fornecedor';
+  else if (fullName.split(/\s+/).length < 2) fullName = fullName + ' Fornecedor';
+
   try {
     const r = await _req(baseUrl, token, 'POST', '/api/v1/signers', {
       signer: {
         email,
         phone_number:      phoneFormatted,
         auths:             authMethods,
-        name:              name || 'Fornecedor',
+        name:              fullName,
         has_documentation: false,
       },
     }, 'createSigner');
@@ -167,10 +182,14 @@ async function createSigner(baseUrl, token, { email, phone, name, auths }) {
   } catch (err) {
     // "Autenticação deve ser única" = signatário com este e-mail já existe no ClickSign
     // Busca e reutiliza o cadastro existente
-    const isUniqueError = /única|unique|já existe|already/i.test(err.message);
+    const isUniqueError = /única|unique|já existe|already|duplicat/i.test(err.message);
+    console.warn('[ClickSign][createSigner] Erro:', err.message, '| isUnique:', isUniqueError);
     if (isUniqueError && email) {
       const existing = await findSignerByEmail(baseUrl, token, email);
-      if (existing) return existing;
+      if (existing) {
+        console.log('[ClickSign][createSigner] Reutilizando signatário existente. key:', existing.key);
+        return existing;
+      }
     }
     throw err; // Se não encontrou, repassa o erro original
   }
@@ -186,7 +205,11 @@ async function addSignerToDoc(baseUrl, token, { documentKey, signerKey, message 
       message:      message || 'Por favor, assine o documento de Autorização de Emissão de Nota Fiscal.',
     },
   }, 'addSigner');
-  return r.list; // { key, ... }
+  // A API ClickSign retorna: { list: { request_signature_key, document_key, signer_key, ... } }
+  // O campo correto é `request_signature_key`, não `key`.
+  const list = r.list || r;
+  console.log('[ClickSign][addSigner] list keys:', Object.keys(list));
+  return list;
 }
 
 // ── 4. Notificar signatário ───────────────────────────────────────────────────
@@ -211,16 +234,41 @@ async function enviarParaAssinatura(cfg, { pdfBase64, docPath, signerEmail, sign
   if (!accessToken) throw new Error('Access Token do ClickSign não configurado');
 
   const doc    = await uploadDocument(baseUrl, accessToken, { path: docPath, pdfBase64 });
+  console.log('[ClickSign] doc keys:', Object.keys(doc));
+
   const signer = await createSigner(baseUrl, accessToken, { email: signerEmail, phone: signerPhone, name: signerName, auths });
-  // addSignerToDoc retorna { key } — esse `key` é o request_signature_key usado na notificação
+  console.log('[ClickSign] signer keys:', Object.keys(signer));
+
+  // addSignerToDoc retorna o objeto list do ClickSign:
+  // { request_signature_key, document_key, signer_key, ... }
   const list   = await addSignerToDoc(baseUrl, accessToken, { documentKey: doc.key, signerKey: signer.key, message });
-  await notifySigner(baseUrl, accessToken, { requestSignatureKey: list.key });
+
+  // ClickSign usa `request_signature_key` (não `key`) para identificar a solicitação de assinatura
+  const requestSignatureKey = list.request_signature_key || list.key;
+  if (!requestSignatureKey) {
+    throw new Error(`[addSigner] request_signature_key não retornado pela ClickSign. Campos recebidos: ${Object.keys(list).join(', ')}`);
+  }
+
+  // Notificação: o ClickSign já envia automaticamente quando o signatário é vinculado ao
+  // documento (POST /api/v1/lists). A chamada a /notifications serve apenas para reenvio.
+  // Se retornar 404, significa que a notificação automática já foi disparada — não é erro.
+  try {
+    await notifySigner(baseUrl, accessToken, { requestSignatureKey });
+    console.log('[ClickSign] Notificação enviada com sucesso.');
+  } catch (notifyErr) {
+    if (notifyErr.statusCode === 404) {
+      console.warn('[ClickSign][notify] 404 — notificação automática já foi enviada pelo ClickSign ao vincular o signatário. Fluxo continua normalmente.');
+    } else {
+      // Para outros erros (ex: 422, 500), lançar o erro normalmente
+      throw notifyErr;
+    }
+  }
 
   return {
     documentKey:          doc.key,
     signerKey:            signer.key,
-    requestSignatureKey:  list.key,
-    linkVisualizacao:     `${baseUrl}/sign/${doc.key}`,
+    requestSignatureKey,
+    linkVisualizacao:     `${baseUrl}/sign/${requestSignatureKey}`,
   };
 }
 

@@ -98,8 +98,62 @@ router.get('/', auth, async (req, res) => {
   if (req.query.empresa_id) { params.push(req.query.empresa_id); q += ` AND m.empresa_id=$${params.length}`; }
   if (req.query.status)     { params.push(req.query.status);     q += ` AND m.status=$${params.length}`; }
   if (req.query.periodo)    { params.push(req.query.periodo);    q += ` AND m.periodo=$${params.length}`; }
+  if (req.query.tipo)       { params.push(req.query.tipo);       q += ` AND m.tipo=$${params.length}`; }
+  if (req.query.contrato_id){ params.push(req.query.contrato_id);q += ` AND m.contrato_id=$${params.length}`; }
   q += ' ORDER BY m.criado_em DESC';
   res.json((await db.query(q, params)).rows);
+});
+
+// ── Descompasso financeiro-físico por contrato ────────────────────
+// Retorna contratos que têm adiantamentos e o gap financeiro vs físico
+
+router.get('/descompasso', auth, async (req, res) => {
+  const params = [];
+  let filter = '';
+  if (req.query.obra_id)    { params.push(req.query.obra_id);    filter += ` AND c.obra_id=$${params.length}`; }
+  if (req.query.empresa_id) { params.push(req.query.empresa_id); filter += ` AND c.empresa_id=$${params.length}`; }
+
+  const rows = await db.query(`
+    SELECT
+      c.id                AS contrato_id,
+      c.numero            AS contrato_numero,
+      c.valor_total,
+      COALESCE(NULLIF(f.nome_fantasia,''), f.razao_social) AS fornecedor_nome,
+      -- Total financeiro pago (Normal + Adiantamento), excluindo Rascunho/Reprovado
+      COALESCE(SUM(CASE WHEN m.tipo IN ('Normal','Adiantamento') AND m.status NOT IN ('Rascunho','Reprovado')
+                        THEN m.valor_medicao ELSE 0 END), 0) AS total_financeiro,
+      -- Total adiantado especificamente
+      COALESCE(SUM(CASE WHEN m.tipo = 'Adiantamento' AND m.status NOT IN ('Rascunho','Reprovado')
+                        THEN m.valor_medicao ELSE 0 END), 0) AS total_adiantado,
+      -- % físico acumulado (Normal + Avanco_Fisico)
+      COALESCE(MAX(CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status NOT IN ('Rascunho','Reprovado')
+                        THEN m.pct_total END), 0) AS pct_fisico_acumulado,
+      -- Valor equivalente ao físico executado
+      CASE WHEN c.valor_total > 0
+           THEN ROUND(c.valor_total * COALESCE(MAX(
+             CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status NOT IN ('Rascunho','Reprovado')
+                  THEN m.pct_total END), 0) / 100, 2)
+           ELSE 0 END AS valor_fisico_executado,
+      -- Descompasso = financeiro pago - valor físico executado
+      CASE WHEN c.valor_total > 0
+           THEN ROUND(
+             COALESCE(SUM(CASE WHEN m.tipo IN ('Normal','Adiantamento') AND m.status NOT IN ('Rascunho','Reprovado')
+                               THEN m.valor_medicao ELSE 0 END), 0)
+             - c.valor_total * COALESCE(MAX(
+                 CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status NOT IN ('Rascunho','Reprovado')
+                      THEN m.pct_total END), 0) / 100,
+           2)
+           ELSE 0 END AS descompasso
+    FROM contratos c
+    JOIN fornecedores f ON f.id = c.fornecedor_id
+    LEFT JOIN medicoes m ON m.contrato_id = c.id
+    WHERE 1=1 ${filter}
+    GROUP BY c.id, c.numero, c.valor_total, f.nome_fantasia, f.razao_social
+    HAVING COALESCE(SUM(CASE WHEN m.tipo = 'Adiantamento' AND m.status NOT IN ('Rascunho','Reprovado')
+                             THEN m.valor_medicao ELSE 0 END), 0) > 0
+    ORDER BY descompasso DESC
+  `, params);
+  res.json(rows.rows);
 });
 
 // ── Detalhe ──────────────────────────────────────────────────────
@@ -164,10 +218,41 @@ router.get('/:id', auth, async (req, res) => {
 
 router.post('/', auth, async (req, res) => {
   const { empresa_id, obra_id, fornecedor_id, contrato_id, periodo, codigo,
-          pct_anterior, pct_mes, pct_total, descricao, status, itens } = req.body;
-  const arr             = Array.isArray(itens) ? itens : [];
-  const valor_medicao   = arr.reduce((s, it) => s + (parseFloat(it.qtd_mes)||0) * (parseFloat(it.valor_unitario)||0), 0);
-  const valor_acumulado = arr.reduce((s, it) => s + (parseFloat(it.qtd_acumulada)||0) * (parseFloat(it.valor_unitario)||0), 0);
+          pct_anterior, pct_mes, pct_total, descricao, status, itens,
+          tipo = 'Normal', valor_adiantamento } = req.body;
+
+  const tipoValido = ['Normal', 'Adiantamento', 'Avanco_Fisico'].includes(tipo) ? tipo : 'Normal';
+
+  let valor_medicao, valor_acumulado, arr;
+
+  if (tipoValido === 'Adiantamento') {
+    // Adiantamento: valor avulso sem itens, sem avanço físico
+    arr             = [];
+    valor_medicao   = parseFloat(valor_adiantamento) || 0;
+    // Acumulado financeiro = soma de todas as medições financeiras anteriores + este valor
+    const acumR = await db.query(`
+      SELECT COALESCE(SUM(valor_medicao), 0) AS total
+      FROM medicoes
+      WHERE contrato_id=$1 AND COALESCE(tipo,'Normal') IN ('Normal','Adiantamento')
+        AND status NOT IN ('Rascunho','Reprovado')
+    `, [contrato_id]);
+    valor_acumulado = parseFloat(acumR.rows[0].total) + valor_medicao;
+  } else if (tipoValido === 'Avanco_Fisico') {
+    // Avanço físico: tem itens mas sem valor financeiro
+    arr             = Array.isArray(itens) ? itens : [];
+    valor_medicao   = 0;
+    valor_acumulado = 0;
+  } else {
+    // Normal: comportamento padrão
+    arr             = Array.isArray(itens) ? itens : [];
+    valor_medicao   = arr.reduce((s, it) => s + (parseFloat(it.qtd_mes)||0) * (parseFloat(it.valor_unitario)||0), 0);
+    valor_acumulado = arr.reduce((s, it) => s + (parseFloat(it.qtd_acumulada)||0) * (parseFloat(it.valor_unitario)||0), 0);
+  }
+
+  // Avanço físico: status direto sem fluxo de aprovação financeira
+  const statusFinal = tipoValido === 'Avanco_Fisico'
+    ? (status || 'Rascunho')
+    : (status || 'Rascunho');
 
   const client = await db.connect();
   try {
@@ -175,18 +260,23 @@ router.post('/', auth, async (req, res) => {
     const r = await client.query(
       `INSERT INTO medicoes
          (empresa_id,obra_id,fornecedor_id,contrato_id,periodo,codigo,
-          pct_anterior,pct_mes,pct_total,valor_medicao,valor_acumulado,descricao,status,criado_por)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+          pct_anterior,pct_mes,pct_total,valor_medicao,valor_acumulado,descricao,status,criado_por,tipo)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
       [empresa_id, obra_id, fornecedor_id, contrato_id, periodo, codigo,
-       pct_anterior||0, pct_mes||0, pct_total||0,
+       tipoValido === 'Adiantamento' ? 0 : (pct_anterior||0),
+       tipoValido === 'Adiantamento' ? 0 : (pct_mes||0),
+       tipoValido === 'Adiantamento' ? 0 : (pct_total||0),
        parseFloat(valor_medicao.toFixed(2)), parseFloat(valor_acumulado.toFixed(2)),
-       descricao, status||'Rascunho', req.user.nome]
+       descricao, statusFinal, req.user.nome, tipoValido]
     );
-    await _saveMedicaoItens(client, r.rows[0].id, contrato_id, arr, null);
-    if (status && status !== 'Rascunho') {
+    if (arr.length) {
+      await _saveMedicaoItens(client, r.rows[0].id, contrato_id, arr, null);
+    }
+    if (statusFinal && statusFinal !== 'Rascunho') {
       await client.query(
         'INSERT INTO aprovacoes(medicao_id,nivel,acao,usuario,comentario) VALUES($1,$2,$3,$4,$5)',
-        [r.rows[0].id, 'Sistema', 'lançado', req.user.nome, 'Medição lançada para aprovação']
+        [r.rows[0].id, 'Sistema', 'lançado', req.user.nome,
+         tipoValido === 'Avanco_Fisico' ? 'Avanço físico registrado' : 'Medição lançada para aprovação']
       );
     }
     await client.query('COMMIT');
@@ -307,6 +397,8 @@ router.post('/:id/enviar-assinatura', auth, async (req, res) => {
       WHERE m.id = $1`, [id]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Medição não encontrada' });
     const med = r.rows[0];
+    if (med.tipo === 'Avanco_Fisico')
+      return res.status(400).json({ error: 'Medição de Avanço Físico não gera Nota Fiscal nem requer assinatura.' });
     if (!['Aprovado','Em Assinatura'].includes(med.status))
       return res.status(400).json({ error: 'Medição não está aprovada' });
 
@@ -475,13 +567,11 @@ router.post('/:id/enviar-assinatura', auth, async (req, res) => {
         );
         clicksignKey = result.documentKey;
         novoStatus   = 'Em Assinatura';
-
-        // Salva chave do documento ClickSign na medição
-        await db.query("UPDATE medicoes SET obs_interna=COALESCE(obs_interna,'')||$1 WHERE id=$2",
-          [`\n[ClickSign doc: ${clicksignKey}]`, id]);
+        // A chave do ClickSign é registrada no histórico de aprovacoes abaixo
 
       } catch (csErr) {
-        console.error('[ClickSign]', csErr);
+        console.error('[ClickSign] ERRO COMPLETO:', csErr.message);
+        console.error('[ClickSign] Stack:', csErr.stack);
         return res.status(502).json({ error: 'Falha ao enviar para ClickSign: ' + csErr.message });
       }
     }

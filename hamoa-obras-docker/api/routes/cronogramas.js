@@ -391,44 +391,70 @@ router.get('/:id/atividades', auth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
 
-    // Busca atividades com % realizado calculado dinamicamente dos contratos vinculados
+    // Busca atividades com % calculado por medições (ponderado por valor_total)
     const r = await db.query(
       `SELECT
          a.id, a.cronograma_id, a.parent_id, a.wbs, a.nome,
          a.data_inicio, a.data_termino, a.duracao, a.nivel,
-         a.pct_planejado, a.eh_resumo, a.ordem,
-         -- Progresso calculado a partir dos contratos vinculados (média simples)
-         COALESCE(
-           (SELECT ROUND(AVG(
-              CASE WHEN c.valor_total > 0
-                   THEN LEAST(100, COALESCE(ex.valor_executado, 0) / c.valor_total * 100)
-                   ELSE c.pct_executado END
-            ), 2)
-            FROM contratos_atividades ca
-            JOIN contratos c ON c.id = ca.contrato_id
-            LEFT JOIN (
-              SELECT m.contrato_id, SUM(mi.valor_item) AS valor_executado
-              FROM medicao_itens mi
-              JOIN medicoes m ON m.id = mi.medicao_id
-              WHERE m.status NOT IN ('Rascunho','Reprovado')
-              GROUP BY m.contrato_id
-            ) ex ON ex.contrato_id = c.id
-            WHERE ca.atividade_id = a.id
-           ),
-           a.pct_realizado
-         ) AS pct_realizado_calc,
-         -- Contratos vinculados (resumo)
+         a.pct_planejado, a.pct_realizado, a.eh_resumo, a.ordem,
+
+         -- ── % calculado pelas medições (join lateral evita subquery duplicada) ──
+         med_calc.pct_medicoes,
+         med_calc.qtd_contratos,
+         med_calc.qtd_com_medicoes,
+
+         -- % efetivo final: medições (se houver contrato vinculado) → manual → 0
+         COALESCE(med_calc.pct_medicoes, a.pct_realizado) AS pct_realizado_calc,
+
+         -- Contratos vinculados (para exibição de chips)
          (SELECT json_agg(json_build_object(
-            'id', c.id,
-            'numero', c.numero,
-            'fornecedor', COALESCE(NULLIF(f.nome_fantasia,''), f.razao_social)
+            'id',        c.id,
+            'numero',    c.numero,
+            'fornecedor', COALESCE(NULLIF(f.nome_fantasia,''), f.razao_social),
+            'valor_total', c.valor_total
           ))
-          FROM contratos_atividades ca
-          JOIN contratos c ON c.id = ca.contrato_id
+          FROM contratos_atividades ca2
+          JOIN contratos   c ON c.id = ca2.contrato_id
           JOIN fornecedores f ON f.id = c.fornecedor_id
-          WHERE ca.atividade_id = a.id
+          WHERE ca2.atividade_id = a.id
          ) AS contratos_vinculados
+
        FROM atividades_cronograma a
+
+       -- ── LATERAL: calcula % de medições uma vez por atividade ──────────
+       LEFT JOIN LATERAL (
+         SELECT
+           ROUND(
+             CASE
+               WHEN COUNT(ca.contrato_id) = 0 THEN NULL
+               WHEN SUM(c.valor_total) > 0
+                    THEN LEAST(100,
+                           SUM(COALESCE(ex.val_exec, 0))
+                           / NULLIF(SUM(c.valor_total), 0) * 100)
+               ELSE ROUND(AVG(COALESCE(ex.pct_exec, c.pct_executado, 0)), 2)
+             END, 2
+           ) AS pct_medicoes,
+           COUNT(ca.contrato_id)::int                                       AS qtd_contratos,
+           SUM(CASE WHEN ex.contrato_id IS NOT NULL THEN 1 ELSE 0 END)::int AS qtd_com_medicoes
+         FROM contratos_atividades ca
+         JOIN contratos c ON c.id = ca.contrato_id
+         LEFT JOIN (
+           -- Para cada contrato: progresso FÍSICO acumulado (Normal + Avanco_Fisico).
+           -- Adiantamentos são excluídos pois não representam avanço físico da obra.
+           SELECT
+             m.contrato_id,
+             -- Valor financeiro acumulado (apenas medições que geram pagamento)
+             MAX(CASE WHEN m.tipo IN ('Normal') THEN m.valor_acumulado END) AS val_exec,
+             -- % físico acumulado (Normal + Avanço Físico)
+             MAX(CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') THEN m.pct_total END) AS pct_exec
+           FROM medicoes m
+           WHERE m.status NOT IN ('Rascunho','Reprovado')
+             AND m.tipo IN ('Normal','Avanco_Fisico')
+           GROUP BY m.contrato_id
+         ) ex ON ex.contrato_id = c.id
+         WHERE ca.atividade_id = a.id
+       ) med_calc ON true
+
        WHERE a.cronograma_id = $1
        ORDER BY a.ordem`,
       [id]

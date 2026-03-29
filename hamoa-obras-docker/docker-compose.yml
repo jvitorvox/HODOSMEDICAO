@@ -60,6 +60,16 @@ services:
       ASSINATURA_PROVEDOR: ${ASSINATURA_PROVEDOR:-d4sign}
       ASSINATURA_API_KEY: ${ASSINATURA_API_KEY:-}
       ASSINATURA_API_SECRET: ${ASSINATURA_API_SECRET:-}
+      # IA — Interpretação de Contratos (Google Gemini Flash — gratuito)
+      # Gere sua chave em: https://aistudio.google.com/app/apikey
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    # ── DNS corporativo: permite resolver hostnames do domínio AD ───
+    # Substitua pelo IP do seu servidor DNS interno (normalmente o próprio DC)
+    dns:
+      - ${CORP_DNS:-8.8.8.8}
+    # Alternativa direta: mapeie hostname → IP sem depender de DNS
+    # extra_hosts:
+    #   - "HAMOA-SRV-000.hamoa.corp:192.168.x.x"
     volumes:
       - api-uploads:/app/uploads
       - api-logs:/app/logs

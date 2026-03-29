@@ -283,30 +283,53 @@ textarea.fi{resize:vertical;min-height:80px}
 .tkcard.warn-border{border-left:3px solid var(--yellow)}
 
 /* ══════════════════════════════════════════════════════
-   CRONOGRAMA — WBS / Gantt
+   CRONOGRAMA — layout full-screen
    ══════════════════════════════════════════════════════ */
 
-/* Cards de cronograma (lista lateral) */
-.cron-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:border-color .15s,background .15s}
-.cron-card:hover{border-color:var(--border2);background:var(--surface3)}
-.cron-card.selected{border-color:var(--accent);background:rgba(99,102,241,.07)}
-.cron-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
-.cron-card-nome{font-size:13px;font-weight:600;color:var(--text);line-height:1.3}
-.cron-card-meta{font-size:10px;color:var(--text3);margin-top:3px}
-.cron-card-datas{font-size:10px;color:var(--text3);margin-top:6px}
-.cron-card-actions{display:flex;gap:4px;flex-shrink:0}
+/* A página de cronograma ocupa 100% do #content sem padding */
+#page-cronograma.active{display:flex !important;flex-direction:column;height:100%;padding:0 !important;overflow:hidden;animation:none}
+/* Remove scroll externo do #content quando cronograma está ativo */
+#content:has(#page-cronograma.active){overflow:hidden}
+
+/* Barra de controles (topo da página) */
+.cron-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface2);flex-shrink:0}
+.cron-ctrl-label{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);white-space:nowrap}
+.cron-ctrl-sep{width:1px;height:20px;background:var(--border);flex-shrink:0}
+
+/* Área WBS (ocupa todo o espaço restante) */
+#cron-wbs-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+/* Toolbar da WBS */
+.cron-wbs-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 20px;border-bottom:1px solid var(--border);background:var(--surface2);flex-shrink:0}
+.cron-wbs-toolbar-title{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3)}
+/* Container de scroll da tabela */
+#cron-wbs-scroll{flex:1;overflow:auto;min-height:0;background:var(--surface)}
+#cron-wbs-scroll::-webkit-scrollbar{width:5px;height:5px}
+#cron-wbs-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
 
 /* Tabela WBS */
 .wbs-table{width:100%;border-collapse:collapse;font-size:12px}
-.wbs-table th{background:var(--surface3);padding:8px 10px;text-align:left;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;top:0;z-index:2}
-.wbs-table td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.wbs-table thead tr{background:var(--surface3)}
+.wbs-table th{padding:9px 12px;text-align:left;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text3);border-bottom:2px solid var(--border);white-space:nowrap;position:sticky;top:0;z-index:3}
+.wbs-table td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
 .wbs-table .tc{text-align:center}
-.wbs-row-summary td{background:rgba(99,102,241,.04)}
+.wbs-row-summary{cursor:default}
+.wbs-row-summary td{background:rgba(99,102,241,.05)}
+.wbs-row-summary:hover td{background:rgba(99,102,241,.09)}
 .wbs-row-summary .wbs-nome{font-weight:600;color:var(--text)}
 .wbs-row-leaf .wbs-nome{color:var(--text2)}
 .wbs-row-leaf:hover td{background:var(--surface2)}
-.wbs-bar-bg{flex:1;height:8px;background:var(--surface3);border-radius:4px;overflow:hidden}
+.wbs-bar-bg{flex:1;height:7px;background:var(--surface3);border-radius:4px;overflow:hidden;min-width:80px}
 .wbs-bar-fill{height:100%;border-radius:4px;transition:width .4s ease}
+.wbs-toggle{cursor:pointer;user-select:none;color:var(--text3);font-size:10px;flex-shrink:0;min-width:14px;display:inline-block;text-align:center;transition:color .1s}
+.wbs-toggle:hover{color:var(--accent)}
+
+/* Estado vazio */
+#cron-empty-state{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}
+
+/* Atividades selector no modal de contrato */
+.cont-cron-item{display:flex;align-items:baseline;gap:8px;padding:5px 10px;cursor:pointer;transition:background .1s;font-size:11px}
+.cont-cron-item:hover{background:var(--surface3)}
+.cont-cron-item input[type=checkbox]{flex-shrink:0;margin-top:2px;accent-color:var(--teal)}
 
 /* Atividades selector no modal de contrato */
 .cont-cron-item{display:flex;align-items:baseline;gap:8px;padding:5px 10px;cursor:pointer;transition:background .1s;font-size:11px}
@@ -319,3 +342,29 @@ textarea.fi{resize:vertical;min-height:80px}
 /* ── Overlay (mobile) ── */
 #nav-overlay{display:none;position:fixed;inset:0;background:rgba(28,33,50,.4);z-index:299;backdrop-filter:blur(1px)}
 #nav-overlay.open{display:block}
+
+/* ── Badges de tipo de medição ─────────────────────────────────────────────── */
+.med-tipo-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 10px;
+  font-size: 10px; font-weight: 700; letter-spacing: .4px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.med-tipo-normal    { background: rgba(16,185,129,.13); color: #059669; border: 1px solid rgba(16,185,129,.3); }
+.med-tipo-adt       { background: rgba(245,158,11,.15); color: #d97706; border: 1px solid rgba(245,158,11,.35); }
+.med-tipo-avfis     { background: rgba(59,130,246,.13); color: #2563eb; border: 1px solid rgba(59,130,246,.3); }
+
+/* Cards de medição coloridos por tipo */
+.med-card-adt  { border-left: 3px solid #f59e0b !important; }
+.med-card-avfis{ border-left: 3px solid #3b82f6 !important; }
+
+/* Banner de descompasso no contrato */
+.descompasso-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 8px; margin-top: 10px;
+  background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.35);
+  font-size: 12px; color: var(--text2);
+}
+.descompasso-banner .dsc-icon { font-size: 18px; flex-shrink: 0; }
+.descompasso-banner .dsc-val  { font-weight: 700; color: #d97706; }
+.descompasso-banner .dsc-ok   { color: var(--green); font-weight: 700; }

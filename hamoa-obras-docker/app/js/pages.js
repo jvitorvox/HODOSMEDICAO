@@ -116,7 +116,9 @@ const Pages = {
     tbody.innerHTML = meds.map(m => {
       const canA = H.canApprove(m.status, m);
       const canEdit = (m.status === 'Rascunho' || m.status === 'Reprovado') && (u.role === 'ADM' || m.criado_por === u.name);
-      return `<tr>
+      const tipoBadge = H.tipoBadge(m.tipo);
+      const trClass   = m.tipo === 'Adiantamento' ? 'med-card-adt' : m.tipo === 'Avanco_Fisico' ? 'med-card-avfis' : '';
+      return `<tr class="${trClass}">
         <td><span class="cc">${m.codigo}</span></td>
         <td style="font-size:11px">${m.empresa_nome||'—'}</td>
         <td class="tp">${m.obra_nome||'—'}</td>
@@ -125,18 +127,22 @@ const Pages = {
         <td>${H.periodoLabel(m.periodo)}</td>
         <td style="min-width:110px">
           ${(() => {
+            if (m.tipo === 'Avanco_Fisico') {
+              const pct = parseFloat(m.pct_total) || 0;
+              return `<div class="pw"><div class="pb"><div class="pf" style="width:${Math.min(pct,100)}%;background:#3b82f6"></div></div><span class="pp" style="font-size:10px;color:#2563eb">${pct}%</span></div><div style="font-size:9px;color:var(--text3)">físico</div>`;
+            }
             const pct = parseFloat(m.pct_desta_medicao_no_contrato) || 0;
             if(pct > 0) return `<div class="pw"><div class="pb"><div class="pf" style="width:${Math.min(pct,100)}%"></div></div><span class="pp" style="font-size:10px">${pct}%</span></div><div style="font-size:9px;color:var(--text3)">do contrato</div>`;
             return '<span style="font-size:10px;color:var(--text3)">—</span>';
           })()}
         </td>
-        <td style="font-family:var(--font-m);font-size:11px">R$ ${H.fmt(m.valor_medicao)}</td>
-        <td>${H.statusBadge(m.status)}</td>
+        <td style="font-family:var(--font-m);font-size:11px">${m.tipo==='Avanco_Fisico'?'<span style="color:var(--text3)">R$ 0,00</span>':`R$ ${H.fmt(m.valor_medicao)}`}</td>
+        <td>${tipoBadge} ${H.statusBadge(m.status)}</td>
         <td>
           <div style="display:flex;gap:4px">
             <button class="btn btn-ghost btn-xs" onclick="Medicoes.openDetalhe(${m.id})">👁</button>
             ${canEdit ? `<button class="btn btn-b btn-xs" onclick="Medicoes.edit(${m.id})">✏</button>` : ''}
-            ${canA ? `<button class="btn btn-g btn-xs" onclick="Medicoes.openAprovar(${m.id})">✓</button><button class="btn btn-r btn-xs" onclick="Medicoes.openReprovar(${m.id})">✗</button>` : ''}
+            ${canA && m.tipo !== 'Avanco_Fisico' ? `<button class="btn btn-g btn-xs" onclick="Medicoes.openAprovar(${m.id})">✓</button><button class="btn btn-r btn-xs" onclick="Medicoes.openReprovar(${m.id})">✗</button>` : ''}
           </div>
         </td>
       </tr>`;
@@ -300,26 +306,42 @@ const Pages = {
       H.el('cad-content').innerHTML = `
         <div class="tc">
           <div class="tb-bar"><span class="tb-bar-title">CONTRATOS</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newContrato()">+ Contrato</button></div>
-          <table><thead><tr><th>Nº</th><th>Empresa/Obra</th><th>Fornecedor</th><th>Objeto</th><th>Valor Total</th><th>Executado</th><th>Progresso</th><th>Status</th><th>Ações</th></tr></thead>
+          <table><thead><tr><th>Nº</th><th>Empresa/Obra</th><th>Fornecedor</th><th>Objeto</th><th>Valor Total</th><th>Financeiro / Físico</th><th>Descompasso</th><th>Status</th><th>Ações</th></tr></thead>
           <tbody>${data.length ? data.map(c => {
-            const pct  = parseFloat(c.pct_executado_real) || 0;
-            const vExec= parseFloat(c.valor_executado_real) || 0;
-            const vTot = parseFloat(c.valor_total) || 0;
-            const pctCls = pct >= 100 ? 'g' : pct >= 80 ? '' : '';
-            return `<tr>
+            const pct      = parseFloat(c.pct_executado_real) || 0;
+            const pctFis   = parseFloat(c.pct_fisico_executado) || 0;
+            const vTot     = parseFloat(c.valor_total) || 0;
+            const vFin     = parseFloat(c.total_financeiro_pago) || 0;
+            const vAdt     = parseFloat(c.total_adiantado) || 0;
+            const dsc      = parseFloat(c.descompasso) || 0;
+            const temDsc   = vAdt > 0 && dsc > 100; // descompasso relevante (> R$100)
+            return `<tr style="${temDsc?'background:rgba(245,158,11,.04)':''}">
               <td><span class="cc">${c.numero}</span></td>
               <td class="tp" style="font-size:11px">${c.obra_nome||'—'}<br><span style="color:var(--text3);font-size:10px">${c.empresa_nome||''}</span></td>
               <td style="font-size:11px">${c.fornecedor_nome||'—'}</td>
-              <td style="font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.objeto}">${c.objeto}</td>
+              <td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.objeto}">${c.objeto}</td>
               <td style="font-family:var(--font-m);font-size:11px;white-space:nowrap">R$ ${H.fmt(vTot)}</td>
-              <td style="font-family:var(--font-m);font-size:11px;white-space:nowrap;color:${pct>=100?'#16a34a':'var(--accent)'}">R$ ${H.fmt(vExec)}</td>
-              <td style="min-width:130px">
-                <div class="pw">
-                  <div class="pb" style="height:6px">
-                    <div class="pf ${pctCls}" style="width:${Math.min(pct,100)}%;height:100%"></div>
-                  </div>
-                  <span class="pp" style="font-size:10px;min-width:34px;text-align:right">${pct}%</span>
+              <td style="min-width:140px">
+                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">
+                  💰 R$ ${H.fmt(vFin)} <span style="color:var(--text3)">· ${pct}%</span>
                 </div>
+                <div class="pw" style="margin-bottom:2px">
+                  <div class="pb" style="height:5px">
+                    <div class="pf" style="width:${Math.min(pct,100)}%;height:100%"></div>
+                  </div>
+                </div>
+                ${pctFis !== pct ? `<div style="font-size:10px;color:#2563eb">📐 ${pctFis}% físico</div>` : ''}
+              </td>
+              <td style="min-width:110px">
+                ${temDsc
+                  ? `<div style="display:flex;flex-direction:column;gap:3px">
+                      <span style="font-size:10px;font-weight:700;color:#d97706">⚠️ R$ ${H.fmt(dsc)}</span>
+                      <button class="btn btn-xs" style="font-size:9px;padding:2px 6px;background:rgba(245,158,11,.15);color:#d97706;border:1px solid rgba(245,158,11,.4)"
+                        onclick="Medicoes.openNew();setTimeout(()=>{ const r=document.querySelector('input[name=mf-tipo][value=Avanco_Fisico]'); if(r){r.checked=true;Medicoes._onTipoChange();} },400)">
+                        📐 Registrar Avanço Físico
+                      </button>
+                    </div>`
+                  : `<span style="font-size:10px;color:var(--green)">✓ OK</span>`}
               </td>
               <td>${H.statusBadgeCad(c.status)}</td>
               <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editContrato(${c.id})">✏</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteContrato(${c.id})">🗑</button></div></td>
