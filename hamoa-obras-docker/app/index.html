@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JMD HAMOA OBRAS · Sistema de Gestão de Medições</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/variables.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/dashboard.css">
+<link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+
+<!-- ═══ LOGIN ═══ -->
+<div id="login-screen">
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="llogo"><span class="jmd">JMD</span> <span class="hamoa">HAMOA</span></div>
+      <div class="lsub">OBRAS · Sistema de Gestão de Medições</div>
+      <div class="lad" id="l-auth-mode">🔒 Autenticação corporativa</div>
+      <div class="fg">
+        <label class="fl">Usuário</label>
+        <input class="fi" id="l-user" placeholder="login" value="admin">
+      </div>
+      <div class="fg">
+        <label class="fl">Senha</label>
+        <input class="fi" type="password" id="l-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')App.login()">
+      </div>
+      <button class="login-btn" onclick="App.login()">ENTRAR</button>
+      <div class="lfooter">JMD HAMOA OBRAS v3.0 · © JMD Urbanismo</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ APP ═══ -->
+<div id="app" style="display:none;flex-direction:column;height:100%">
+  <div id="topbar">
+    <button id="menu-toggle" onclick="App.toggleNav()" aria-label="Menu">☰</button>
+    <div class="t-logo" onclick="App.navigate('dashboard');App.closeNav()"><span class="jmd">JMD</span><span class="hamoa">HAMOA</span><span class="obras">OBRAS</span></div>
+    <div class="t-sep"></div>
+    <nav class="t-nav" id="t-nav">
+      <div class="ni active" data-page="dashboard">📊 Dashboard</div>
+      <div class="ni" data-page="medicoes">📋 Medições <span class="nb" id="nb-medicoes" style="display:none">0</span></div>
+      <div class="ni" data-page="acompanhamento">🔄 Acompanhamento</div>
+      <div class="ni" data-page="cadastros">🗂 Cadastros</div>
+      <div class="ni" data-page="cronograma">📅 Cronograma</div>
+      <div class="ni" data-page="alcadas">⚡ Alçadas</div>
+      <div class="ni" data-page="configuracoes">⚙️ Configurações</div>
+    </nav>
+    <div class="t-right">
+      <div class="user-chip" id="user-chip">
+        <div class="avatar" id="user-avatar">JS</div>
+        <span id="user-name">João Silva</span>
+        <span class="rbadge rN1" id="user-role-badge">N1</span>
+      </div>
+    </div>
+  </div>
+  <div id="nav-overlay" onclick="App.closeNav()"></div>
+
+  <div id="body">
+    <div id="content">
+
+      <!-- ════ DASHBOARD ════ -->
+      <div class="page active" id="page-dashboard">
+        <div class="ph">
+          <div class="ph-left">
+            <div class="pt">DASHBOARD</div>
+            <div class="ps" id="dash-subtitle">Carregando...</div>
+          </div>
+          <div class="ph-right">
+            <button class="btn btn-o btn-sm" onclick="Pages.dashboard()">↻ Atualizar</button>
+          </div>
+        </div>
+        <div class="stats" id="dash-stats"></div>
+        <div class="tc" id="dash-table"></div>
+        <div id="dash-carteira"></div>
+      </div>
+
+      <!-- ════ MEDIÇÕES ════ -->
+      <div class="page" id="page-medicoes">
+        <div class="ph">
+          <div class="ph-left">
+            <div class="pt">MEDIÇÕES</div>
+            <div class="ps">Lançamento, aprovação e rastreabilidade</div>
+          </div>
+          <div class="ph-right">
+            <button class="btn btn-a" onclick="Medicoes.openNew()">+ Nova Medição</button>
+          </div>
+        </div>
+        <div class="tc">
+          <div class="tb-bar">
+            <input class="si" id="med-search" placeholder="🔍  Buscar código, obra, fornecedor..." oninput="Pages.filterMedicoes()">
+            <select class="sel" id="med-filter-empresa" onchange="Pages.filterMedicoes()"><option value="">Todas as empresas</option></select>
+            <select class="sel" id="med-filter-status" onchange="Pages.filterMedicoes()">
+              <option value="">Todos os status</option>
+              <option>Rascunho</option><option>Aguardando N1</option><option>Aguardando N2</option>
+              <option>Aguardando N3</option><option>Aprovado</option><option>Em Assinatura</option>
+              <option>Concluído</option><option>Reprovado</option>
+            </select>
+            <select class="sel" id="med-filter-periodo" onchange="Pages.filterMedicoes()"><option value="">Todos os períodos</option></select>
+          </div>
+          <table><thead><tr>
+            <th>Código</th><th>Empresa</th><th>Obra</th><th>Fornecedor</th><th>Contrato</th>
+            <th>Período</th><th>Evolução</th><th>Valor</th><th>Status</th><th>Ações</th>
+          </tr></thead>
+          <tbody id="med-tbody"></tbody></table>
+        </div>
+      </div>
+
+      <!-- ════ ACOMPANHAMENTO ════ -->
+      <div class="page" id="page-acompanhamento">
+        <div class="ph">
+          <div class="ph-left">
+            <div class="pt">ACOMPANHAMENTO</div>
+            <div class="ps">Status de aprovação em tempo real — com quem está cada medição</div>
+          </div>
+          <div class="ph-right">
+            <select class="sel" id="acon-filter" onchange="Pages.acompanhamento()">
+              <option value="">Todos os status</option>
+              <option>Aguardando N1</option><option>Aguardando N2</option><option>Aguardando N3</option>
+              <option>Em Assinatura</option><option>Reprovado</option>
+            </select>
+          </div>
+        </div>
+        <div id="acon-summary" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px"></div>
+        <div id="acon-header" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:9px 16px;margin-bottom:8px;display:grid;grid-template-columns:1fr 110px 220px 160px 100px;gap:14px">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">MEDIÇÃO / FORNECEDOR</div>
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">STATUS</div>
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);text-align:center">FLUXO APROVAÇÃO</div>
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">COM QUEM ESTÁ</div>
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">PRAZO</div>
+        </div>
+        <div id="acon-list"></div>
+      </div>
+
+      <!-- ════ CADASTROS ════ -->
+      <div class="page" id="page-cadastros">
+        <div class="ph">
+          <div class="ph-left"><div class="pt">CADASTROS</div><div class="ps">Empresas, Obras, Fornecedores e Contratos</div></div>
+        </div>
+        <div class="tabs" id="cad-tabs">
+          <div class="tab active" data-cad="empresas">🏢 Empresas</div>
+          <div class="tab" data-cad="obras">🏗 Obras</div>
+          <div class="tab" data-cad="fornecedores">🤝 Fornecedores</div>
+          <div class="tab" data-cad="contratos">📁 Contratos</div>
+        </div>
+        <div id="cad-content"></div>
+      </div>
+
+      <!-- ════ CRONOGRAMA ════ -->
+      <div class="page" id="page-cronograma">
+
+        <!-- ── Barra de controles (topo) ── -->
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;margin-bottom:12px">
+          <!-- Obra -->
+          <div style="display:flex;align-items:center;gap:7px;min-width:0">
+            <span style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text3);white-space:nowrap">OBRA</span>
+            <select class="fi fsel" id="cron-obra" onchange="Cronograma.onObraChange()"
+                    style="height:30px;padding:0 28px 0 8px;font-size:12px;min-width:180px;max-width:260px">
+              <option value="">Selecione a obra…</option>
+            </select>
+          </div>
+          <!-- Separador -->
+          <div style="width:1px;height:22px;background:var(--border);flex-shrink:0"></div>
+          <!-- Cronograma -->
+          <div style="display:flex;align-items:center;gap:7px;min-width:0;flex:1">
+            <span style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text3);white-space:nowrap">CRONOGRAMA</span>
+            <select class="fi fsel" id="cron-sel" onchange="Cronograma.onCronogramaChange()"
+                    style="height:30px;padding:0 28px 0 8px;font-size:12px;min-width:200px;max-width:400px;flex:1">
+              <option value="">— selecione a obra primeiro —</option>
+            </select>
+          </div>
+          <!-- Info pill do cronograma selecionado -->
+          <div id="cron-info-pill" style="display:none;font-size:10px;color:var(--text3);white-space:nowrap;flex-shrink:0"></div>
+          <!-- Ações -->
+          <div style="display:flex;gap:6px;margin-left:auto;flex-shrink:0">
+            <button id="cron-btn-replace" class="btn btn-xs"
+                    style="display:none;background:rgba(99,102,241,.1);color:var(--accent);border:1px solid rgba(99,102,241,.25)"
+                    onclick="Cronograma.openReplaceSelected()" title="Substituir por novo arquivo">🔄 Substituir</button>
+            <button id="cron-btn-delete" class="btn btn-xs btn-r"
+                    style="display:none"
+                    onclick="Cronograma.deleteSelected()" title="Excluir cronograma">✕ Excluir</button>
+            <button class="btn btn-a btn-xs" onclick="Cronograma.openImport()">+ Importar</button>
+          </div>
+        </div>
+
+        <!-- ── Estado vazio (antes de selecionar) ── -->
+        <div id="cron-empty-state" style="display:flex;align-items:center;justify-content:center;padding:60px 0">
+          <div style="text-align:center">
+            <div style="font-size:48px;margin-bottom:12px;opacity:.4">📅</div>
+            <div style="font-size:13px;color:var(--text3)">Selecione uma obra e um cronograma para visualizar o WBS.</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:6px">Ou clique em <b>+ Importar</b> para adicionar um novo.</div>
+          </div>
+        </div>
+
+        <!-- ── Árvore WBS (tela toda) ── -->
+        <div id="cron-wbs-wrap" style="display:none">
+          <div class="tc">
+
+            <!-- Toolbar WBS -->
+            <div class="tb-bar" style="flex-wrap:wrap;gap:8px">
+              <span class="tb-bar-title" id="cron-wbs-title">ESTRUTURA WBS</span>
+              <span id="cron-wbs-count" style="font-size:10px;font-weight:400;color:var(--text3);letter-spacing:0;text-transform:none;margin-left:2px"></span>
+              <div style="flex:1"></div>
+              <!-- Busca -->
+              <div style="position:relative;display:flex;align-items:center">
+                <span style="position:absolute;left:7px;color:var(--text3);font-size:11px;pointer-events:none">🔍</span>
+                <input id="cron-wbs-search" type="text" placeholder="Buscar atividade…"
+                       oninput="Cronograma.onSearch()"
+                       style="height:28px;padding:0 26px 0 24px;font-size:11px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);color:var(--text);width:200px">
+                <span onclick="Cronograma.clearSearch()"
+                      style="position:absolute;right:7px;cursor:pointer;color:var(--text3);font-size:11px">✕</span>
+              </div>
+              <!-- Expand / Collapse / Export -->
+              <button class="btn btn-xs btn-o" onclick="Cronograma.expandAll()" title="Expandir tudo">⊞ Expandir</button>
+              <button class="btn btn-xs btn-o" onclick="Cronograma.collapseAll()" title="Recolher tudo">⊟ Recolher</button>
+              <button class="btn btn-xs" style="background:rgba(20,184,166,.12);color:var(--teal);border:1px solid rgba(20,184,166,.3)"
+                      onclick="Cronograma.exportXml()" title="Exportar como XML MS Project">⬇ XML</button>
+            </div>
+
+            <!-- Tabela WBS com scroll interno -->
+            <div id="cron-wbs-scroll" style="overflow:auto;height:calc(100vh - 248px)">
+              <table class="wbs-table" style="width:100%;min-width:820px">
+                <thead id="cron-wbs-thead" style="position:sticky;top:0;z-index:2;background:var(--surface2)">
+                  <tr>
+                    <th style="min-width:260px;text-align:left;padding-left:10px">Atividade</th>
+                    <th style="width:64px">WBS</th>
+                    <th style="width:90px">Início</th>
+                    <th style="width:90px">Término</th>
+                    <th style="width:52px">Dur.</th>
+                    <th style="width:80px">Planejado</th>
+                    <th style="min-width:200px">Avanço Real</th>
+                    <th style="width:42px"></th>
+                  </tr>
+                </thead>
+                <tbody id="cron-wbs-tbody"></tbody>
+              </table>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ════ ALÇADAS ════ -->
+      <div class="page" id="page-alcadas">
+        <div class="ph">
+          <div class="ph-left"><div class="pt">CONFIGURAÇÃO DE ALÇADAS</div><div class="ps">Aprovação por empresa/obra — fluxo N1 → N2 → N3</div></div>
+          <div class="ph-right">
+            <button class="btn btn-a" onclick="Alcadas.newAlcada()">+ Nova Configuração</button>
+          </div>
+        </div>
+        <div class="split">
+          <div id="alcadas-list"></div>
+          <div>
+            <div class="panel" style="margin-bottom:14px">
+              <div class="panel-h">COMO FUNCIONA</div>
+              <div class="panel-b">
+                <div style="font-size:11px;color:var(--text2);line-height:1.7">
+                  Configure alçadas específicas por <strong>empresa</strong> ou por <strong>empresa + obra</strong>.<br><br>
+                  O sistema usa a regra mais específica disponível: se existir configuração para a obra, ela prevalece sobre a configuração da empresa.<br><br>
+                  Cada nível tem grupo(s) do AD associado(s) e prazo de resposta. Se o prazo vencer sem resposta, o sistema pode escalonar automaticamente.
+                </div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-h">LEGENDA</div>
+              <div class="panel-b" style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2)"><div style="width:28px;height:28px;background:rgba(34,197,94,.12);border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:var(--font-d);font-size:14px;color:var(--green)">N1</div> Gestor de Obra · Verificação em campo</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2)"><div style="width:28px;height:28px;background:rgba(59,130,246,.12);border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:var(--font-d);font-size:14px;color:var(--blue)">N2</div> Planejamento · Validação financeira</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2)"><div style="width:28px;height:28px;background:rgba(168,85,247,.12);border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:var(--font-d);font-size:14px;color:var(--purple)">N3</div> Diretor · Aprovação final de pagamento</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════ CONFIGURAÇÕES ════ -->
+      <div class="page" id="page-configuracoes">
+        <div class="ph">
+          <div class="ph-left"><div class="pt">CONFIGURAÇÕES & INTEGRAÇÕES</div><div class="ps">LDAP, Assinatura Eletrônica, Permissões e Parâmetros do sistema</div></div>
+        </div>
+        <div class="cfg-grid">
+          <div class="cfg-menu">
+            <div class="cfg-menu-item active" data-cfg="ldap">🔒 Autenticação LDAP/AD</div>
+            <div class="cfg-menu-item" data-cfg="assinatura">🖊 Assinatura Eletrônica</div>
+            <div class="cfg-menu-item" data-cfg="permissoes">👥 Permissões por Grupo AD</div>
+            <div class="cfg-menu-item" data-cfg="notificacoes">🔔 Notificações & E-mail</div>
+            <div class="cfg-menu-item" data-cfg="geral">🔧 Parâmetros Gerais</div>
+            <div class="cfg-menu-item" data-cfg="ia">🤖 Inteligência Artificial</div>
+            <div class="cfg-menu-item" data-cfg="backup">💾 Backup & Dados</div>
+          </div>
+          <div class="cfg-panel">
+            <div class="cfg-panel-inner" id="cfg-content"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TOAST ═══ -->
+<div id="toast"></div>
+
+<!-- ═══ MODALS ═══ -->
+<!-- Modal: Detalhes de Medição -->
+<div class="mo" id="modal-medicao-detalhe">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title">Detalhes da Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao-detalhe')">✕</button></div>
+    <div class="mb" id="modal-med-content"></div>
+  </div>
+</div>
+
+<!-- Modal: Nova/Editar Medição -->
+<div class="mo" id="modal-medicao-form">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title" id="med-form-title">Nova Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao-form')">✕</button></div>
+    <div class="mb" id="modal-med-form"></div>
+  </div>
+</div>
+
+<!-- Modal: Aprovação de Medição -->
+<div class="mo" id="modal-medicao-approval">
+  <div class="md sm">
+    <div class="mh"><div class="mh-title">Aprovar Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao-approval')">✕</button></div>
+    <div class="mb">
+      <div class="fg">
+        <label class="fl">Comentário (opcional)</label>
+        <textarea class="fi" id="approval-comment" placeholder="Adicione observações..."></textarea>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-medicao-approval')">Cancelar</button>
+      <button class="btn btn-g" onclick="Medicoes.submitApproval()">Aprovar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Rejeição de Medição -->
+<div class="mo" id="modal-medicao-reject">
+  <div class="md sm">
+    <div class="mh"><div class="mh-title">Rejeitar Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao-reject')">✕</button></div>
+    <div class="mb">
+      <div class="fg">
+        <label class="fl">Motivo da Rejeição *</label>
+        <textarea class="fi err" id="reject-reason" placeholder="Explique o motivo da rejeição..."></textarea>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-medicao-reject')">Cancelar</button>
+      <button class="btn btn-r" onclick="Medicoes.submitReject()">Rejeitar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Assinatura Eletrônica -->
+<div class="mo" id="modal-assinatura">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title">Solicitar Assinatura Eletrônica</div><button class="mc-btn" onclick="UI.closeModal('modal-assinatura')">✕</button></div>
+    <div class="mb" id="modal-assinatura-content"></div>
+  </div>
+</div>
+
+<!-- Modal: Empresa -->
+<div class="mo" id="modal-empresa">
+  <div class="md sm">
+    <div class="mh"><div class="mh-title" id="emp-title">🏢 EMPRESA</div><button class="mc-btn" onclick="UI.closeModal('modal-empresa')">✕</button></div>
+    <div class="mb">
+      <div class="fg"><label class="fl">Razão Social *</label><input class="fi" id="emp-razao" placeholder="Razão Social da empresa"></div>
+      <div class="fg"><label class="fl">Nome Fantasia</label><input class="fi" id="emp-fantasia" placeholder="Nome Fantasia"></div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">CNPJ *</label><input class="fi" id="emp-cnpj" placeholder="00.000.000/0001-00"></div>
+        <div class="fg"><label class="fl">Status</label><select class="fi fsel" id="emp-ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select></div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-empresa')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveEmpresa()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- Modal: Obra -->
+<div class="mo" id="modal-obra">
+  <div class="md sm">
+    <div class="mh"><div class="mh-title" id="obra-title">🏗 OBRA</div><button class="mc-btn" onclick="UI.closeModal('modal-obra')">✕</button></div>
+    <div class="mb">
+      <div class="fg"><label class="fl">Empresa *</label><select class="fi fsel" id="obra-empresa"></select></div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">Código *</label><input class="fi" id="obra-codigo" placeholder="OBR-001"></div>
+        <div class="fg"><label class="fl">Status</label><select class="fi fsel" id="obra-status"><option>Em andamento</option><option>Concluído</option><option>Paralisado</option></select></div>
+      </div>
+      <div class="fg"><label class="fl">Nome da Obra *</label><input class="fi" id="obra-nome" placeholder="Nome completo da obra"></div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">Localização</label><input class="fi" id="obra-local" placeholder="Cidade, UF"></div>
+        <div class="fg"><label class="fl">Gestor Responsável</label><input class="fi" id="obra-gestor" placeholder="Nome do gestor"></div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-obra')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveObra()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- Modal: Fornecedor -->
+<div class="mo" id="modal-fornecedor">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title" id="forn-title">🤝 FORNECEDOR</div><button class="mc-btn" onclick="UI.closeModal('modal-fornecedor')">✕</button></div>
+    <div class="mb">
+      <!-- IA: extração automática de dados -->
+      <div style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.2);border-radius:var(--r);padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--accent);margin-bottom:8px">🤖 PREENCHIMENTO AUTOMÁTICO POR IA</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label class="btn btn-o btn-sm" style="cursor:pointer">📎 Enviar contrato/doc social (PDF/DOCX)<input type="file" id="forn-ia-file" accept=".pdf,.docx,.doc" style="display:none" onchange="Cadastros._fornIaOnFileChange(this)"></label>
+        </div>
+        <div id="forn-ia-status" style="display:none;margin-top:8px"></div>
+      </div>
+      <div class="fgrid">
+        <div class="fg cs2"><label class="fl">Razão Social *</label><input class="fi" id="forn-razao" placeholder="Razão Social"></div>
+        <div class="fg cs2"><label class="fl">Nome Fantasia</label><input class="fi" id="forn-fantasia" placeholder="Nome Fantasia"></div>
+        <div class="fg"><label class="fl">CNPJ *</label><input class="fi" id="forn-cnpj" placeholder="00.000.000/0001-00"></div>
+        <div class="fg"><label class="fl">Telefone</label><input class="fi" id="forn-tel" placeholder="(00) 00000-0000"></div>
+        <div class="fg cs2"><label class="fl">Endereço</label><input class="fi" id="forn-endereco" placeholder="Rua, número, cidade, UF"></div>
+        <div class="fg"><label class="fl">Representante</label><input class="fi" id="forn-representante" placeholder="Nome do representante legal"></div>
+        <div class="fg"><label class="fl">Cargo</label><input class="fi" id="forn-cargo" placeholder="Ex: Diretor, Sócio-Administrador"></div>
+        <div class="fg"><label class="fl">E-mail Contato</label><input class="fi" id="forn-email" placeholder="contato@empresa.com.br"></div>
+        <div class="fg"><label class="fl">E-mail Nota Fiscal</label><input class="fi" id="forn-emailnf" placeholder="nf@empresa.com.br"></div>
+        <div class="fg"><label class="fl">E-mail Assinatura</label><input class="fi" id="forn-emailassin" placeholder="Para envio do doc. de medição"></div>
+        <div class="fg"><label class="fl">Status</label><select class="fi fsel" id="forn-ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select></div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-fornecedor')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveFornecedor()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- Modal: Contrato -->
+<div class="mo" id="modal-contrato">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title" id="cont-title">📁 CONTRATO</div><button class="mc-btn" onclick="UI.closeModal('modal-contrato')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg"><label class="fl">Empresa *</label><select class="fi fsel" id="cont-empresa" onchange="Cadastros.loadObrasByEmpresa('cont-empresa','cont-obra')"></select></div>
+        <div class="fg"><label class="fl">Obra *</label><select class="fi fsel" id="cont-obra" onchange="Cadastros._loadAtividadesObraChange()"></select></div>
+        <div class="fg cs2"><label class="fl">Fornecedor *</label><select class="fi fsel" id="cont-fornecedor"></select></div>
+        <div class="fg"><label class="fl">Nº Contrato *</label><input class="fi" id="cont-numero" placeholder="CT-0001"></div>
+        <div class="fg"><label class="fl">Status</label><select class="fi fsel" id="cont-status"><option>Vigente</option><option>Encerrado</option><option>Suspenso</option></select></div>
+        <div class="fg cs2"><label class="fl">Objeto do Contrato *</label><input class="fi" id="cont-objeto" placeholder="Descrição dos serviços contratados"></div>
+        <div class="fg"><label class="fl">Data de Início</label><input class="fi" id="cont-inicio" type="date"></div>
+        <div class="fg"><label class="fl">Data de Término Prevista</label><input class="fi" id="cont-termino" type="date"></div>
+        <div class="fg cs2"><label class="fl">Observações</label><textarea class="fi" id="cont-obs" rows="2"></textarea></div>
+      </div>
+
+      <!-- IA: extração automática de planilha orçamentária -->
+      <div style="margin:16px 0 0">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--accent);margin-bottom:8px">🤖 EXTRAÇÃO AUTOMÁTICA POR IA</div>
+        <div id="cont-ia-dropzone" class="ia-dropzone"
+             ondragover="event.preventDefault();this.classList.add('drag')"
+             ondragleave="this.classList.remove('drag')"
+             ondrop="Cadastros._iaOnDrop(event)">
+          <div style="font-size:22px;margin-bottom:6px">📄</div>
+          <div style="font-size:12px;color:var(--text2)">Arraste o contrato aqui <span style="color:var(--text3)">ou</span></div>
+          <label class="btn btn-o btn-sm" style="cursor:pointer;margin-top:6px">
+            Selecionar arquivo (PDF ou DOCX)
+            <input type="file" id="cont-ia-file" accept=".pdf,.docx,.doc" style="display:none" onchange="Cadastros._iaOnFileChange(this)">
+          </label>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px">Gemini 2.5 Flash extrai itens, datas e fornecedor automaticamente</div>
+        </div>
+        <div id="cont-ia-status"  style="display:none;margin-top:10px"></div>
+        <div id="cont-ia-preview" style="display:none;margin-top:10px"></div>
+      </div>
+
+      <!-- Planilha orçamentária -->
+      <div style="margin-top:18px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text3)">PLANILHA ORÇAMENTÁRIA</div>
+          <button class="btn btn-o btn-xs" onclick="Cadastros._addContratoItem()">+ Item</button>
+        </div>
+        <div id="cont-itens-wrap">
+          <div class="citem-hdr">
+            <span style="flex:2">Descrição do Serviço / Material</span>
+            <span style="width:80px">Un.</span>
+            <span style="width:110px;text-align:right">Qtd. Total</span>
+            <span style="width:120px;text-align:right">Vl. Unit. (R$)</span>
+            <span style="width:120px;text-align:right">Vl. Total (R$)</span>
+            <span style="width:28px"></span>
+          </div>
+          <div id="cont-itens"></div>
+          <div class="citem-footer">
+            <span style="flex:1;font-weight:700;color:var(--text)">VALOR TOTAL DO CONTRATO</span>
+            <input type="hidden" id="cont-valor">
+            <span id="cont-valor-total-display" style="font-family:var(--font-m);font-size:14px;font-weight:700;color:var(--blue)">R$ 0,00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Atividades do Cronograma (aparece quando obra tem cronograma importado) -->
+      <div id="cont-cron-wrap" style="display:none;margin-top:18px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--teal);margin-bottom:8px;display:flex;align-items:center;gap:6px">
+          <span class="cont-cron-title">🗓 Atividades do Cronograma</span>
+          <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;letter-spacing:0">— vincule este contrato às atividades do WBS</span>
+        </div>
+        <div class="cont-cron-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r);padding:4px 0"></div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-contrato')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveContrato()">💾 Salvar Contrato</button></div>
+  </div>
+</div>
+
+<!-- Modal: Nova Alçada -->
+<div class="mo" id="modal-alcada-form">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title" id="alcada-form-title">Nova Alçada</div><button class="mc-btn" onclick="UI.closeModal('modal-alcada-form')">✕</button></div>
+    <div class="mb" id="modal-alcada-form-content"></div>
+  </div>
+</div>
+
+<!-- Modal: Alçada (alias para compatibilidade) -->
+<div class="mo" id="modal-alcada">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title" id="alc-title">⚡ CONFIGURAÇÃO DE ALÇADA</div><button class="mc-btn" onclick="UI.closeModal('modal-alcada')">✕</button></div>
+    <div class="mb" id="alc-body"></div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-alcada')">Cancelar</button>
+      <button class="btn btn-a" onclick="Alcadas.save()">💾 Salvar Configuração</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Importar / Substituir Cronograma -->
+<div class="mo" id="modal-cron-import">
+  <div class="md sm">
+    <div class="mh">
+      <div class="mh-title" id="cron-imp-title">📅 IMPORTAR CRONOGRAMA</div>
+      <button class="mc-btn" onclick="UI.closeModal('modal-cron-import')">✕</button>
+    </div>
+    <div class="mb">
+      <!-- Banner de substituição (visível apenas ao substituir) -->
+      <div id="cron-imp-replace-banner" style="display:none;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);border-radius:var(--r);padding:9px 12px;margin-bottom:12px;font-size:11px;color:var(--accent)">
+        🔄 Substituindo <b id="cron-imp-replace-nome"></b> — o cronograma atual será removido e substituído pelo novo arquivo.
+      </div>
+      <input type="hidden" id="cron-imp-replace-id">
+      <div class="fg">
+        <label class="fl">Obra *</label>
+        <select class="fi fsel" id="cron-imp-obra"></select>
+      </div>
+      <div class="fg">
+        <label class="fl">Nome / Descrição</label>
+        <input class="fi" id="cron-imp-nome" placeholder="Ex: Cronograma Físico v1 — Terraplanagem">
+      </div>
+      <div class="fg">
+        <label class="fl">Arquivo do Cronograma *</label>
+        <label class="btn btn-o btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          📂 Selecionar arquivo (.mpp ou .xml)
+          <input type="file" id="cron-imp-file" accept=".mpp,.xml" style="display:none">
+        </label>
+        <div id="cron-imp-file-name" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:10px;margin-top:4px">
+        <b style="color:var(--teal)">✅ Formato recomendado: .xml</b><br>
+        No MS Project: <em>Arquivo → Salvar como → XML do Project (*.xml)</em><br><br>
+        <b>.mpp</b> — suportado somente com instalação manual do pacote <code style="font-family:var(--font-m)">mpxj</code> + Java no servidor
+      </div>
+      <div id="cron-imp-status" style="display:none;margin-top:12px"></div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-cron-import')">Cancelar</button>
+      <button class="btn btn-a" onclick="Cronograma.submitImport()">⬆ Importar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Editar Atividade do Cronograma -->
+<div class="mo" id="modal-cron-edit-at">
+  <div class="md sm">
+    <div class="mh">
+      <div class="mh-title">
+        ✏ EDITAR ATIVIDADE
+        <span id="eat-resumo-badge" style="display:none;margin-left:8px;font-size:10px;font-weight:600;letter-spacing:.5px;background:rgba(20,184,166,.15);color:var(--teal);border-radius:6px;padding:2px 8px">RESUMO</span>
+      </div>
+      <button class="mc-btn" onclick="UI.closeModal('modal-cron-edit-at')">✕</button>
+    </div>
+    <div class="mb">
+      <div class="fg">
+        <label class="fl">Nome *</label>
+        <input class="fi" id="eat-nome" placeholder="Nome da atividade">
+      </div>
+      <div style="display:flex;gap:12px">
+        <div class="fg" style="flex:1">
+          <label class="fl">WBS</label>
+          <input class="fi" id="eat-wbs" placeholder="Ex: 1.2.3">
+        </div>
+        <div class="fg" style="width:100px;flex-shrink:0">
+          <label class="fl">Duração (dias)</label>
+          <input class="fi" id="eat-duracao" type="number" min="0" placeholder="—">
+        </div>
+      </div>
+      <div style="display:flex;gap:12px">
+        <div class="fg" style="flex:1">
+          <label class="fl">Data Início</label>
+          <input class="fi" id="eat-inicio" type="date">
+        </div>
+        <div class="fg" style="flex:1">
+          <label class="fl">Data Término</label>
+          <input class="fi" id="eat-termino" type="date">
+        </div>
+      </div>
+      <div style="display:flex;gap:12px">
+        <div class="fg" style="flex:1">
+          <label class="fl">% Planejado</label>
+          <input class="fi" id="eat-pct-plan" type="number" min="0" max="100" step="0.1" placeholder="0.0">
+        </div>
+        <div class="fg" style="flex:1">
+          <label class="fl">% Realizado (manual)</label>
+          <input class="fi" id="eat-pct-real" type="number" min="0" max="100" step="0.1" placeholder="0.0">
+        </div>
+      </div>
+      <div id="eat-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:var(--r);padding:8px 12px;font-size:11px;color:var(--red);margin-top:4px"></div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-cron-edit-at')">Cancelar</button>
+      <button class="btn btn-a" onclick="Cronograma.submitEditAtividade()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Nova / Editar Medição -->
+<div class="mo" id="modal-medicao">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title" id="mm-title">📋 NOVA MEDIÇÃO</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao')">✕</button></div>
+    <div class="mb" id="mm-body"></div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-medicao')">Cancelar</button>
+      <button class="btn btn-a" onclick="Medicoes.save()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Detalhe de Medição -->
+<div class="mo" id="modal-detalhe">
+  <div class="md lg">
+    <div class="mh"><div class="mh-title" id="det-title">Detalhes da Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-detalhe')">✕</button></div>
+    <div class="mb" id="det-body"></div>
+    <div class="mf" id="det-footer"></div>
+  </div>
+</div>
+
+<!-- Modal: Aprovar Medição -->
+<div class="mo" id="modal-aprovar">
+  <div class="md sm">
+    <div class="mh"><div class="mh-title" id="apr-nivel-title">Aprovar Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-aprovar')">✕</button></div>
+    <div class="mb">
+      <p id="apr-desc" style="font-size:13px;color:var(--text2);margin-bottom:14px"></p>
+      <div class="fg">
+        <label class="fl">Observação (opcional)</label>
+        <textarea class="fi" id="apr-obs" rows="3" placeholder="Adicione observações sobre a aprovação..."></textarea>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-aprovar')">Cancelar</button>
+      <button class="btn btn-g" onclick="Medicoes.confirmarAprovacao()">✓ Confirmar Aprovação</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Reprovar Medição -->
+<div class="mo" id="modal-reprovar">
+  <div class="md sm">
+    <div class="mh"><div class="mh-title">Reprovar Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-reprovar')">✕</button></div>
+    <div class="mb">
+      <div class="fg">
+        <label class="fl">Motivo da Reprovação *</label>
+        <textarea class="fi" id="repr-motivo" rows="4" placeholder="Descreva o motivo da reprovação. O lançador receberá esta mensagem."></textarea>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-reprovar')">Cancelar</button>
+      <button class="btn btn-r" onclick="Medicoes.confirmarReprovacao()">✗ Confirmar Reprovação</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Enviar para Assinatura -->
+<div class="mo" id="modal-assinatura-envio">
+  <div class="md" style="max-width:580px">
+    <div class="mh">
+      <div class="mh-title">✍ Enviar para Assinatura — <span id="assin-codigo" style="font-family:var(--font-m);color:var(--accent)"></span></div>
+      <button class="mc-btn" onclick="UI.closeModal('modal-assinatura-envio')">✕</button>
+    </div>
+    <div class="mb">
+
+      <!-- Status ClickSign -->
+      <div id="assin-status-plat" style="margin-bottom:14px"></div>
+
+      <!-- Canal de entrega -->
+      <div class="fsec" style="margin-bottom:14px">
+        <div class="fsec-title">CANAL DE ENTREGA</div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:8px">
+          <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500">
+            <input type="checkbox" id="assin-canal-email" checked
+              onchange="Medicoes._onCanalChange()"
+              style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
+            ✉ E-mail
+          </label>
+          <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500">
+            <input type="checkbox" id="assin-canal-whatsapp"
+              onchange="Medicoes._onCanalChange()"
+              style="width:16px;height:16px;accent-color:var(--green);cursor:pointer">
+            <span style="color:#25d366;font-size:15px">●</span> WhatsApp
+          </label>
+        </div>
+        <div class="hint" style="margin-top:6px">Selecione como o fornecedor receberá o link de assinatura via ClickSign.</div>
+      </div>
+
+      <!-- Campo E-mail — sempre obrigatório (ClickSign usa como identificador) -->
+      <div class="fg" style="margin-bottom:12px">
+        <label class="fl">E-mail do Fornecedor *</label>
+        <input class="fi" id="assin-email-forn" type="email" placeholder="representante@fornecedor.com.br">
+        <div class="hint">Obrigatório — o ClickSign usa o e-mail como identificador do signatário. O link também pode ser enviado por WhatsApp se selecionado acima.</div>
+      </div>
+
+      <!-- Campo WhatsApp — visível apenas se canal WhatsApp selecionado -->
+      <div id="assin-wrap-whatsapp" class="fg" style="display:none;margin-bottom:12px">
+        <label class="fl">Telefone / WhatsApp *</label>
+        <div style="display:flex;gap:8px">
+          <input class="fi" id="assin-tel-forn" placeholder="+55 11 9 9999-9999" style="font-family:var(--font-m)">
+        </div>
+        <div class="hint">Use o formato internacional: +55 11 9 9999-9999. O fornecedor receberá a mensagem via WhatsApp.</div>
+      </div>
+
+      <!-- E-mail remetente -->
+      <div class="fg" style="margin-bottom:14px">
+        <label class="fl">Seu e-mail (remetente, opcional)</label>
+        <input class="fi" id="assin-email-rem" type="email" placeholder="seuemail@empresa.com.br">
+        <div class="hint">Caso informado, você receberá uma cópia da notificação enviada ao fornecedor.</div>
+      </div>
+
+      <!-- Prévia -->
+      <div class="fg">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label class="fl" style="margin:0">Prévia do documento</label>
+          <span style="font-size:10px;color:var(--text3)">O PDF será gerado automaticamente pelo ClickSign</span>
+        </div>
+        <textarea class="fi" id="assin-preview" rows="10" readonly
+          style="font-family:var(--font-m);font-size:11px;line-height:1.5;resize:vertical;background:var(--surface2);color:var(--text2)"></textarea>
+      </div>
+
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-assinatura-envio')">Cancelar</button>
+      <button class="btn btn-a" id="assin-btn-enviar" onclick="Medicoes.confirmarEnvioAssinatura()">✉ Enviar para Assinatura</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script src="js/state.js"></script>
+<script src="js/app.js"></script>
+<script src="js/pages.js"></script>
+<script src="js/medicoes.js"></script>
+<script src="js/cadastros.js"></script>
+<script src="js/alcadas.js"></script>
+<script src="js/cronograma.js"></script>
+<script>
+// Exibe nome do arquivo selecionado no import de cronograma
+document.getElementById('cron-imp-file')?.addEventListener('change', function() {
+  const nm = document.getElementById('cron-imp-file-name');
+  if (nm) nm.textContent = this.files?.[0]?.name || '';
+});
+</script>
+</body>
+</html>

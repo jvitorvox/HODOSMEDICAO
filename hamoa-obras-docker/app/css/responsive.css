@@ -1,0 +1,99 @@
+/* ── MOBILE: max-width 768px ── */
+@media (max-width:768px){
+  #menu-toggle{display:flex;align-items:center;justify-content:center}
+
+  /* Topbar */
+  #topbar{padding:0 12px;gap:8px;height:52px}
+  .t-logo .obras{display:none}
+  .t-sep{display:none}
+  .t-right .btn{display:none}
+
+  /* Nav drawer */
+  .t-nav{
+    position:fixed;top:52px;left:-240px;bottom:0;width:240px;
+    flex-direction:column;background:var(--surface);
+    border-right:1px solid var(--border);z-index:300;
+    padding:12px 8px;gap:2px;overflow-y:auto;overflow-x:hidden;
+    transition:left .25s cubic-bezier(.4,0,.2,1);
+    box-shadow:4px 0 20px rgba(28,33,50,.08)
+  }
+  .t-nav.open{left:0}
+  .ni{padding:10px 14px;border-radius:var(--r);font-size:13px;white-space:normal}
+
+  /* Pages */
+  .page{padding:14px 12px}
+  .ph{flex-direction:column;gap:10px;align-items:flex-start}
+  .ph-right{width:100%;justify-content:flex-start;flex-wrap:wrap}
+  .ph-left .pt{font-size:24px}
+
+  /* Stats: 2 columns */
+  .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+
+  /* Table filters */
+  .tb-bar{flex-wrap:wrap;gap:8px}
+  .si{min-width:0;width:100%}
+  .sel{width:100%}
+
+  /* Table horizontal scroll */
+  .tc{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{min-width:640px}
+
+  /* Forms: single column */
+  .fgrid,.fgrid3{grid-template-columns:1fr}
+  .cs2,.cs3{grid-column:span 1}
+
+  /* Info grid: 2 columns */
+  .ig{grid-template-columns:1fr 1fr}
+
+  /* Split: single column */
+  .split,.split-wide{grid-template-columns:1fr}
+
+  /* Config: single column */
+  .cfg-grid{grid-template-columns:1fr;height:auto;gap:12px}
+  .cfg-menu{height:auto}
+  .cfg-panel{max-height:60vh}
+
+  /* Tracker cards */
+  .tkcard{grid-template-columns:1fr 1fr;gap:8px}
+
+  /* Modals */
+  .mo{padding:8px}
+  .md,.md.lg,.md.sm,.md.xl{width:calc(100vw - 16px)!important;max-height:96vh}
+  .mh{padding:14px 16px}
+  .mb{padding:14px 16px}
+  .mf{padding:10px 16px;flex-wrap:wrap}
+  .mf .btn{flex:1;justify-content:center}
+
+  /* Login */
+  .login-wrap{width:calc(100vw - 24px);max-width:420px}
+  .login-card{padding:32px 24px}
+
+  /* Toast */
+  #toast{bottom:14px;right:14px;left:14px}
+  .toast-item{max-width:100%}
+
+  /* Measurement items */
+  .item-grid6{grid-template-columns:repeat(2,1fr)}
+}
+
+/* ── SMALL SCREENS: max-width 480px ── */
+@media (max-width:480px){
+  .stats{grid-template-columns:1fr}
+  .ig{grid-template-columns:1fr}
+  .llogo .jmd,.llogo .hamoa{font-size:34px}
+  .login-card{padding:28px 18px}
+  .tkcard{grid-template-columns:1fr}
+  .mf .btn{font-size:11px;padding:8px 10px}
+  .item-grid6{grid-template-columns:1fr}
+}
+
+/* ── TABLET: 769px – 1024px ── */
+@media (min-width:769px) and (max-width:1024px){
+  .page{padding:18px 20px}
+  .stats{grid-template-columns:repeat(3,1fr)}
+  .fgrid3{grid-template-columns:1fr 1fr}
+  .split,.split-wide{grid-template-columns:1fr}
+  .cfg-grid{grid-template-columns:180px 1fr}
+  .tkcard{grid-template-columns:1fr 100px 160px 120px}
+  .md.xl{width:calc(100vw - 40px)!important}
+}

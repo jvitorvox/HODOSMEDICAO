@@ -1,0 +1,24 @@
+# Variáveis de ambiente — NUNCA versionar
+.env
+
+# Certificados SSL
+ssl/*.crt
+ssl/*.key
+ssl/*.pem
+
+# Node
+api/node_modules/
+api/logs/
+api/uploads/
+
+# Logs
+nginx/logs/
+*.log
+
+# Backups
+*.sql.gz
+backups/
+
+# OS
+.DS_Store
+Thumbs.db

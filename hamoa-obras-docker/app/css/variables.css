@@ -1,0 +1,16 @@
+:root {
+  /* ── Fundos ── */
+  --bg:#f5f2ed; --surface:#ffffff; --surface2:#ede9e2; --surface3:#e4dfd6;
+  /* ── Bordas ── */
+  --border:#d8d1c6; --border2:#c4bbb0;
+  /* ── Acento dourado (JMD) ── */
+  --accent:#b8915a; --accent2:#9a7845; --accent3:rgba(184,145,90,0.12);
+  /* ── Cores funcionais ── */
+  --blue:#2563eb; --green:#16a34a; --red:#dc2626; --yellow:#ca8a04;
+  --purple:#7c3aed; --teal:#0d9488; --cyan:#0891b2;
+  /* ── Textos ── */
+  --text:#1c2132; --text2:#4a5472; --text3:#8a92a8;
+  /* ── Tipografia ── */
+  --font-d:'Bebas Neue',sans-serif; --font-b:'DM Sans',sans-serif; --font-m:'JetBrains Mono',monospace;
+  --r:3px; --shadow:0 4px 20px rgba(28,33,50,0.12);
+}

@@ -1,0 +1,11 @@
+/* ── DASHBOARD CART ROW ── */
+.dash-cart-row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.dash-cart-row:last-child{border-bottom:none}
+.dash-cart-info{min-width:0}
+.dash-cart-title{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dash-cart-sub{font-size:10px;color:var(--text3);margin-top:2px}
+.dash-cart-bar-wrap{display:flex;align-items:center;gap:10px;min-width:220px}
+.dash-cart-bar{flex:1;height:8px;background:var(--surface3);border-radius:4px;overflow:hidden}
+.dash-cart-bar-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .5s}
+.dash-cart-bar-fill.full{background:linear-gradient(90deg,#16a34a,#22c55e)}
+.dash-cart-pct{font-family:var(--font-m);font-size:12px;font-weight:700;color:var(--text);min-width:42px;text-align:right}
