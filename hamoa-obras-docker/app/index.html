@@ -5,11 +5,436 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>JMD HAMOA OBRAS · Sistema de Gestão de Medições</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/variables.css">
-<link rel="stylesheet" href="css/base.css">
-<link rel="stylesheet" href="css/components.css">
-<link rel="stylesheet" href="css/dashboard.css">
-<link rel="stylesheet" href="css/responsive.css">
+<style>
+:root {
+  /* ── Fundos ── */
+  --bg:#f5f2ed; --surface:#ffffff; --surface2:#ede9e2; --surface3:#e4dfd6;
+  /* ── Bordas ── */
+  --border:#d8d1c6; --border2:#c4bbb0;
+  /* ── Acento dourado (JMD) ── */
+  --accent:#b8915a; --accent2:#9a7845; --accent3:rgba(184,145,90,0.12);
+  /* ── Cores funcionais ── */
+  --blue:#2563eb; --green:#16a34a; --red:#dc2626; --yellow:#ca8a04;
+  --purple:#7c3aed; --teal:#0d9488; --cyan:#0891b2;
+  /* ── Textos ── */
+  --text:#1c2132; --text2:#4a5472; --text3:#8a92a8;
+  /* ── Tipografia ── */
+  --font-d:'Bebas Neue',sans-serif; --font-b:'DM Sans',sans-serif; --font-m:'JetBrains Mono',monospace;
+  --r:3px; --shadow:0 4px 20px rgba(28,33,50,0.12);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font-b);background:var(--bg);color:var(--text);display:flex;flex-direction:column}
+
+/* ── TOPBAR ── */
+#topbar{height:50px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px;gap:14px;flex-shrink:0;z-index:200}
+.t-logo{font-family:var(--font-d);font-size:22px;letter-spacing:3px;cursor:pointer;display:flex;align-items:baseline;gap:0;line-height:1}
+.t-logo .jmd{color:var(--accent);font-size:24px;letter-spacing:3px}
+.t-logo .hamoa{color:var(--text);font-size:22px;letter-spacing:4px;margin-left:5px}
+.t-logo .obras{color:var(--text3);font-size:13px;letter-spacing:2px;margin-left:6px;font-family:var(--font-b);font-weight:500;align-self:center}
+.t-sep{width:1px;height:26px;background:var(--border)}
+.t-nav{display:flex;gap:2px;flex:1;overflow-x:auto}
+.t-nav::-webkit-scrollbar{display:none}
+.ni{padding:6px 13px;border-radius:var(--r);font-size:12px;font-weight:500;color:var(--text2);cursor:pointer;transition:all .15s;border:1px solid transparent;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.ni:hover{color:var(--text);background:var(--surface2)}
+.ni.active{color:var(--accent);background:var(--accent3);border-color:rgba(184,145,90,.3)}
+.ni .nb{background:var(--red);color:#fff;font-size:9px;padding:1px 5px;border-radius:8px;font-weight:700}
+.t-right{display:flex;align-items:center;gap:10px}
+.user-chip{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:5px 10px;font-size:12px;color:var(--text2);cursor:pointer}
+.avatar{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#1c2132);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0}
+.rbadge{font-size:9px;padding:2px 6px;border-radius:var(--r);font-weight:600;letter-spacing:.5px}
+.rN1{background:rgba(34,197,94,.15);color:var(--green)}
+.rN2{background:rgba(59,130,246,.15);color:var(--blue)}
+.rN3{background:rgba(168,85,247,.15);color:var(--purple)}
+.rADM{background:rgba(184,145,90,.15);color:var(--accent)}
+
+/* ── BODY ── */
+#body{display:flex;flex:1;overflow:hidden}
+#sidebar{width:0;overflow:hidden;transition:width .2s}
+#content{flex:1;overflow-y:auto;background:var(--bg)}
+#content::-webkit-scrollbar{width:4px}
+#content::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ── PAGES ── */
+.page{display:none;padding:24px 28px;animation:fadeIn .2s ease}
+.page.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* ── PAGE HEADER ── */
+.ph{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px}
+.ph-left .pt{font-family:var(--font-d);font-size:30px;letter-spacing:2px;line-height:1}
+.ph-left .ps{font-size:11px;color:var(--text3);margin-top:5px;letter-spacing:.5px}
+.ph-right{display:flex;gap:8px;align-items:center}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border-radius:var(--r);font-family:var(--font-b);font-size:12px;font-weight:500;cursor:pointer;border:none;transition:all .15s;white-space:nowrap}
+.btn-a{background:var(--accent);color:#fff}.btn-a:hover{background:var(--accent2)}
+.btn-o{background:transparent;color:var(--text2);border:1px solid var(--border)}.btn-o:hover{border-color:var(--border2);color:var(--text)}
+.btn-g{background:rgba(34,197,94,.12);color:var(--green);border:1px solid rgba(34,197,94,.25)}.btn-g:hover{background:rgba(34,197,94,.2)}
+.btn-r{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.25)}.btn-r:hover{background:rgba(239,68,68,.2)}
+.btn-b{background:rgba(59,130,246,.12);color:var(--blue);border:1px solid rgba(59,130,246,.25)}.btn-b:hover{background:rgba(59,130,246,.2)}
+.btn-ghost{background:transparent;color:var(--text3);border:1px solid transparent}.btn-ghost:hover{color:var(--text);background:var(--surface2)}
+.btn-sm{padding:5px 10px;font-size:11px}
+.btn-xs{padding:3px 8px;font-size:10px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── STATS ── */
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;position:relative;overflow:hidden;cursor:pointer;transition:border-color .2s}
+.sc:hover{border-color:var(--border2)}
+.sc::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--sc-color,var(--border))}
+.sc-lbl{font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+.sc-val{font-family:var(--font-d);font-size:34px;letter-spacing:1px;line-height:1;color:var(--sc-color,var(--text))}
+.sc-sub{font-size:10px;color:var(--text3);margin-top:5px}
+
+/* ── TABLE ── */
+.tc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.tb-bar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.tb-bar-title{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)}
+.si{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:7px 11px;color:var(--text);font-family:var(--font-b);font-size:12px;outline:none;transition:border-color .2s}
+.si:focus{border-color:var(--accent)}
+.sel{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;color:var(--text2);font-family:var(--font-b);font-size:11px;outline:none;cursor:pointer}
+table{width:100%;border-collapse:collapse}
+thead tr{background:var(--surface2);border-bottom:1px solid var(--border)}
+th{padding:9px 14px;text-align:left;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);font-weight:600}
+tbody tr{border-bottom:1px solid var(--border);transition:background .12s}
+tbody tr:hover{background:var(--surface2)}
+tbody tr:last-child{border-bottom:none}
+td{padding:11px 14px;font-size:12px;color:var(--text2);vertical-align:middle}
+td.tp{color:var(--text);font-weight:500}
+.empty-row td{text-align:center;padding:40px;color:var(--text3);font-size:13px}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:var(--r);font-size:9px;font-weight:600;letter-spacing:.8px;text-transform:uppercase}
+.badge::before{content:'';width:4px;height:4px;border-radius:50%;background:currentColor}
+.b-draft{background:rgba(74,82,112,.2);color:var(--text3)}
+.b-n1{background:rgba(34,197,94,.1);color:var(--green)}
+.b-n2{background:rgba(59,130,246,.1);color:var(--blue)}
+.b-n3{background:rgba(168,85,247,.1);color:var(--purple)}
+.b-aprovado{background:rgba(34,197,94,.12);color:var(--green)}
+.b-reprovado{background:rgba(239,68,68,.1);color:var(--red)}
+.b-assinatura{background:rgba(20,184,166,.1);color:var(--teal)}
+.b-concluido{background:rgba(245,166,35,.1);color:var(--accent)}
+.b-ativo{background:rgba(34,197,94,.1);color:var(--green)}
+.b-inativo{background:rgba(74,82,112,.2);color:var(--text3)}
+
+/* ── CODE CHIP ── */
+.cc{font-family:var(--font-m);font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:2px 6px;color:var(--accent)}
+
+/* ── PROGRESS ── */
+.pw{display:flex;align-items:center;gap:8px}
+.pb{flex:1;height:4px;background:var(--surface3);border-radius:2px;overflow:hidden}
+.pf{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .4s}
+.pf.g{background:linear-gradient(90deg,#16a34a,#22c55e)}
+.pf.b{background:linear-gradient(90deg,#1d4ed8,#3b82f6)}
+.pp{font-family:var(--font-m);font-size:10px;color:var(--text2);min-width:32px;text-align:right}
+
+/* ── MODAL ── */
+.mo{display:none;position:fixed;inset:0;background:rgba(28,33,50,.45);z-index:500;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(2px)}
+.mo.open{display:flex}
+.md{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);width:700px;max-width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow)}
+.md.lg{width:900px}
+.md.sm{width:480px}
+.md.xl{width:1100px}
+.mh{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--border);flex-shrink:0}
+.mh-title{font-family:var(--font-d);font-size:20px;letter-spacing:2px;display:flex;align-items:center;gap:10px}
+.mc-btn{background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:3px 7px;border-radius:var(--r);transition:all .15s;line-height:1}
+.mc-btn:hover{color:var(--text);background:var(--surface2)}
+.mb{padding:22px;overflow-y:auto;flex:1}
+.mb::-webkit-scrollbar{width:4px}
+.mb::-webkit-scrollbar-thumb{background:var(--border2)}
+.mf{padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
+
+/* ── FORMS ── */
+.fg{margin-bottom:14px}
+.fl{display:block;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:7px}
+.fi,.fsel,textarea.fi{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:9px 11px;color:var(--text);font-family:var(--font-b);font-size:12px;outline:none;transition:border-color .2s}
+.fi:focus,.fsel:focus,textarea.fi:focus{border-color:var(--accent)}
+.fsel{cursor:pointer}
+textarea.fi{resize:vertical;min-height:80px}
+.fi[readonly]{opacity:.5;cursor:not-allowed}
+.fi.err{border-color:var(--red)}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.fgrid3{grid-template-columns:1fr 1fr 1fr}
+.cs2{grid-column:span 2}
+.cs3{grid-column:span 3}
+.fsec{margin-bottom:20px}
+.fsec-title{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.frow{display:flex;gap:10px;align-items:flex-end}
+.frow .fg{flex:1}
+.hint{font-size:10px;color:var(--text3);margin-top:4px}
+
+/* ── TABS ── */
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:18px;gap:0}
+.tab{padding:9px 16px;font-size:11px;font-weight:500;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;letter-spacing:.5px}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ── PANEL ── */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r)}
+.panel-h{padding:12px 16px;border-bottom:1px solid var(--border);font-size:9px;letter-spacing:2.5px;text-transform:uppercase;color:var(--text3);display:flex;align-items:center;justify-content:space-between}
+.panel-b{padding:16px}
+
+/* ── SPLIT LAYOUT ── */
+.split{display:grid;grid-template-columns:1fr 300px;gap:18px}
+.split-wide{grid-template-columns:1fr 340px}
+
+/* ── APPROVAL FLOW ── */
+.aflow{display:flex;align-items:flex-start;gap:0;padding:4px 0}
+.afstep{flex:1;display:flex;flex-direction:column;align-items:center;position:relative}
+.afstep:not(:last-child)::after{content:'';position:absolute;top:15px;left:50%;width:100%;height:2px;background:var(--border);z-index:0}
+.afstep.done:not(:last-child)::after{background:var(--green)}
+.afstep.curr:not(:last-child)::after{background:linear-gradient(90deg,var(--accent),var(--border))}
+.afdot{width:30px;height:30px;border-radius:50%;border:2px solid var(--border);background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;position:relative;z-index:1;color:var(--text3);flex-shrink:0}
+.afstep.done .afdot{border-color:var(--green);background:rgba(34,197,94,.12);color:var(--green)}
+.afstep.curr .afdot{border-color:var(--accent);background:rgba(245,166,35,.12);color:var(--accent);box-shadow:0 0 0 3px rgba(245,166,35,.1)}
+.afstep.rej .afdot{border-color:var(--red);background:rgba(239,68,68,.12);color:var(--red)}
+.af-lbl{font-size:9px;letter-spacing:1px;color:var(--text3);margin-top:6px;text-align:center}
+.afstep.done .af-lbl{color:var(--green)}
+.afstep.curr .af-lbl{color:var(--accent)}
+.afstep.rej .af-lbl{color:var(--red)}
+.af-name{font-size:9px;color:var(--text3);margin-top:2px;text-align:center}
+.af-date{font-family:var(--font-m);font-size:8px;color:var(--text3);margin-top:1px}
+
+/* ── TIMELINE ── */
+.tl{display:flex;flex-direction:column;gap:14px}
+.tl-item{display:flex;gap:10px;position:relative}
+.tl-item:not(:last-child)::before{content:'';position:absolute;left:9px;top:20px;width:1px;height:calc(100% + 5px);background:var(--border)}
+.tl-dot{width:20px;height:20px;border-radius:50%;background:var(--surface2);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;flex-shrink:0;color:var(--text3)}
+.tl-dot.g{border-color:var(--green);color:var(--green);background:rgba(34,197,94,.1)}
+.tl-dot.y{border-color:var(--yellow);color:var(--yellow);background:rgba(234,179,8,.1)}
+.tl-dot.r{border-color:var(--red);color:var(--red);background:rgba(239,68,68,.1)}
+.tl-dot.b{border-color:var(--blue);color:var(--blue);background:rgba(59,130,246,.1)}
+.tl-dot.t{border-color:var(--teal);color:var(--teal);background:rgba(20,184,166,.1)}
+.tl-act{font-size:12px;color:var(--text);font-weight:500}
+.tl-meta{font-size:10px;color:var(--text3);margin-top:2px}
+.tl-comment{font-size:11px;color:var(--text2);margin-top:4px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:6px 9px;border-left:2px solid var(--border2)}
+
+/* ── UPLOAD ── */
+.upz{border:2px dashed var(--border2);border-radius:var(--r);padding:24px;text-align:center;cursor:pointer;transition:all .2s}
+.upz:hover{border-color:var(--accent);background:var(--accent3)}
+.upz-ico{font-size:24px;margin-bottom:6px}
+.upz-txt{font-size:12px;color:var(--text2)}
+.upz-sub{font-size:10px;color:var(--text3);margin-top:3px}
+.flist{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.fitem{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:7px 10px;font-size:11px}
+.fitem-name{flex:1;color:var(--text2)}
+.fitem-sz{color:var(--text3);font-family:var(--font-m);font-size:10px}
+.fitem-rm{cursor:pointer;color:var(--text3);font-size:15px;line-height:1}.fitem-rm:hover{color:var(--red)}
+
+/* ── SWITCH ── */
+.sw{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2);user-select:none}
+.sw-tr{width:38px;height:20px;border-radius:10px;background:var(--surface3);border:1px solid var(--border);position:relative;transition:all .2s;flex-shrink:0}
+.sw-tr.on{background:rgba(34,197,94,.2);border-color:var(--green)}
+.sw-th{width:14px;height:14px;border-radius:50%;background:var(--text3);position:absolute;top:2px;left:2px;transition:all .2s}
+.sw-tr.on .sw-th{background:var(--green);left:20px}
+
+/* ── AD TAG ── */
+.adtag{display:inline-flex;align-items:center;gap:4px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:var(--r);padding:2px 7px;font-size:10px;font-family:var(--font-m);color:var(--blue);margin:2px}
+.adtag-rm{cursor:pointer;color:rgba(59,130,246,.5);font-size:12px}.adtag-rm:hover{color:var(--red)}
+
+/* ── INFO BOX ── */
+.ibox{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:10px}
+.ibox.warn{border-color:rgba(184,145,90,.35);background:rgba(184,145,90,.06)}
+.ibox.info{border-color:rgba(59,130,246,.3);background:rgba(59,130,246,.04)}
+.ibox.danger{border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.04)}
+.ibox.success{border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.04)}
+.ibox.teal{border-color:rgba(20,184,166,.3);background:rgba(20,184,166,.04)}
+.ibox-title{font-size:11px;font-weight:600;margin-bottom:5px;display:flex;align-items:center;gap:6px}
+.ibox-text{font-size:11px;color:var(--text2);line-height:1.6}
+
+/* ── INFO GRID ── */
+.ig{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.ii-lbl{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:4px}
+.ii-val{font-size:12px;color:var(--text)}
+
+/* ── ALCADA CARD ── */
+.accard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:10px;transition:border-color .2s}
+.accard:hover{border-color:var(--border2)}
+.accard-header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.aclvl{width:42px;height:42px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-family:var(--font-d);font-size:22px;flex-shrink:0}
+.acN1{background:rgba(34,197,94,.12);color:var(--green)}
+.acN2{background:rgba(59,130,246,.12);color:var(--blue)}
+.acN3{background:rgba(168,85,247,.12);color:var(--purple)}
+.ac-title{font-size:13px;font-weight:600;color:var(--text)}
+.ac-desc{font-size:10px;color:var(--text3);margin-top:2px}
+
+/* ── PERMISSION TABLE ── */
+.pt2-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pt2{width:100%;border-collapse:collapse;min-width:560px}
+.pt2 th{padding:9px 12px;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);text-align:center;font-weight:600}
+.pt2 th:first-child{text-align:left}
+.pt2 td{padding:8px 12px;border-bottom:1px solid rgba(37,45,69,.4);font-size:11px;color:var(--text2);text-align:center}
+.pt2 td:first-child{text-align:left;color:var(--text);font-weight:500}
+.pt2 tr:hover td{background:var(--surface2)}
+.ck{color:var(--green)}.cx{color:var(--text3)}
+
+/* ── CONFIG SECTION ── */
+.cfg-grid{display:grid;grid-template-columns:220px 1fr;gap:20px;height:calc(100vh - 140px)}
+.cfg-menu{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;height:fit-content}
+.cfg-menu-item{padding:11px 16px;font-size:12px;color:var(--text2);cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:9px;border-left:3px solid transparent}
+.cfg-menu-item:hover{background:var(--surface2);color:var(--text)}
+.cfg-menu-item.active{background:var(--accent3);color:var(--accent);border-left-color:var(--accent)}
+.cfg-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow-y:auto}
+.cfg-panel::-webkit-scrollbar{width:4px}
+.cfg-panel::-webkit-scrollbar-thumb{background:var(--border2)}
+.cfg-panel-inner{padding:24px}
+
+/* ── TRACKER ── */
+.tkcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;margin-bottom:8px;display:grid;grid-template-columns:1fr 110px 200px 160px 100px;align-items:center;gap:14px;transition:all .15s;cursor:pointer}
+.tkcard:hover{border-color:var(--border2);background:var(--surface2)}
+.tkcard.urgent{border-left:3px solid var(--red)}
+.tkcard.warn-border{border-left:3px solid var(--yellow)}
+
+/* ── TOAST ── */
+#toast{position:fixed;bottom:22px;right:22px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast-item{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:11px 14px;font-size:12px;color:var(--text);max-width:320px;pointer-events:all;display:flex;align-items:center;gap:10px;box-shadow:var(--shadow);animation:toastIn .25s ease;border-left:3px solid var(--accent)}
+.toast-item.success{border-left-color:var(--green)}
+.toast-item.error{border-left-color:var(--red)}
+.toast-item.info{border-left-color:var(--blue)}
+@keyframes toastIn{from{transform:translateX(20px);opacity:0}to{transform:none;opacity:1}}
+@keyframes toastOut{from{opacity:1}to{opacity:0;transform:translateX(10px)}}
+
+/* ── LOGIN ── */
+#login-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;background-image:radial-gradient(ellipse at 15% 50%,rgba(184,145,90,.10) 0%,transparent 60%),radial-gradient(ellipse at 85% 20%,rgba(28,33,50,.04) 0%,transparent 50%)}
+.login-wrap{width:420px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:44px 38px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+.login-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--accent),#1c2132)}
+.llogo{font-family:var(--font-d);line-height:1;margin-bottom:2px}
+.llogo .jmd{font-size:42px;letter-spacing:3px;color:var(--accent)}
+.llogo .hamoa{font-size:42px;letter-spacing:4px;color:var(--text)}
+.lsub{font-size:10px;color:var(--text3);letter-spacing:3px;text-transform:uppercase;margin-bottom:30px;margin-top:4px}
+.lad{display:inline-flex;align-items:center;gap:6px;background:rgba(184,145,90,.08);border:1px solid rgba(184,145,90,.30);border-radius:var(--r);padding:5px 10px;font-size:10px;color:var(--accent2);margin-bottom:22px;letter-spacing:.5px}
+.login-btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:13px;font-family:var(--font-d);font-size:20px;letter-spacing:3px;cursor:pointer;margin-top:6px;transition:background .2s}
+.login-btn:hover{background:var(--accent2)}
+.login-card .fg{margin-bottom:14px}
+.login-card .fi{background:var(--bg);border:1px solid var(--border)}
+.lfooter{text-align:center;font-size:10px;color:var(--text3);margin-top:16px;letter-spacing:.5px}
+
+/* ── MISC ── */
+.notif-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--red);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.loading{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--text3);font-size:13px}
+.loading::before{content:'';width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;margin-right:10px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.divider{height:1px;background:var(--border);margin:16px 0}
+.tag-input-wrap{display:flex;flex-wrap:wrap;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:6px 8px;min-height:40px;align-items:center;cursor:text}
+
+/* ══════════════════════════════════════
+   RESPONSIVIDADE
+   ══════════════════════════════════════ */
+
+/* Botão hambúrguer — só aparece no mobile */
+#menu-toggle{display:none;background:none;border:none;cursor:pointer;padding:6px;color:var(--text2);font-size:20px;line-height:1;flex-shrink:0}
+
+/* Overlay do drawer mobile */
+#nav-overlay{display:none;position:fixed;inset:0;background:rgba(28,33,50,.4);z-index:299;backdrop-filter:blur(1px)}
+#nav-overlay.open{display:block}
+
+/* Drawer lateral mobile */
+@media (max-width:768px){
+  #menu-toggle{display:flex;align-items:center;justify-content:center}
+
+  /* Topbar */
+  #topbar{padding:0 12px;gap:8px;height:52px}
+  .t-logo .obras{display:none}
+  .t-sep{display:none}
+  .t-right .btn{display:none} /* oculta botão "Nova Medição" do topo no mobile */
+
+  /* Nav vira drawer lateral */
+  .t-nav{
+    position:fixed;top:52px;left:-240px;bottom:0;width:240px;
+    flex-direction:column;background:var(--surface);
+    border-right:1px solid var(--border);z-index:300;
+    padding:12px 8px;gap:2px;overflow-y:auto;overflow-x:hidden;
+    transition:left .25s cubic-bezier(.4,0,.2,1);
+    box-shadow:4px 0 20px rgba(28,33,50,.08)
+  }
+  .t-nav.open{left:0}
+  .ni{padding:10px 14px;border-radius:var(--r);font-size:13px;white-space:normal}
+
+  /* Páginas */
+  .page{padding:14px 12px}
+  .ph{flex-direction:column;gap:10px;align-items:flex-start}
+  .ph-right{width:100%;justify-content:flex-start;flex-wrap:wrap}
+  .ph-left .pt{font-size:24px}
+
+  /* Stats: 2 colunas */
+  .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+
+  /* Filtros de tabela */
+  .tb-bar{flex-wrap:wrap;gap:8px}
+  .si{min-width:0;width:100%}
+  .sel{width:100%}
+
+  /* Tabela com scroll horizontal */
+  .tc{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{min-width:640px}
+
+  /* Formulários: coluna única */
+  .fgrid,.fgrid3{grid-template-columns:1fr}
+  .cs2,.cs3{grid-column:span 1}
+
+  /* Info grid: 2 colunas */
+  .ig{grid-template-columns:1fr 1fr}
+
+  /* Split: coluna única */
+  .split,.split-wide{grid-template-columns:1fr}
+
+  /* Config: coluna única */
+  .cfg-grid{grid-template-columns:1fr;height:auto;gap:12px}
+  .cfg-menu{height:auto}
+  .cfg-panel{max-height:60vh}
+
+  /* Tracker cards */
+  .tkcard{grid-template-columns:1fr 1fr;gap:8px}
+
+  /* Modais: quase full-screen */
+  .mo{padding:8px}
+  .md,.md.lg,.md.sm,.md.xl{width:calc(100vw - 16px)!important;max-height:96vh}
+  .mh{padding:14px 16px}
+  .mb{padding:14px 16px}
+  .mf{padding:10px 16px;flex-wrap:wrap}
+  .mf .btn{flex:1;justify-content:center}
+
+  /* Login */
+  .login-wrap{width:calc(100vw - 24px);max-width:420px}
+  .login-card{padding:32px 24px}
+
+  /* Toast */
+  #toast{bottom:14px;right:14px;left:14px}
+  .toast-item{max-width:100%}
+}
+
+/* Telas muito pequenas (< 420px) */
+@media (max-width:420px){
+  .stats{grid-template-columns:1fr}
+  .ig{grid-template-columns:1fr}
+  .llogo .jmd,.llogo .hamoa{font-size:34px}
+  .login-card{padding:28px 18px}
+  .tkcard{grid-template-columns:1fr}
+  .mf .btn{font-size:11px;padding:8px 10px}
+}
+
+/* Tablet: 769px – 1024px */
+@media (min-width:769px) and (max-width:1024px){
+  .page{padding:18px 20px}
+  .stats{grid-template-columns:repeat(3,1fr)}
+  .fgrid3{grid-template-columns:1fr 1fr}
+  .split,.split-wide{grid-template-columns:1fr}
+  .cfg-grid{grid-template-columns:180px 1fr}
+  .tkcard{grid-template-columns:1fr 100px 160px 120px}
+  .md.xl{width:calc(100vw - 40px)!important}
+}
+.tag-input-wrap:focus-within{border-color:var(--accent)}
+.tag-input{background:none;border:none;outline:none;font-family:var(--font-m);font-size:11px;color:var(--text);flex:1;min-width:120px;padding:2px}
+.chart-wrap{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px}
+.mini-bar-track{height:24px;background:var(--surface3);border-radius:var(--r);overflow:hidden;display:flex}
+.mini-bar-seg{height:100%;display:flex;align-items:center;justify-content:center;font-family:var(--font-m);font-size:9px;font-weight:600;transition:width .4s}
+.evol-bar{position:relative;height:28px;background:var(--surface3);border-radius:var(--r);overflow:hidden;margin-bottom:8px}
+.evol-seg{position:absolute;height:100%;transition:all .4s}
+.evol-lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-m);font-size:10px;color:var(--text);font-weight:500}
+</style>
 </head>
 <body>
 
@@ -19,7 +444,7 @@
     <div class="login-card">
       <div class="llogo"><span class="jmd">JMD</span> <span class="hamoa">HAMOA</span></div>
       <div class="lsub">OBRAS · Sistema de Gestão de Medições</div>
-      <div class="lad" id="l-auth-mode">🔒 Autenticação corporativa</div>
+      <div class="lad">🔒 Autenticação corporativa</div>
       <div class="fg">
         <label class="fl">Usuário</label>
         <input class="fi" id="l-user" placeholder="login" value="admin">
@@ -45,11 +470,11 @@
       <div class="ni" data-page="medicoes">📋 Medições <span class="nb" id="nb-medicoes" style="display:none">0</span></div>
       <div class="ni" data-page="acompanhamento">🔄 Acompanhamento</div>
       <div class="ni" data-page="cadastros">🗂 Cadastros</div>
-      <div class="ni" data-page="cronograma">📅 Cronograma</div>
       <div class="ni" data-page="alcadas">⚡ Alçadas</div>
       <div class="ni" data-page="configuracoes">⚙️ Configurações</div>
     </nav>
     <div class="t-right">
+      <button class="btn btn-a btn-sm" onclick="Medicoes.openNew()">+ Nova Medição</button>
       <div class="user-chip" id="user-chip">
         <div class="avatar" id="user-avatar">JS</div>
         <span id="user-name">João Silva</span>
@@ -75,7 +500,6 @@
         </div>
         <div class="stats" id="dash-stats"></div>
         <div class="tc" id="dash-table"></div>
-        <div id="dash-carteira"></div>
       </div>
 
       <!-- ════ MEDIÇÕES ════ -->
@@ -103,7 +527,7 @@
           </div>
           <table><thead><tr>
             <th>Código</th><th>Empresa</th><th>Obra</th><th>Fornecedor</th><th>Contrato</th>
-            <th>Período</th><th>Evolução</th><th>Valor</th><th>Status</th><th>Ações</th>
+            <th>Período</th><th>% Acum.</th><th>Valor</th><th>Status</th><th>Ações</th>
           </tr></thead>
           <tbody id="med-tbody"></tbody></table>
         </div>
@@ -147,101 +571,6 @@
           <div class="tab" data-cad="contratos">📁 Contratos</div>
         </div>
         <div id="cad-content"></div>
-      </div>
-
-      <!-- ════ CRONOGRAMA ════ -->
-      <div class="page" id="page-cronograma">
-
-        <!-- ── Barra de controles (topo) ── -->
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;margin-bottom:12px">
-          <!-- Obra -->
-          <div style="display:flex;align-items:center;gap:7px;min-width:0">
-            <span style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text3);white-space:nowrap">OBRA</span>
-            <select class="fi fsel" id="cron-obra" onchange="Cronograma.onObraChange()"
-                    style="height:30px;padding:0 28px 0 8px;font-size:12px;min-width:180px;max-width:260px">
-              <option value="">Selecione a obra…</option>
-            </select>
-          </div>
-          <!-- Separador -->
-          <div style="width:1px;height:22px;background:var(--border);flex-shrink:0"></div>
-          <!-- Cronograma -->
-          <div style="display:flex;align-items:center;gap:7px;min-width:0;flex:1">
-            <span style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text3);white-space:nowrap">CRONOGRAMA</span>
-            <select class="fi fsel" id="cron-sel" onchange="Cronograma.onCronogramaChange()"
-                    style="height:30px;padding:0 28px 0 8px;font-size:12px;min-width:200px;max-width:400px;flex:1">
-              <option value="">— selecione a obra primeiro —</option>
-            </select>
-          </div>
-          <!-- Info pill do cronograma selecionado -->
-          <div id="cron-info-pill" style="display:none;font-size:10px;color:var(--text3);white-space:nowrap;flex-shrink:0"></div>
-          <!-- Ações -->
-          <div style="display:flex;gap:6px;margin-left:auto;flex-shrink:0">
-            <button id="cron-btn-replace" class="btn btn-xs"
-                    style="display:none;background:rgba(99,102,241,.1);color:var(--accent);border:1px solid rgba(99,102,241,.25)"
-                    onclick="Cronograma.openReplaceSelected()" title="Substituir por novo arquivo">🔄 Substituir</button>
-            <button id="cron-btn-delete" class="btn btn-xs btn-r"
-                    style="display:none"
-                    onclick="Cronograma.deleteSelected()" title="Excluir cronograma">✕ Excluir</button>
-            <button class="btn btn-a btn-xs" onclick="Cronograma.openImport()">+ Importar</button>
-          </div>
-        </div>
-
-        <!-- ── Estado vazio (antes de selecionar) ── -->
-        <div id="cron-empty-state" style="display:flex;align-items:center;justify-content:center;padding:60px 0">
-          <div style="text-align:center">
-            <div style="font-size:48px;margin-bottom:12px;opacity:.4">📅</div>
-            <div style="font-size:13px;color:var(--text3)">Selecione uma obra e um cronograma para visualizar o WBS.</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:6px">Ou clique em <b>+ Importar</b> para adicionar um novo.</div>
-          </div>
-        </div>
-
-        <!-- ── Árvore WBS (tela toda) ── -->
-        <div id="cron-wbs-wrap" style="display:none">
-          <div class="tc">
-
-            <!-- Toolbar WBS -->
-            <div class="tb-bar" style="flex-wrap:wrap;gap:8px">
-              <span class="tb-bar-title" id="cron-wbs-title">ESTRUTURA WBS</span>
-              <span id="cron-wbs-count" style="font-size:10px;font-weight:400;color:var(--text3);letter-spacing:0;text-transform:none;margin-left:2px"></span>
-              <div style="flex:1"></div>
-              <!-- Busca -->
-              <div style="position:relative;display:flex;align-items:center">
-                <span style="position:absolute;left:7px;color:var(--text3);font-size:11px;pointer-events:none">🔍</span>
-                <input id="cron-wbs-search" type="text" placeholder="Buscar atividade…"
-                       oninput="Cronograma.onSearch()"
-                       style="height:28px;padding:0 26px 0 24px;font-size:11px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);color:var(--text);width:200px">
-                <span onclick="Cronograma.clearSearch()"
-                      style="position:absolute;right:7px;cursor:pointer;color:var(--text3);font-size:11px">✕</span>
-              </div>
-              <!-- Expand / Collapse / Export -->
-              <button class="btn btn-xs btn-o" onclick="Cronograma.expandAll()" title="Expandir tudo">⊞ Expandir</button>
-              <button class="btn btn-xs btn-o" onclick="Cronograma.collapseAll()" title="Recolher tudo">⊟ Recolher</button>
-              <button class="btn btn-xs" style="background:rgba(20,184,166,.12);color:var(--teal);border:1px solid rgba(20,184,166,.3)"
-                      onclick="Cronograma.exportXml()" title="Exportar como XML MS Project">⬇ XML</button>
-            </div>
-
-            <!-- Tabela WBS com scroll interno -->
-            <div id="cron-wbs-scroll" style="overflow:auto;height:calc(100vh - 248px)">
-              <table class="wbs-table" style="width:100%;min-width:820px">
-                <thead id="cron-wbs-thead" style="position:sticky;top:0;z-index:2;background:var(--surface2)">
-                  <tr>
-                    <th style="min-width:260px;text-align:left;padding-left:10px">Atividade</th>
-                    <th style="width:64px">WBS</th>
-                    <th style="width:90px">Início</th>
-                    <th style="width:90px">Término</th>
-                    <th style="width:52px">Dur.</th>
-                    <th style="width:80px">Planejado</th>
-                    <th style="min-width:200px">Avanço Real</th>
-                    <th style="width:42px"></th>
-                  </tr>
-                </thead>
-                <tbody id="cron-wbs-tbody"></tbody>
-              </table>
-            </div>
-
-          </div>
-        </div>
-
       </div>
 
       <!-- ════ ALÇADAS ════ -->
@@ -289,7 +618,6 @@
             <div class="cfg-menu-item" data-cfg="permissoes">👥 Permissões por Grupo AD</div>
             <div class="cfg-menu-item" data-cfg="notificacoes">🔔 Notificações & E-mail</div>
             <div class="cfg-menu-item" data-cfg="geral">🔧 Parâmetros Gerais</div>
-            <div class="cfg-menu-item" data-cfg="ia">🤖 Inteligência Artificial</div>
             <div class="cfg-menu-item" data-cfg="backup">💾 Backup & Dados</div>
           </div>
           <div class="cfg-panel">
@@ -297,69 +625,115 @@
           </div>
         </div>
       </div>
-    </div>
-  </div>
-</div>
 
-<!-- ═══ TOAST ═══ -->
-<div id="toast"></div>
+    </div><!-- /content -->
+  </div><!-- /body -->
+</div><!-- /app -->
 
-<!-- ═══ MODALS ═══ -->
-<!-- Modal: Detalhes de Medição -->
-<div class="mo" id="modal-medicao-detalhe">
-  <div class="md lg">
-    <div class="mh"><div class="mh-title">Detalhes da Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao-detalhe')">✕</button></div>
-    <div class="mb" id="modal-med-content"></div>
-  </div>
-</div>
+<!-- ════════════ MODAIS ════════════ -->
 
 <!-- Modal: Nova/Editar Medição -->
-<div class="mo" id="modal-medicao-form">
+<div class="mo" id="modal-medicao">
   <div class="md lg">
-    <div class="mh"><div class="mh-title" id="med-form-title">Nova Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao-form')">✕</button></div>
-    <div class="mb" id="modal-med-form"></div>
+    <div class="mh">
+      <div class="mh-title" id="mm-title">📋 NOVA MEDIÇÃO</div>
+      <button class="mc-btn" onclick="UI.closeModal('modal-medicao')">✕</button>
+    </div>
+    <div class="mb" id="mm-body"></div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-medicao')">Cancelar</button>
+      <button class="btn btn-o" onclick="Medicoes.saveDraft()">💾 Rascunho</button>
+      <button class="btn btn-a" onclick="Medicoes.launch()">🚀 Lançar Medição</button>
+    </div>
   </div>
 </div>
 
-<!-- Modal: Aprovação de Medição -->
-<div class="mo" id="modal-medicao-approval">
+<!-- Modal: Detalhe Medição -->
+<div class="mo" id="modal-detalhe">
+  <div class="md lg">
+    <div class="mh">
+      <div class="mh-title" id="det-title">Detalhes</div>
+      <button class="mc-btn" onclick="UI.closeModal('modal-detalhe')">✕</button>
+    </div>
+    <div class="mb" id="det-body"></div>
+    <div class="mf" id="det-footer"></div>
+  </div>
+</div>
+
+<!-- Modal: Reprovar -->
+<div class="mo" id="modal-reprovar">
   <div class="md sm">
-    <div class="mh"><div class="mh-title">Aprovar Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao-approval')">✕</button></div>
+    <div class="mh"><div class="mh-title">✗ REPROVAR MEDIÇÃO</div><button class="mc-btn" onclick="UI.closeModal('modal-reprovar')">✕</button></div>
     <div class="mb">
+      <div class="ibox danger" style="margin-bottom:14px"><div class="ibox-title">⚠️ Atenção</div><div class="ibox-text">A medição retornará ao lançador para correção. O motivo será registrado no histórico.</div></div>
       <div class="fg">
-        <label class="fl">Comentário (opcional)</label>
-        <textarea class="fi" id="approval-comment" placeholder="Adicione observações..."></textarea>
+        <label class="fl">Motivo da reprovação *</label>
+        <textarea class="fi" id="repr-motivo" rows="4" placeholder="Descreva detalhadamente o motivo..."></textarea>
       </div>
     </div>
     <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-medicao-approval')">Cancelar</button>
-      <button class="btn btn-g" onclick="Medicoes.submitApproval()">Aprovar</button>
+      <button class="btn btn-o" onclick="UI.closeModal('modal-reprovar')">Cancelar</button>
+      <button class="btn btn-r" onclick="Medicoes.confirmarReprovacao()">✗ Confirmar Reprovação</button>
     </div>
   </div>
 </div>
 
-<!-- Modal: Rejeição de Medição -->
-<div class="mo" id="modal-medicao-reject">
-  <div class="md sm">
-    <div class="mh"><div class="mh-title">Rejeitar Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao-reject')">✕</button></div>
+<!-- Modal: Enviar para Assinatura -->
+<div class="mo" id="modal-assinatura-envio">
+  <div class="md" style="max-width:620px">
+    <div class="mh">
+      <div class="mh-title">✍ ENVIAR PARA ASSINATURA ELETRÔNICA</div>
+      <button class="mc-btn" onclick="UI.closeModal('modal-assinatura-envio')">✕</button>
+    </div>
     <div class="mb">
-      <div class="fg">
-        <label class="fl">Motivo da Rejeição *</label>
-        <textarea class="fi err" id="reject-reason" placeholder="Explique o motivo da rejeição..."></textarea>
+      <div class="ibox info" style="margin-bottom:16px">
+        <div class="ibox-title">📋 Medição: <span id="assin-codigo" style="font-family:var(--font-m)"></span></div>
+        <div class="ibox-text">O fornecedor receberá o documento com as instruções para emissão da Nota Fiscal e o valor autorizado. O código da medição deverá constar nas observações da NF.</div>
+      </div>
+      <div class="fsec">
+        <div class="fsec-title">DESTINATÁRIO — FORNECEDOR</div>
+        <div class="fgrid">
+          <div class="fg"><label class="fl">E-mail do Fornecedor</label>
+            <input class="fi" type="email" id="assin-email-forn" placeholder="email@fornecedor.com.br"></div>
+          <div class="fg"><label class="fl">WhatsApp / Telefone (opcional)</label>
+            <input class="fi" type="tel" id="assin-tel-forn" placeholder="(11) 99999-9999"></div>
+        </div>
+      </div>
+      <div class="fsec">
+        <div class="fsec-title">REMETENTE — QUEM TAMBÉM ASSINA (opcional)</div>
+        <div class="fg">
+          <label class="fl">E-mail do Remetente / Responsável</label>
+          <input class="fi" type="email" id="assin-email-rem" placeholder="responsavel@empresa.com.br">
+          <div class="hint">Caso informado, este e-mail também receberá o documento para assinatura</div>
+        </div>
+      </div>
+      <div class="fsec">
+        <div class="fsec-title">PRÉVIA DO DOCUMENTO</div>
+        <pre id="assin-preview" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px;font-size:11px;line-height:1.7;color:var(--text2);white-space:pre-wrap;max-height:260px;overflow-y:auto;font-family:var(--font-m)"></pre>
       </div>
     </div>
     <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-medicao-reject')">Cancelar</button>
-      <button class="btn btn-r" onclick="Medicoes.submitReject()">Rejeitar</button>
+      <button class="btn btn-o" onclick="UI.closeModal('modal-assinatura-envio')">Cancelar</button>
+      <button class="btn btn-a" onclick="Medicoes.confirmarEnvioAssinatura()" id="assin-btn-enviar">✉ Enviar Documento</button>
     </div>
   </div>
 </div>
 
-<!-- Modal: Assinatura Eletrônica -->
-<div class="mo" id="modal-assinatura">
-  <div class="md lg">
-    <div class="mh"><div class="mh-title">Solicitar Assinatura Eletrônica</div><button class="mc-btn" onclick="UI.closeModal('modal-assinatura')">✕</button></div>
-    <div class="mb" id="modal-assinatura-content"></div>
+<!-- Modal: Aprovar -->
+<div class="mo" id="modal-aprovar">
+  <div class="md sm">
+    <div class="mh"><div class="mh-title">✓ APROVAR MEDIÇÃO</div><button class="mc-btn" onclick="UI.closeModal('modal-aprovar')">✕</button></div>
+    <div class="mb">
+      <div class="ibox success" style="margin-bottom:14px"><div class="ibox-title" id="apr-nivel-title">Aprovação</div><div class="ibox-text" id="apr-desc">Confirma a aprovação desta medição?</div></div>
+      <div class="fg">
+        <label class="fl">Observações (opcional)</label>
+        <textarea class="fi" id="apr-obs" rows="3" placeholder="Comentário de aprovação..."></textarea>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-aprovar')">Cancelar</button>
+      <button class="btn btn-g" onclick="Medicoes.confirmarAprovacao()">✓ Confirmar Aprovação</button>
+    </div>
   </div>
 </div>
 
@@ -372,10 +746,15 @@
       <div class="fg"><label class="fl">Nome Fantasia</label><input class="fi" id="emp-fantasia" placeholder="Nome Fantasia"></div>
       <div class="fgrid">
         <div class="fg"><label class="fl">CNPJ *</label><input class="fi" id="emp-cnpj" placeholder="00.000.000/0001-00"></div>
-        <div class="fg"><label class="fl">Status</label><select class="fi fsel" id="emp-ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select></div>
+        <div class="fg"><label class="fl">Status</label>
+          <select class="fi fsel" id="emp-ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select>
+        </div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-empresa')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveEmpresa()">Salvar</button></div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-empresa')">Cancelar</button>
+      <button class="btn btn-a" onclick="Cadastros.saveEmpresa()">Salvar</button>
+    </div>
   </div>
 </div>
 
@@ -395,123 +774,62 @@
         <div class="fg"><label class="fl">Gestor Responsável</label><input class="fi" id="obra-gestor" placeholder="Nome do gestor"></div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-obra')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveObra()">Salvar</button></div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-obra')">Cancelar</button>
+      <button class="btn btn-a" onclick="Cadastros.saveObra()">Salvar</button>
+    </div>
   </div>
 </div>
 
 <!-- Modal: Fornecedor -->
 <div class="mo" id="modal-fornecedor">
-  <div class="md lg">
+  <div class="md">
     <div class="mh"><div class="mh-title" id="forn-title">🤝 FORNECEDOR</div><button class="mc-btn" onclick="UI.closeModal('modal-fornecedor')">✕</button></div>
     <div class="mb">
-      <!-- IA: extração automática de dados -->
-      <div style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.2);border-radius:var(--r);padding:12px 14px;margin-bottom:14px">
-        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--accent);margin-bottom:8px">🤖 PREENCHIMENTO AUTOMÁTICO POR IA</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <label class="btn btn-o btn-sm" style="cursor:pointer">📎 Enviar contrato/doc social (PDF/DOCX)<input type="file" id="forn-ia-file" accept=".pdf,.docx,.doc" style="display:none" onchange="Cadastros._fornIaOnFileChange(this)"></label>
-        </div>
-        <div id="forn-ia-status" style="display:none;margin-top:8px"></div>
-      </div>
       <div class="fgrid">
         <div class="fg cs2"><label class="fl">Razão Social *</label><input class="fi" id="forn-razao" placeholder="Razão Social"></div>
         <div class="fg cs2"><label class="fl">Nome Fantasia</label><input class="fi" id="forn-fantasia" placeholder="Nome Fantasia"></div>
         <div class="fg"><label class="fl">CNPJ *</label><input class="fi" id="forn-cnpj" placeholder="00.000.000/0001-00"></div>
         <div class="fg"><label class="fl">Telefone</label><input class="fi" id="forn-tel" placeholder="(00) 00000-0000"></div>
-        <div class="fg cs2"><label class="fl">Endereço</label><input class="fi" id="forn-endereco" placeholder="Rua, número, cidade, UF"></div>
-        <div class="fg"><label class="fl">Representante</label><input class="fi" id="forn-representante" placeholder="Nome do representante legal"></div>
-        <div class="fg"><label class="fl">Cargo</label><input class="fi" id="forn-cargo" placeholder="Ex: Diretor, Sócio-Administrador"></div>
         <div class="fg"><label class="fl">E-mail Contato</label><input class="fi" id="forn-email" placeholder="contato@empresa.com.br"></div>
-        <div class="fg"><label class="fl">E-mail Nota Fiscal</label><input class="fi" id="forn-emailnf" placeholder="nf@empresa.com.br"></div>
-        <div class="fg"><label class="fl">E-mail Assinatura</label><input class="fi" id="forn-emailassin" placeholder="Para envio do doc. de medição"></div>
+        <div class="fg"><label class="fl">E-mail Nota Fiscal *</label><input class="fi" id="forn-emailnf" placeholder="nf@empresa.com.br"></div>
+        <div class="fg"><label class="fl">E-mail Assinatura *</label><input class="fi" id="forn-emailassin" placeholder="Para envio do documento de medição"></div>
         <div class="fg"><label class="fl">Status</label><select class="fi fsel" id="forn-ativo"><option value="1">Ativo</option><option value="0">Inativo</option></select></div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-fornecedor')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveFornecedor()">Salvar</button></div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-fornecedor')">Cancelar</button>
+      <button class="btn btn-a" onclick="Cadastros.saveFornecedor()">Salvar</button>
+    </div>
   </div>
 </div>
 
 <!-- Modal: Contrato -->
 <div class="mo" id="modal-contrato">
-  <div class="md lg">
+  <div class="md">
     <div class="mh"><div class="mh-title" id="cont-title">📁 CONTRATO</div><button class="mc-btn" onclick="UI.closeModal('modal-contrato')">✕</button></div>
     <div class="mb">
       <div class="fgrid">
         <div class="fg"><label class="fl">Empresa *</label><select class="fi fsel" id="cont-empresa" onchange="Cadastros.loadObrasByEmpresa('cont-empresa','cont-obra')"></select></div>
-        <div class="fg"><label class="fl">Obra *</label><select class="fi fsel" id="cont-obra" onchange="Cadastros._loadAtividadesObraChange()"></select></div>
+        <div class="fg"><label class="fl">Obra *</label><select class="fi fsel" id="cont-obra"></select></div>
         <div class="fg cs2"><label class="fl">Fornecedor *</label><select class="fi fsel" id="cont-fornecedor"></select></div>
         <div class="fg"><label class="fl">Nº Contrato *</label><input class="fi" id="cont-numero" placeholder="CT-0001"></div>
         <div class="fg"><label class="fl">Status</label><select class="fi fsel" id="cont-status"><option>Vigente</option><option>Encerrado</option><option>Suspenso</option></select></div>
         <div class="fg cs2"><label class="fl">Objeto do Contrato *</label><input class="fi" id="cont-objeto" placeholder="Descrição dos serviços contratados"></div>
+        <div class="fg"><label class="fl">Valor Total (R$) *</label><input class="fi" id="cont-valor" type="number" placeholder="0.00" step="0.01"></div>
         <div class="fg"><label class="fl">Data de Início</label><input class="fi" id="cont-inicio" type="date"></div>
         <div class="fg"><label class="fl">Data de Término Prevista</label><input class="fi" id="cont-termino" type="date"></div>
-        <div class="fg cs2"><label class="fl">Observações</label><textarea class="fi" id="cont-obs" rows="2"></textarea></div>
-      </div>
-
-      <!-- IA: extração automática de planilha orçamentária -->
-      <div style="margin:16px 0 0">
-        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--accent);margin-bottom:8px">🤖 EXTRAÇÃO AUTOMÁTICA POR IA</div>
-        <div id="cont-ia-dropzone" class="ia-dropzone"
-             ondragover="event.preventDefault();this.classList.add('drag')"
-             ondragleave="this.classList.remove('drag')"
-             ondrop="Cadastros._iaOnDrop(event)">
-          <div style="font-size:22px;margin-bottom:6px">📄</div>
-          <div style="font-size:12px;color:var(--text2)">Arraste o contrato aqui <span style="color:var(--text3)">ou</span></div>
-          <label class="btn btn-o btn-sm" style="cursor:pointer;margin-top:6px">
-            Selecionar arquivo (PDF ou DOCX)
-            <input type="file" id="cont-ia-file" accept=".pdf,.docx,.doc" style="display:none" onchange="Cadastros._iaOnFileChange(this)">
-          </label>
-          <div style="font-size:10px;color:var(--text3);margin-top:6px">Gemini 2.5 Flash extrai itens, datas e fornecedor automaticamente</div>
-        </div>
-        <div id="cont-ia-status"  style="display:none;margin-top:10px"></div>
-        <div id="cont-ia-preview" style="display:none;margin-top:10px"></div>
-      </div>
-
-      <!-- Planilha orçamentária -->
-      <div style="margin-top:18px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text3)">PLANILHA ORÇAMENTÁRIA</div>
-          <button class="btn btn-o btn-xs" onclick="Cadastros._addContratoItem()">+ Item</button>
-        </div>
-        <div id="cont-itens-wrap">
-          <div class="citem-hdr">
-            <span style="flex:2">Descrição do Serviço / Material</span>
-            <span style="width:80px">Un.</span>
-            <span style="width:110px;text-align:right">Qtd. Total</span>
-            <span style="width:120px;text-align:right">Vl. Unit. (R$)</span>
-            <span style="width:120px;text-align:right">Vl. Total (R$)</span>
-            <span style="width:28px"></span>
-          </div>
-          <div id="cont-itens"></div>
-          <div class="citem-footer">
-            <span style="flex:1;font-weight:700;color:var(--text)">VALOR TOTAL DO CONTRATO</span>
-            <input type="hidden" id="cont-valor">
-            <span id="cont-valor-total-display" style="font-family:var(--font-m);font-size:14px;font-weight:700;color:var(--blue)">R$ 0,00</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Atividades do Cronograma (aparece quando obra tem cronograma importado) -->
-      <div id="cont-cron-wrap" style="display:none;margin-top:18px">
-        <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--teal);margin-bottom:8px;display:flex;align-items:center;gap:6px">
-          <span class="cont-cron-title">🗓 Atividades do Cronograma</span>
-          <span style="color:var(--text3);font-weight:400;text-transform:none;font-size:10px;letter-spacing:0">— vincule este contrato às atividades do WBS</span>
-        </div>
-        <div class="cont-cron-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r);padding:4px 0"></div>
+        <div class="fg"><label class="fl">Observações</label><textarea class="fi" id="cont-obs" rows="2"></textarea></div>
       </div>
     </div>
-    <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-contrato')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveContrato()">💾 Salvar Contrato</button></div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-contrato')">Cancelar</button>
+      <button class="btn btn-a" onclick="Cadastros.saveContrato()">Salvar</button>
+    </div>
   </div>
 </div>
 
-<!-- Modal: Nova Alçada -->
-<div class="mo" id="modal-alcada-form">
-  <div class="md lg">
-    <div class="mh"><div class="mh-title" id="alcada-form-title">Nova Alçada</div><button class="mc-btn" onclick="UI.closeModal('modal-alcada-form')">✕</button></div>
-    <div class="mb" id="modal-alcada-form-content"></div>
-  </div>
-</div>
-
-<!-- Modal: Alçada (alias para compatibilidade) -->
+<!-- Modal: Alçada -->
 <div class="mo" id="modal-alcada">
   <div class="md lg">
     <div class="mh"><div class="mh-title" id="alc-title">⚡ CONFIGURAÇÃO DE ALÇADA</div><button class="mc-btn" onclick="UI.closeModal('modal-alcada')">✕</button></div>
@@ -523,246 +841,1378 @@
   </div>
 </div>
 
-<!-- Modal: Importar / Substituir Cronograma -->
-<div class="mo" id="modal-cron-import">
-  <div class="md sm">
-    <div class="mh">
-      <div class="mh-title" id="cron-imp-title">📅 IMPORTAR CRONOGRAMA</div>
-      <button class="mc-btn" onclick="UI.closeModal('modal-cron-import')">✕</button>
-    </div>
-    <div class="mb">
-      <!-- Banner de substituição (visível apenas ao substituir) -->
-      <div id="cron-imp-replace-banner" style="display:none;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.25);border-radius:var(--r);padding:9px 12px;margin-bottom:12px;font-size:11px;color:var(--accent)">
-        🔄 Substituindo <b id="cron-imp-replace-nome"></b> — o cronograma atual será removido e substituído pelo novo arquivo.
-      </div>
-      <input type="hidden" id="cron-imp-replace-id">
-      <div class="fg">
-        <label class="fl">Obra *</label>
-        <select class="fi fsel" id="cron-imp-obra"></select>
-      </div>
-      <div class="fg">
-        <label class="fl">Nome / Descrição</label>
-        <input class="fi" id="cron-imp-nome" placeholder="Ex: Cronograma Físico v1 — Terraplanagem">
-      </div>
-      <div class="fg">
-        <label class="fl">Arquivo do Cronograma *</label>
-        <label class="btn btn-o btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-          📂 Selecionar arquivo (.mpp ou .xml)
-          <input type="file" id="cron-imp-file" accept=".mpp,.xml" style="display:none">
-        </label>
-        <div id="cron-imp-file-name" style="font-size:11px;color:var(--text3);margin-top:6px"></div>
-      </div>
-      <div style="font-size:10px;color:var(--text3);background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:10px;margin-top:4px">
-        <b style="color:var(--teal)">✅ Formato recomendado: .xml</b><br>
-        No MS Project: <em>Arquivo → Salvar como → XML do Project (*.xml)</em><br><br>
-        <b>.mpp</b> — suportado somente com instalação manual do pacote <code style="font-family:var(--font-m)">mpxj</code> + Java no servidor
-      </div>
-      <div id="cron-imp-status" style="display:none;margin-top:12px"></div>
-    </div>
-    <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-cron-import')">Cancelar</button>
-      <button class="btn btn-a" onclick="Cronograma.submitImport()">⬆ Importar</button>
-    </div>
-  </div>
-</div>
+<div id="toast"></div>
 
-<!-- Modal: Editar Atividade do Cronograma -->
-<div class="mo" id="modal-cron-edit-at">
-  <div class="md sm">
-    <div class="mh">
-      <div class="mh-title">
-        ✏ EDITAR ATIVIDADE
-        <span id="eat-resumo-badge" style="display:none;margin-left:8px;font-size:10px;font-weight:600;letter-spacing:.5px;background:rgba(20,184,166,.15);color:var(--teal);border-radius:6px;padding:2px 8px">RESUMO</span>
-      </div>
-      <button class="mc-btn" onclick="UI.closeModal('modal-cron-edit-at')">✕</button>
-    </div>
-    <div class="mb">
-      <div class="fg">
-        <label class="fl">Nome *</label>
-        <input class="fi" id="eat-nome" placeholder="Nome da atividade">
-      </div>
-      <div style="display:flex;gap:12px">
-        <div class="fg" style="flex:1">
-          <label class="fl">WBS</label>
-          <input class="fi" id="eat-wbs" placeholder="Ex: 1.2.3">
-        </div>
-        <div class="fg" style="width:100px;flex-shrink:0">
-          <label class="fl">Duração (dias)</label>
-          <input class="fi" id="eat-duracao" type="number" min="0" placeholder="—">
-        </div>
-      </div>
-      <div style="display:flex;gap:12px">
-        <div class="fg" style="flex:1">
-          <label class="fl">Data Início</label>
-          <input class="fi" id="eat-inicio" type="date">
-        </div>
-        <div class="fg" style="flex:1">
-          <label class="fl">Data Término</label>
-          <input class="fi" id="eat-termino" type="date">
-        </div>
-      </div>
-      <div style="display:flex;gap:12px">
-        <div class="fg" style="flex:1">
-          <label class="fl">% Planejado</label>
-          <input class="fi" id="eat-pct-plan" type="number" min="0" max="100" step="0.1" placeholder="0.0">
-        </div>
-        <div class="fg" style="flex:1">
-          <label class="fl">% Realizado (manual)</label>
-          <input class="fi" id="eat-pct-real" type="number" min="0" max="100" step="0.1" placeholder="0.0">
-        </div>
-      </div>
-      <div id="eat-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:var(--r);padding:8px 12px;font-size:11px;color:var(--red);margin-top:4px"></div>
-    </div>
-    <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-cron-edit-at')">Cancelar</button>
-      <button class="btn btn-a" onclick="Cronograma.submitEditAtividade()">💾 Salvar</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: Nova / Editar Medição -->
-<div class="mo" id="modal-medicao">
-  <div class="md lg">
-    <div class="mh"><div class="mh-title" id="mm-title">📋 NOVA MEDIÇÃO</div><button class="mc-btn" onclick="UI.closeModal('modal-medicao')">✕</button></div>
-    <div class="mb" id="mm-body"></div>
-    <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-medicao')">Cancelar</button>
-      <button class="btn btn-a" onclick="Medicoes.save()">💾 Salvar</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: Detalhe de Medição -->
-<div class="mo" id="modal-detalhe">
-  <div class="md lg">
-    <div class="mh"><div class="mh-title" id="det-title">Detalhes da Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-detalhe')">✕</button></div>
-    <div class="mb" id="det-body"></div>
-    <div class="mf" id="det-footer"></div>
-  </div>
-</div>
-
-<!-- Modal: Aprovar Medição -->
-<div class="mo" id="modal-aprovar">
-  <div class="md sm">
-    <div class="mh"><div class="mh-title" id="apr-nivel-title">Aprovar Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-aprovar')">✕</button></div>
-    <div class="mb">
-      <p id="apr-desc" style="font-size:13px;color:var(--text2);margin-bottom:14px"></p>
-      <div class="fg">
-        <label class="fl">Observação (opcional)</label>
-        <textarea class="fi" id="apr-obs" rows="3" placeholder="Adicione observações sobre a aprovação..."></textarea>
-      </div>
-    </div>
-    <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-aprovar')">Cancelar</button>
-      <button class="btn btn-g" onclick="Medicoes.confirmarAprovacao()">✓ Confirmar Aprovação</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: Reprovar Medição -->
-<div class="mo" id="modal-reprovar">
-  <div class="md sm">
-    <div class="mh"><div class="mh-title">Reprovar Medição</div><button class="mc-btn" onclick="UI.closeModal('modal-reprovar')">✕</button></div>
-    <div class="mb">
-      <div class="fg">
-        <label class="fl">Motivo da Reprovação *</label>
-        <textarea class="fi" id="repr-motivo" rows="4" placeholder="Descreva o motivo da reprovação. O lançador receberá esta mensagem."></textarea>
-      </div>
-    </div>
-    <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-reprovar')">Cancelar</button>
-      <button class="btn btn-r" onclick="Medicoes.confirmarReprovacao()">✗ Confirmar Reprovação</button>
-    </div>
-  </div>
-</div>
-
-<!-- Modal: Enviar para Assinatura -->
-<div class="mo" id="modal-assinatura-envio">
-  <div class="md" style="max-width:580px">
-    <div class="mh">
-      <div class="mh-title">✍ Enviar para Assinatura — <span id="assin-codigo" style="font-family:var(--font-m);color:var(--accent)"></span></div>
-      <button class="mc-btn" onclick="UI.closeModal('modal-assinatura-envio')">✕</button>
-    </div>
-    <div class="mb">
-
-      <!-- Status ClickSign -->
-      <div id="assin-status-plat" style="margin-bottom:14px"></div>
-
-      <!-- Canal de entrega -->
-      <div class="fsec" style="margin-bottom:14px">
-        <div class="fsec-title">CANAL DE ENTREGA</div>
-        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:8px">
-          <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500">
-            <input type="checkbox" id="assin-canal-email" checked
-              onchange="Medicoes._onCanalChange()"
-              style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
-            ✉ E-mail
-          </label>
-          <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500">
-            <input type="checkbox" id="assin-canal-whatsapp"
-              onchange="Medicoes._onCanalChange()"
-              style="width:16px;height:16px;accent-color:var(--green);cursor:pointer">
-            <span style="color:#25d366;font-size:15px">●</span> WhatsApp
-          </label>
-        </div>
-        <div class="hint" style="margin-top:6px">Selecione como o fornecedor receberá o link de assinatura via ClickSign.</div>
-      </div>
-
-      <!-- Campo E-mail — sempre obrigatório (ClickSign usa como identificador) -->
-      <div class="fg" style="margin-bottom:12px">
-        <label class="fl">E-mail do Fornecedor *</label>
-        <input class="fi" id="assin-email-forn" type="email" placeholder="representante@fornecedor.com.br">
-        <div class="hint">Obrigatório — o ClickSign usa o e-mail como identificador do signatário. O link também pode ser enviado por WhatsApp se selecionado acima.</div>
-      </div>
-
-      <!-- Campo WhatsApp — visível apenas se canal WhatsApp selecionado -->
-      <div id="assin-wrap-whatsapp" class="fg" style="display:none;margin-bottom:12px">
-        <label class="fl">Telefone / WhatsApp *</label>
-        <div style="display:flex;gap:8px">
-          <input class="fi" id="assin-tel-forn" placeholder="+55 11 9 9999-9999" style="font-family:var(--font-m)">
-        </div>
-        <div class="hint">Use o formato internacional: +55 11 9 9999-9999. O fornecedor receberá a mensagem via WhatsApp.</div>
-      </div>
-
-      <!-- E-mail remetente -->
-      <div class="fg" style="margin-bottom:14px">
-        <label class="fl">Seu e-mail (remetente, opcional)</label>
-        <input class="fi" id="assin-email-rem" type="email" placeholder="seuemail@empresa.com.br">
-        <div class="hint">Caso informado, você receberá uma cópia da notificação enviada ao fornecedor.</div>
-      </div>
-
-      <!-- Prévia -->
-      <div class="fg">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <label class="fl" style="margin:0">Prévia do documento</label>
-          <span style="font-size:10px;color:var(--text3)">O PDF será gerado automaticamente pelo ClickSign</span>
-        </div>
-        <textarea class="fi" id="assin-preview" rows="10" readonly
-          style="font-family:var(--font-m);font-size:11px;line-height:1.5;resize:vertical;background:var(--surface2);color:var(--text2)"></textarea>
-      </div>
-
-    </div>
-    <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-assinatura-envio')">Cancelar</button>
-      <button class="btn btn-a" id="assin-btn-enviar" onclick="Medicoes.confirmarEnvioAssinatura()">✉ Enviar para Assinatura</button>
-    </div>
-  </div>
-</div>
-
-<script src="js/api.js"></script>
-<script src="js/state.js"></script>
-<script src="js/app.js"></script>
-<script src="js/pages.js"></script>
-<script src="js/medicoes.js"></script>
-<script src="js/cadastros.js"></script>
-<script src="js/alcadas.js"></script>
-<script src="js/cronograma.js"></script>
+<!-- ════════════ JAVASCRIPT ════════════ -->
 <script>
-// Exibe nome do arquivo selecionado no import de cronograma
-document.getElementById('cron-imp-file')?.addEventListener('change', function() {
-  const nm = document.getElementById('cron-imp-file-name');
-  if (nm) nm.textContent = this.files?.[0]?.name || '';
+'use strict';
+
+// ══════════════════════════════════════
+
+// ══════════════════════════════════════
+// API MODULE (substitui IndexedDB)
+// ══════════════════════════════════════
+const API = (() => {
+  function _getToken() { return sessionStorage.getItem('hamoa_token'); }
+  function _setToken(t) { if(t) sessionStorage.setItem('hamoa_token', t); else sessionStorage.removeItem('hamoa_token'); }
+
+  function headers() {
+    const h = { 'Content-Type': 'application/json' };
+    const t = _getToken();
+    if(t) h['Authorization'] = 'Bearer ' + t;
+    return h;
+  }
+
+  async function req(method, path, body) {
+    const opts = { method, headers: headers() };
+    if(body !== undefined) opts.body = JSON.stringify(body);
+    let r;
+    try { r = await fetch(path, opts); } catch(e) { throw new Error('Sem conexão com o servidor'); }
+    if(r.status === 401) { _setToken(null); H.el('app').style.display='none'; H.el('login-screen').style.display='flex'; throw new Error('Sessão expirada'); }
+    if(r.status === 204) return null;
+    const data = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(data.error || r.statusText);
+    return data;
+  }
+
+  return {
+    login: async (login, senha) => { const r = await req('POST', '/api/auth/login', { login, senha }); _setToken(r.token); return r; },
+    logout: () => _setToken(null),
+    isLoggedIn: () => !!_getToken(),
+
+    empresas:       () => req('GET', '/api/empresas'),
+    createEmpresa:  (d) => req('POST', '/api/empresas', d),
+    updateEmpresa:  (id, d) => req('PUT', `/api/empresas/${id}`, d),
+    deleteEmpresa:  (id) => req('DELETE', `/api/empresas/${id}`),
+
+    obras:      (empresa_id) => req('GET', '/api/obras' + (empresa_id ? `?empresa_id=${empresa_id}` : '')),
+    createObra: (d) => req('POST', '/api/obras', d),
+    updateObra: (id, d) => req('PUT', `/api/obras/${id}`, d),
+    deleteObra: (id) => req('DELETE', `/api/obras/${id}`),
+
+    fornecedores:       () => req('GET', '/api/fornecedores'),
+    createFornecedor:   (d) => req('POST', '/api/fornecedores', d),
+    updateFornecedor:   (id, d) => req('PUT', `/api/fornecedores/${id}`, d),
+    deleteFornecedor:   (id) => req('DELETE', `/api/fornecedores/${id}`),
+
+    contratos:       (obra_id) => req('GET', '/api/contratos' + (obra_id ? `?obra_id=${obra_id}` : '')),
+    createContrato:  (d) => req('POST', '/api/contratos', d),
+    updateContrato:  (id, d) => req('PUT', `/api/contratos/${id}`, d),
+    deleteContrato:  (id) => req('DELETE', `/api/contratos/${id}`),
+
+    medicoes: (filters) => {
+      const params = filters ? Object.entries(filters).filter(([,v])=>v).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&') : '';
+      return req('GET', '/api/medicoes' + (params ? '?' + params : ''));
+    },
+    medicao:        (id) => req('GET', `/api/medicoes/${id}`),
+    createMedicao:  (d) => req('POST', '/api/medicoes', d),
+    updateMedicao:  (id, d) => req('PUT', `/api/medicoes/${id}`, d),
+    aprovar:          (id, comentario) => req('POST', `/api/medicoes/${id}/aprovar`, { comentario }),
+    reprovar:         (id, motivo) => req('POST', `/api/medicoes/${id}/reprovar`, { motivo }),
+    enviarAssinatura: (id, dados) => req('POST', `/api/medicoes/${id}/enviar-assinatura`, dados),
+
+    alcadas:       () => req('GET', '/api/alcadas'),
+    createAlcada:  (d) => req('POST', '/api/alcadas', d),
+    updateAlcada:  (id, d) => req('PUT', `/api/alcadas/${id}`, d),
+    deleteAlcada:  (id) => req('DELETE', `/api/alcadas/${id}`),
+
+    config:     (chave) => req('GET', `/api/config/${chave}`),
+    saveConfig: (chave, valor) => req('PUT', `/api/config/${chave}`, valor),
+
+    dashboard: () => req('GET', '/api/dashboard'),
+  };
+})();
+
+// ══════════════════════════════════════
+// APP STATE
+// ══════════════════════════════════════
+const State = {
+  user: null,
+  currentPage: 'dashboard',
+  editingId: null,
+  currentMedicaoId: null,
+  currentActionMedicaoId: null,
+  cache: { empresas:[], obras:[], fornecedores:[], contratos:[], alcadas:[] },
+};
+
+// ══════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════
+const H = {
+  fmt(v) { return v != null ? Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'; },
+  fmtDate(iso) { if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); },
+  fmtDateShort(iso) { if(!iso) return '—'; return new Date(iso).toLocaleDateString('pt-BR'); },
+  periodoLabel(p) { if(!p) return '—'; const [y,m]=p.split('-'); const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']; return (meses[parseInt(m)-1]||m)+'/'+y; },
+  statusBadge(s) {
+    const map = { 'Rascunho':'b-draft', 'Aguardando N1':'b-n1', 'Aguardando N2':'b-n2', 'Aguardando N3':'b-n3', 'Aprovado':'b-aprovado', 'Em Assinatura':'b-assinatura', 'Concluído':'b-concluido', 'Reprovado':'b-reprovado' };
+    return `<span class="badge ${map[s]||'b-draft'}">${s||'Rascunho'}</span>`;
+  },
+  progressBar(pct, cls='') { return `<div class="pw"><div class="pb"><div class="pf ${cls}" style="width:${Math.min(pct,100)}%"></div></div><span class="pp">${pct}%</span></div>`; },
+  nextLevel(status) {
+    if(status==='Aguardando N1') return 'N1';
+    if(status==='Aguardando N2') return 'N2';
+    if(status==='Aguardando N3') return 'N3';
+    return null;
+  },
+  canApprove(status, medicao) {
+    const u = State.user;
+    if(!u) return false;
+    const level = this.nextLevel(status);
+    if(!level) return false;  // status não é aprovável (já aprovado, rascunho, etc.)
+    if(u.role === 'ADM') return true;
+    // Verifica grupos da alçada configurada para a obra/empresa da medição
+    if(medicao && State.cache.alcadas && State.cache.alcadas.length) {
+      const alc = State.cache.alcadas.find(a => a.ativo && a.empresa_id === medicao.empresa_id && a.obra_id === medicao.obra_id)
+               || State.cache.alcadas.find(a => a.ativo && a.empresa_id === medicao.empresa_id && !a.obra_id);
+      if(alc) {
+        const pfx = level.toLowerCase(); // 'n1', 'n2', 'n3'
+        const grupos = alc[`${pfx}_grupos`] || [];
+        const userGrupos = u.grupos || [];
+        if(grupos.length > 0) {
+          // Usuário precisa estar em pelo menos um dos grupos configurados na alçada
+          return userGrupos.some(g => grupos.includes(g));
+        }
+        // Alçada existe mas sem grupos configurados: cai no check de perfil abaixo
+      }
+    }
+    // Fallback: permissão por perfil do usuário
+    if(level === 'N1' && (u.role === 'N1' || u.role === 'N3')) return true;
+    if(level === 'N2' && (u.role === 'N2' || u.role === 'N3')) return true;
+    if(level === 'N3' && u.role === 'N3') return true;
+    return false;
+  },
+  genCodigo() {
+    const d = new Date();
+    const aamm = String(d.getFullYear()).slice(2) + String(d.getMonth()+1).padStart(2,'0');
+    const seq = String(Math.floor(Math.random()*900)+100);
+    return `MED-${aamm}-${seq}`;
+  },
+  el(id) { return document.getElementById(id); },
+  optionsHtml(arr, valKey, lblKey, selected) {
+    return arr.map(a => `<option value="${a[valKey]}" ${a[valKey]==selected?'selected':''}>${a[lblKey]}</option>`).join('');
+  },
+};
+
+// ══════════════════════════════════════
+// UI HELPERS
+// ══════════════════════════════════════
+const UI = {
+  openModal(id) { H.el(id).classList.add('open'); },
+  closeModal(id) { H.el(id).classList.remove('open'); },
+  toast(msg, type='default') {
+    const wrap = H.el('toast');
+    const el = document.createElement('div');
+    el.className = `toast-item ${type}`;
+    const icons = { success:'✓', error:'✗', info:'ℹ', default:'•' };
+    el.innerHTML = `<span style="font-size:14px">${icons[type]||'•'}</span><span>${msg}</span>`;
+    wrap.appendChild(el);
+    setTimeout(() => { el.style.animation='toastOut .3s ease forwards'; setTimeout(()=>el.remove(),300); }, 3500);
+  },
+  loading(containerId, msg='Carregando...') { H.el(containerId).innerHTML = `<div class="loading">${msg}</div>`; },
+  switchTab(tabsId, activeTab, key) {
+    document.querySelectorAll(`#${tabsId} .tab`).forEach(t => t.classList.toggle('active', t.dataset[key] === activeTab));
+  },
+};
+
+// ══════════════════════════════════════
+// APP CONTROLLER
+// ══════════════════════════════════════
+const App = {
+  async login() {
+    const login = H.el('l-user').value.trim();
+    const senha = H.el('l-pass').value.trim();
+    if(!login || !senha) { UI.toast('Preencha usuário e senha','error'); return; }
+    try {
+      const r = await API.login(login, senha);
+      const initials = (r.user.nome || r.user.login).split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+      State.user = { login: r.user.login, name: r.user.nome || r.user.login, role: r.user.perfil, initials };
+      H.el('login-screen').style.display = 'none';
+      H.el('app').style.display = 'flex';
+      H.el('user-name').textContent = State.user.name;
+      H.el('user-avatar').textContent = initials;
+      H.el('user-role-badge').textContent = State.user.role;
+      H.el('user-role-badge').className = `rbadge r${State.user.role}`;
+      await this.navigate('dashboard');
+    } catch(e) {
+      UI.toast(e.message || 'Erro no login', 'error');
+    }
+  },
+  async navigate(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.ni').forEach(n => n.classList.toggle('active', n.dataset.page === page));
+    H.el(`page-${page}`).classList.add('active');
+    State.currentPage = page;
+    this.closeNav();
+    const loader = { dashboard: Pages.dashboard.bind(Pages), medicoes: Pages.medicoes.bind(Pages), acompanhamento: Pages.acompanhamento.bind(Pages), cadastros: Pages.cadastros.bind(Pages), alcadas: Pages.alcadas.bind(Pages), configuracoes: Pages.configuracoes.bind(Pages) };
+    if(loader[page]) await loader[page]();
+  },
+  toggleNav() {
+    const nav = H.el('t-nav');
+    const overlay = H.el('nav-overlay');
+    const isOpen = nav.classList.toggle('open');
+    overlay.classList.toggle('open', isOpen);
+  },
+  closeNav() {
+    H.el('t-nav')?.classList.remove('open');
+    H.el('nav-overlay')?.classList.remove('open');
+  },
+};
+
+// ══════════════════════════════════════
+// PAGES
+// ══════════════════════════════════════
+const Pages = {
+  async dashboard() {
+    try {
+      const [dash, meds] = await Promise.all([ API.dashboard(), API.medicoes() ]);
+      State.cache.medicoes = meds;
+      const mesAtual = new Date().toISOString().slice(0,7);
+      H.el('dash-subtitle').textContent = `Visão geral · ${H.periodoLabel(mesAtual)}`;
+      H.el('dash-stats').innerHTML = `
+        <div class="sc" style="--sc-color:var(--accent)"><div class="sc-lbl">Medições no Mês</div><div class="sc-val">${dash.doMes}</div><div class="sc-sub">Total do período</div></div>
+        <div class="sc" style="--sc-color:var(--yellow)"><div class="sc-lbl">Aguardando Aprovação</div><div class="sc-val" style="color:var(--yellow)">${dash.aguardando}</div><div class="sc-sub">Em alçada N1, N2 ou N3</div></div>
+        <div class="sc" style="--sc-color:var(--green)"><div class="sc-lbl">Aprovadas</div><div class="sc-val" style="color:var(--green)">${dash.aprovadas}</div><div class="sc-sub">Aguardando assinatura</div></div>
+        <div class="sc" style="--sc-color:var(--teal)"><div class="sc-lbl">Em Assinatura</div><div class="sc-val" style="color:var(--teal)">${dash.assinatura}</div><div class="sc-sub">Aguardando fornecedor</div></div>
+        <div class="sc" style="--sc-color:var(--blue)"><div class="sc-lbl">Valor Total Mês</div><div class="sc-val" style="font-size:20px;padding-top:4px">R$</div><div class="sc-sub" style="font-size:15px;color:var(--text)">${H.fmt(dash.valorMes)}</div></div>
+      `;
+      const recent = meds.slice(0, 8);
+      H.el('dash-table').innerHTML = `
+        <div class="tb-bar"><span class="tb-bar-title">MEDIÇÕES RECENTES</span><div style="flex:1"></div><button class="btn btn-o btn-sm" onclick="App.navigate('medicoes')">Ver todas →</button></div>
+        <table><thead><tr><th>Código</th><th>Obra</th><th>Fornecedor</th><th>Período</th><th>% Acum.</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+        <tbody>${recent.map(m => `<tr>
+          <td><span class="cc">${m.codigo}</span></td>
+          <td class="tp">${m.obra_nome||'—'}</td>
+          <td>${m.fornecedor_nome||'—'}</td>
+          <td>${H.periodoLabel(m.periodo)}</td>
+          <td>${H.progressBar(m.pct_total, m.pct_total>=100?'g':'')}</td>
+          <td style="font-family:var(--font-m);font-size:11px">R$ ${H.fmt(m.valor_medicao)}</td>
+          <td>${H.statusBadge(m.status)}</td>
+          <td><button class="btn btn-ghost btn-xs" onclick="Medicoes.openDetalhe(${m.id})">Detalhar</button></td>
+        </tr>`).join('')}</tbody></table>
+      `;
+      const nb = H.el('nb-medicoes');
+      if(dash.aguardando > 0) { nb.textContent = dash.aguardando; nb.style.display = 'inline'; } else { nb.style.display = 'none'; }
+    } catch(e) { UI.toast('Erro ao carregar dashboard: ' + e.message, 'error'); }
+  },
+
+  async medicoes() {
+    try {
+      const [meds, empresas, alcadas] = await Promise.all([ API.medicoes(), API.empresas(), API.alcadas() ]);
+      State.cache.medicoes = meds;
+      State.cache.empresas = empresas;
+      State.cache.alcadas = alcadas;
+      const fe = H.el('med-filter-empresa');
+      fe.innerHTML = '<option value="">Todas as empresas</option>' + empresas.map(e=>`<option value="${e.id}">${e.nome_fantasia||e.razao_social}</option>`).join('');
+      const periodos = [...new Set(meds.map(m=>m.periodo))].sort().reverse();
+      H.el('med-filter-periodo').innerHTML = '<option value="">Todos os períodos</option>' + periodos.map(p=>`<option value="${p}">${H.periodoLabel(p)}</option>`).join('');
+      this._renderMedicoes(meds);
+    } catch(e) { UI.toast('Erro ao carregar medições: ' + e.message, 'error'); }
+  },
+
+  async filterMedicoes() {
+    const q = H.el('med-search').value.toLowerCase();
+    const emp = H.el('med-filter-empresa').value;
+    const st = H.el('med-filter-status').value;
+    const per = H.el('med-filter-periodo').value;
+    try {
+      const filters = {};
+      if(emp) filters.empresa_id = emp;
+      if(st) filters.status = st;
+      if(per) filters.periodo = per;
+      let meds = await API.medicoes(filters);
+      if(q) {
+        meds = meds.filter(m =>
+          m.codigo?.toLowerCase().includes(q) ||
+          m.obra_nome?.toLowerCase().includes(q) ||
+          m.fornecedor_nome?.toLowerCase().includes(q) ||
+          m.contrato_numero?.toLowerCase().includes(q)
+        );
+      }
+      this._renderMedicoes(meds);
+    } catch(e) { UI.toast('Erro ao filtrar: ' + e.message, 'error'); }
+  },
+
+  _renderMedicoes(meds) {
+    const tbody = H.el('med-tbody');
+    if(!meds.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhuma medição encontrada</td></tr>'; return; }
+    const u = State.user;
+    tbody.innerHTML = meds.map(m => {
+      const canA = H.canApprove(m.status, m);
+      const canEdit = (m.status === 'Rascunho' || m.status === 'Reprovado') && (u.role === 'ADM' || m.criado_por === u.name);
+      return `<tr>
+        <td><span class="cc">${m.codigo}</span></td>
+        <td style="font-size:11px">${m.empresa_nome||'—'}</td>
+        <td class="tp">${m.obra_nome||'—'}</td>
+        <td>${m.fornecedor_nome||'—'}</td>
+        <td><span class="cc" style="font-size:10px">${m.contrato_numero||'—'}</span></td>
+        <td>${H.periodoLabel(m.periodo)}</td>
+        <td>${H.progressBar(m.pct_total, m.pct_total>=100?'g':'')}</td>
+        <td style="font-family:var(--font-m);font-size:11px">R$ ${H.fmt(m.valor_medicao)}</td>
+        <td>${H.statusBadge(m.status)}</td>
+        <td>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-xs" onclick="Medicoes.openDetalhe(${m.id})">👁</button>
+            ${canEdit ? `<button class="btn btn-b btn-xs" onclick="Medicoes.edit(${m.id})">✏</button>` : ''}
+            ${canA ? `<button class="btn btn-g btn-xs" onclick="Medicoes.openAprovar(${m.id})">✓</button><button class="btn btn-r btn-xs" onclick="Medicoes.openReprovar(${m.id})">✗</button>` : ''}
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  },
+
+  async acompanhamento() {
+    try {
+      const meds = await API.medicoes();
+      const filter = H.el('acon-filter').value;
+      const filtered = filter ? meds.filter(m => m.status === filter) : meds.filter(m => m.status !== 'Concluído' && m.status !== 'Rascunho');
+      const counts = {};
+      ['Aguardando N1','Aguardando N2','Aguardando N3','Em Assinatura','Reprovado','Aprovado'].forEach(s => counts[s] = meds.filter(m=>m.status===s).length);
+      H.el('acon-summary').innerHTML = [
+        ['Aguardando N1', counts['Aguardando N1'], 'var(--green)'],
+        ['Aguardando N2', counts['Aguardando N2'], 'var(--blue)'],
+        ['Aguardando N3', counts['Aguardando N3'], 'var(--purple)'],
+        ['Em Assinatura', counts['Em Assinatura'], 'var(--teal)'],
+        ['Reprovado', counts['Reprovado'], 'var(--red)'],
+        ['Aprovado', counts['Aprovado'], 'var(--accent)'],
+      ].map(([lbl,cnt,color]) => `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;text-align:center;cursor:pointer" onclick="document.getElementById('acon-filter').value='${lbl}';Pages.acompanhamento()">
+        <div style="font-family:var(--font-d);font-size:26px;color:${color}">${cnt}</div>
+        <div style="font-size:9px;color:var(--text3);letter-spacing:1px;margin-top:4px">${lbl.toUpperCase()}</div>
+      </div>`).join('');
+      if(!filtered.length) { H.el('acon-list').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Nenhuma medição encontrada</div>'; return; }
+      H.el('acon-list').innerHTML = filtered.map(m => {
+        const aprs = m.aprovacoes || [];
+        const n1 = aprs.find(a=>a.nivel==='N1');
+        const n2 = aprs.find(a=>a.nivel==='N2');
+        const n3 = aprs.find(a=>a.nivel==='N3');
+        const statusClass = m.status === 'Reprovado' ? 'urgent' : (['Aguardando N1','Aguardando N2','Aguardando N3'].includes(m.status) ? 'warn-border' : '');
+        const stepClass = (lv) => {
+          const a = aprs.find(a=>a.nivel===lv);
+          if(a?.acao === 'reprovado') return 'rej';
+          if(a?.acao === 'aprovado') return 'done';
+          if(m.status === `Aguardando ${lv}`) return 'curr';
+          return '';
+        };
+        const comQuem = this._comQuem(m);
+        const criado = new Date(m.criado_em);
+        const diasDecorridos = Math.floor((new Date() - criado) / 86400000);
+        const prazoMax = 10;
+        const diasRestantes = prazoMax - diasDecorridos;
+        const prazoHtml = diasRestantes < 0
+          ? `<span style="color:var(--red);font-size:11px">⚠ Vencido ${Math.abs(diasRestantes)}d</span>`
+          : diasRestantes <= 2
+            ? `<span style="color:var(--yellow);font-size:11px">⚠ ${diasRestantes}d restante${diasRestantes!==1?'s':''}</span>`
+            : `<span style="color:var(--green);font-size:11px">${diasRestantes}d</span>`;
+        return `<div class="tkcard ${statusClass}" onclick="Medicoes.openDetalhe(${m.id})">
+          <div>
+            <span class="cc" style="font-size:9px">${m.codigo}</span>
+            <div class="tp" style="font-size:12px;margin-top:5px">${m.obra_nome||'—'}</div>
+            <div style="font-size:10px;color:var(--text3)">${m.fornecedor_nome||'—'} · ${m.contrato_numero||'—'}</div>
+          </div>
+          <div>${H.statusBadge(m.status)}</div>
+          <div>
+            <div class="aflow">
+              ${['N1','N2','N3'].map(lv => `<div class="afstep ${stepClass(lv)}">
+                <div class="afdot">${aprs.find(a=>a.nivel===lv&&a.acao==='aprovado')?'✓':aprs.find(a=>a.nivel===lv&&a.acao==='reprovado')?'✗':lv}</div>
+                <div class="af-lbl">${lv}</div>
+                <div class="af-date">${aprs.find(a=>a.nivel===lv)?H.fmtDateShort(aprs.find(a=>a.nivel===lv).data_hora):'—'}</div>
+              </div>`).join('')}
+            </div>
+          </div>
+          <div><div style="font-size:11px;color:var(--text);font-weight:500">${comQuem.nome}</div><div style="font-size:10px;color:var(--text3)">${comQuem.cargo}</div><div style="font-size:10px;color:var(--blue);margin-top:2px">${comQuem.email}</div></div>
+          <div>${prazoHtml}<div style="font-size:10px;color:var(--text3)">desde ${H.fmtDateShort(m.criado_em)}</div></div>
+        </div>`;
+      }).join('');
+    } catch(e) { UI.toast('Erro ao carregar acompanhamento: ' + e.message, 'error'); }
+  },
+
+  _comQuem(m) {
+    const map = {
+      'Aguardando N1': { nome:'Gestor de Obra', cargo:'Aprovação N1', email:'gestores@hamoa.com.br' },
+      'Aguardando N2': { nome:'Planejamento', cargo:'Aprovação N2', email:'planejamento@hamoa.com.br' },
+      'Aguardando N3': { nome:'Diretoria de Obras', cargo:'Aprovação N3', email:'diretoria@hamoa.com.br' },
+      'Em Assinatura': { nome:'Assinatura Eletrônica', cargo:'Aguardando fornecedor', email:'' },
+      'Aprovado':      { nome:'Financeiro/Contábil', cargo:'Emissão de NF', email:'financeiro@hamoa.com.br' },
+      'Reprovado':     { nome:m.criado_por||'—', cargo:'Retornado ao lançador', email:'' },
+      'Concluído':     { nome:'—', cargo:'Processo concluído', email:'' },
+    };
+    return map[m.status] || { nome:'—', cargo:'—', email:'' };
+  },
+
+  async cadastros(tab) {
+    const active = tab || document.querySelector('#cad-tabs .tab.active')?.dataset.cad || 'empresas';
+    document.querySelectorAll('#cad-tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.cad === active));
+    const loaders = { empresas: this._cadEmpresas, obras: this._cadObras, fornecedores: this._cadFornecedores, contratos: this._cadContratos };
+    if(loaders[active]) await loaders[active]();
+  },
+
+  async _cadEmpresas() {
+    try {
+      const data = await API.empresas(); State.cache.empresas = data;
+      H.el('cad-content').innerHTML = `
+        <div class="tc">
+          <div class="tb-bar"><span class="tb-bar-title">EMPRESAS</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newEmpresa()">+ Empresa</button></div>
+          <table><thead><tr><th>Razão Social</th><th>Nome Fantasia</th><th>CNPJ</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody>${data.length ? data.map(e => `<tr>
+            <td class="tp">${e.razao_social}</td><td>${e.nome_fantasia||'—'}</td>
+            <td style="font-family:var(--font-m);font-size:11px">${e.cnpj}</td>
+            <td>${e.ativo ? '<span class="badge b-ativo">Ativo</span>' : '<span class="badge b-inativo">Inativo</span>'}</td>
+            <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editEmpresa(${e.id})">✏ Editar</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteEmpresa(${e.id})">🗑</button></div></td>
+          </tr>`).join('') : '<tr class="empty-row"><td colspan="5">Nenhuma empresa cadastrada</td></tr>'}</tbody></table>
+        </div>`;
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async _cadObras() {
+    try {
+      const [data, emps] = await Promise.all([ API.obras(), API.empresas() ]); State.cache.obras = data; State.cache.empresas = emps;
+      H.el('cad-content').innerHTML = `
+        <div class="tc">
+          <div class="tb-bar"><span class="tb-bar-title">OBRAS</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newObra()">+ Obra</button></div>
+          <table><thead><tr><th>Código</th><th>Empresa</th><th>Nome da Obra</th><th>Localização</th><th>Gestor</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody>${data.length ? data.map(o => {
+            const emp = emps.find(e=>e.id===o.empresa_id);
+            return `<tr>
+              <td><span class="cc">${o.codigo}</span></td>
+              <td style="font-size:11px">${o.empresa_nome||emp?.nome_fantasia||'—'}</td>
+              <td class="tp">${o.nome}</td><td>${o.localizacao||'—'}</td><td>${o.gestor||'—'}</td>
+              <td>${H.statusBadge(o.status==='Em andamento'?'Aguardando N1':o.status==='Concluído'?'Concluído':'Rascunho')}</td>
+              <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editObra(${o.id})">✏ Editar</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteObra(${o.id})">🗑</button></div></td>
+            </tr>`;
+          }).join('') : '<tr class="empty-row"><td colspan="7">Nenhuma obra cadastrada</td></tr>'}</tbody></table>
+        </div>`;
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async _cadFornecedores() {
+    try {
+      const data = await API.fornecedores(); State.cache.fornecedores = data;
+      H.el('cad-content').innerHTML = `
+        <div class="tc">
+          <div class="tb-bar"><span class="tb-bar-title">FORNECEDORES</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newFornecedor()">+ Fornecedor</button></div>
+          <table><thead><tr><th>Razão Social</th><th>CNPJ</th><th>E-mail Contato</th><th>E-mail NF</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody>${data.length ? data.map(f => `<tr>
+            <td class="tp">${f.razao_social}<br><span style="font-size:10px;color:var(--text3)">${f.nome_fantasia||''}</span></td>
+            <td style="font-family:var(--font-m);font-size:11px">${f.cnpj}</td>
+            <td style="font-size:11px">${f.email||'—'}</td>
+            <td style="font-size:11px">${f.email_nf||'—'}</td>
+            <td>${f.ativo ? '<span class="badge b-ativo">Ativo</span>' : '<span class="badge b-inativo">Inativo</span>'}</td>
+            <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editFornecedor(${f.id})">✏</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteFornecedor(${f.id})">🗑</button></div></td>
+          </tr>`).join('') : '<tr class="empty-row"><td colspan="6">Nenhum fornecedor cadastrado</td></tr>'}</tbody></table>
+        </div>`;
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async _cadContratos() {
+    try {
+      const [data, obras, forns] = await Promise.all([ API.contratos(), API.obras(), API.fornecedores() ]); State.cache.contratos = data;
+      H.el('cad-content').innerHTML = `
+        <div class="tc">
+          <div class="tb-bar"><span class="tb-bar-title">CONTRATOS</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newContrato()">+ Contrato</button></div>
+          <table><thead><tr><th>Nº</th><th>Empresa/Obra</th><th>Fornecedor</th><th>Objeto</th><th>Valor Total</th><th>% Exec.</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody>${data.length ? data.map(c => {
+            const pct = c.pct_executado || 0;
+            return `<tr>
+              <td><span class="cc">${c.numero}</span></td>
+              <td class="tp" style="font-size:11px">${c.obra_nome||'—'}</td>
+              <td style="font-size:11px">${c.fornecedor_nome||'—'}</td>
+              <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.objeto}">${c.objeto}</td>
+              <td style="font-family:var(--font-m);font-size:11px">R$ ${H.fmt(c.valor_total)}</td>
+              <td>${H.progressBar(pct, pct>=100?'g':'')}</td>
+              <td>${H.statusBadge(c.status==='Vigente'?'Aguardando N1':c.status==='Encerrado'?'Concluído':'Rascunho')}</td>
+              <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editContrato(${c.id})">✏</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteContrato(${c.id})">🗑</button></div></td>
+            </tr>`;
+          }).join('') : '<tr class="empty-row"><td colspan="8">Nenhum contrato cadastrado</td></tr>'}</tbody></table>
+        </div>`;
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async alcadas() {
+    try {
+      const [data, emps, obras] = await Promise.all([ API.alcadas(), API.empresas(), API.obras() ]); State.cache.alcadas = data;
+      if(!data.length) { H.el('alcadas-list').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Nenhuma configuração de alçada cadastrada.<br><button class="btn btn-a btn-sm" style="margin-top:12px" onclick="Alcadas.newAlcada()">+ Criar configuração</button></div>'; return; }
+      H.el('alcadas-list').innerHTML = data.map(a => {
+        const emp = emps.find(e=>e.id===a.empresa_id);
+        const obra = obras.find(o=>o.id===a.obra_id);
+        return `<div class="accard">
+          <div class="accard-header">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text)">${a.nome}</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px">
+                🏢 ${emp?.nome_fantasia||emp?.razao_social||'—'}
+                ${obra ? `· 🏗 ${obra.nome}` : '· <em>Todas as obras</em>'}
+              </div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:6px">
+              ${a.ativo ? '<span class="badge b-ativo">Ativo</span>' : '<span class="badge b-inativo">Inativo</span>'}
+              <button class="btn btn-o btn-xs" onclick="Alcadas.edit(${a.id})">✏ Editar</button>
+              <button class="btn btn-r btn-xs" onclick="Alcadas.delete(${a.id})">🗑</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+            ${[['N1','acN1',a.n1_titulo,a.n1_grupos,a.n1_prazo],['N2','acN2',a.n2_titulo,a.n2_grupos,a.n2_prazo],['N3','acN3',a.n3_titulo,a.n3_grupos,a.n3_prazo]].map(([lv,cls,titulo,grupos,prazo]) => `
+            <div style="background:var(--surface3);border-radius:var(--r);padding:12px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <div class="aclvl ${cls}" style="width:28px;height:28px;font-size:14px">${lv}</div>
+                <div><div style="font-size:11px;font-weight:600;color:var(--text)">${titulo||lv}</div><div style="font-size:9px;color:var(--text3)">${prazo} dias úteis</div></div>
+              </div>
+              <div>${(grupos||[]).map(g=>`<span class="adtag" style="font-size:9px">${g}</span>`).join('')}</div>
+            </div>`).join('')}
+          </div>
+          ${a.escalonamento ? `<div style="font-size:10px;color:var(--text3);margin-top:10px;display:flex;align-items:center;gap:6px"><span style="color:var(--yellow)">⚡</span> Escalonamento ativo: alerta em ${a.escalonamento_dias} dias sem resposta</div>` : ''}
+        </div>`;
+      }).join('');
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async configuracoes(section) {
+    const active = section || document.querySelector('.cfg-menu-item.active')?.dataset.cfg || 'ldap';
+    document.querySelectorAll('.cfg-menu-item').forEach(i => i.classList.toggle('active', i.dataset.cfg === active));
+    const loaders = { ldap: Configs.ldap, assinatura: Configs.assinatura, permissoes: Configs.permissoes, notificacoes: Configs.notificacoes, geral: Configs.geral, backup: Configs.backup };
+    if(loaders[active]) await loaders[active]();
+  },
+};
+
+// ══════════════════════════════════════
+// MEDIÇÕES
+// ══════════════════════════════════════
+const Medicoes = {
+  async openNew() {
+    State.editingId = null;
+    H.el('mm-title').textContent = '📋 NOVA MEDIÇÃO';
+    H.el('mm-body').innerHTML = await this._buildForm(null);
+    this._bindFormEvents();
+    UI.openModal('modal-medicao');
+  },
+
+  async edit(id) {
+    State.editingId = id;
+    const m = await API.medicao(id);
+    H.el('mm-title').textContent = `✏ EDITAR MEDIÇÃO · ${m.codigo}`;
+    H.el('mm-body').innerHTML = await this._buildForm(m);
+    this._bindFormEvents();
+    UI.openModal('modal-medicao');
+  },
+
+  async _buildForm(m) {
+    const [empresas, obras, forns, conts] = await Promise.all([ API.empresas(), API.obras(), API.fornecedores(), API.contratos() ]);
+    const obrasFilt = m ? obras.filter(o=>o.empresa_id===m.empresa_id) : obras;
+    const contsFilt = m ? conts.filter(c=>c.obra_id===m.obra_id) : conts;
+    return `
+    <div class="fsec">
+      <div class="fsec-title">IDENTIFICAÇÃO</div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">Empresa *</label>
+          <select class="fi fsel" id="mf-empresa" onchange="Medicoes._onEmpresaChange()">
+            <option value="">Selecione...</option>${empresas.map(e=>`<option value="${e.id}" ${m?.empresa_id===e.id?'selected':''}>${e.nome_fantasia||e.razao_social}</option>`).join('')}
+          </select></div>
+        <div class="fg"><label class="fl">Obra *</label>
+          <select class="fi fsel" id="mf-obra" onchange="Medicoes._onObraChange()">
+            <option value="">Selecione...</option>${obrasFilt.map(o=>`<option value="${o.id}" ${m?.obra_id===o.id?'selected':''}>${o.nome}</option>`).join('')}
+          </select></div>
+        <div class="fg"><label class="fl">Fornecedor *</label>
+          <select class="fi fsel" id="mf-fornecedor">
+            <option value="">Selecione...</option>${forns.map(f=>`<option value="${f.id}" ${m?.fornecedor_id===f.id?'selected':''}>${f.nome_fantasia||f.razao_social}</option>`).join('')}
+          </select></div>
+        <div class="fg"><label class="fl">Contrato *</label>
+          <select class="fi fsel" id="mf-contrato" onchange="Medicoes._onContratoChange()">
+            <option value="">Selecione...</option>${contsFilt.map(c=>`<option value="${c.id}" ${m?.contrato_id===c.id?'selected':''}>${c.numero} · ${c.objeto}</option>`).join('')}
+          </select></div>
+        <div class="fg"><label class="fl">Período de Referência *</label>
+          <input class="fi" type="month" id="mf-periodo" value="${m?.periodo||''}"></div>
+        <div class="fg"><label class="fl">Código da Medição</label>
+          <input class="fi" id="mf-codigo" value="${m?.codigo||H.genCodigo()}" readonly></div>
+      </div>
+    </div>
+    <div class="fsec">
+      <div class="fsec-title">EVOLUÇÃO PERCENTUAL DO CONTRATO</div>
+      <div class="fgrid fgrid3">
+        <div class="fg"><label class="fl">% Anterior (acumulado)</label>
+          <input class="fi" id="mf-pct-ant" value="${m?.pct_anterior||0}" readonly></div>
+        <div class="fg"><label class="fl">% Este Mês *</label>
+          <input class="fi" type="number" id="mf-pct-mes" min="0" max="100" step="0.01" value="${m?.pct_mes||''}" oninput="Medicoes._calcEvolucao()"></div>
+        <div class="fg"><label class="fl">% Acumulado</label>
+          <input class="fi" id="mf-pct-total" value="${m?.pct_total||0}%" readonly></div>
+        <div class="fg"><label class="fl">Valor do Contrato</label>
+          <input class="fi" id="mf-valor-contrato" value="${m?'R$ '+H.fmt(m.valor_medicao/((m.pct_mes||1)/100)):'—'}" readonly></div>
+        <div class="fg"><label class="fl">Valor desta Medição</label>
+          <input class="fi" id="mf-valor-med" value="${m?'R$ '+H.fmt(m.valor_medicao):'—'}" readonly></div>
+        <div class="fg"><label class="fl">Valor Acumulado</label>
+          <input class="fi" id="mf-valor-acum" value="${m?'R$ '+H.fmt(m.valor_acumulado):'—'}" readonly></div>
+      </div>
+      <div class="chart-wrap" style="margin-top:4px">
+        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;margin-bottom:8px">EVOLUÇÃO VISUAL</div>
+        <div class="evol-bar">
+          <div class="evol-seg" id="mf-bar-ant" style="background:rgba(59,130,246,.35);left:0;width:${m?.pct_anterior||0}%"></div>
+          <div class="evol-seg" id="mf-bar-mes" style="background:rgba(245,166,35,.55);left:${m?.pct_anterior||0}%;width:${m?.pct_mes||0}%"></div>
+          <div class="evol-lbl" id="mf-bar-lbl">${m?`${m.pct_total}% (${m.pct_anterior}% ant + ${m.pct_mes}% mês)`:'Selecione o contrato e informe o % do mês'}</div>
+        </div>
+      </div>
+    </div>
+    <div class="fsec">
+      <div class="fsec-title">DESCRIÇÃO DOS SERVIÇOS EXECUTADOS</div>
+      <div class="fg"><textarea class="fi" id="mf-descricao" rows="4" placeholder="Descreva detalhadamente os serviços executados no período...">${m?.descricao||''}</textarea></div>
+    </div>
+    <div class="fsec">
+      <div class="fsec-title">EVIDÊNCIAS (imagens, PDFs, vídeos)</div>
+      <div class="upz" onclick="UI.toast('Selecione arquivos para upload','info')">
+        <div class="upz-ico">📎</div>
+        <div class="upz-txt">Clique para selecionar ou arraste arquivos</div>
+        <div class="upz-sub">JPG, PNG, PDF, DOCX, MP4 · Máx. 50MB por arquivo</div>
+      </div>
+      <div class="flist" id="mf-files">
+        ${(m?.evidencias||[]).map(f=>`<div class="fitem"><span style="font-size:14px">${f.tipo==='img'?'🖼':f.tipo==='pdf'?'📄':'🎬'}</span><span class="fitem-name">${f.nome}</span><span class="fitem-sz">${f.tamanho}</span><span class="fitem-rm" onclick="this.closest('.fitem').remove()">×</span></div>`).join('')}
+      </div>
+    </div>`;
+  },
+
+  _bindFormEvents() {
+    setTimeout(() => {
+      const pctMes = H.el('mf-pct-mes');
+      if(pctMes && pctMes.value) this._calcEvolucao();
+    }, 100);
+  },
+
+  async _onEmpresaChange() {
+    const empId = parseInt(H.el('mf-empresa').value);
+    const obras = await API.obras(empId);
+    H.el('mf-obra').innerHTML = '<option value="">Selecione a obra...</option>' + obras.map(o=>`<option value="${o.id}">${o.nome}</option>`).join('');
+    H.el('mf-contrato').innerHTML = '<option value="">Selecione a obra primeiro...</option>';
+  },
+
+  async _onObraChange() {
+    const obraId = parseInt(H.el('mf-obra').value);
+    const conts = await API.contratos(obraId);
+    H.el('mf-contrato').innerHTML = '<option value="">Selecione o contrato...</option>' + conts.map(c=>`<option value="${c.id}">${c.numero} · ${c.objeto}</option>`).join('');
+  },
+
+  async _onContratoChange() {
+    const contId = parseInt(H.el('mf-contrato').value);
+    if(!contId) return;
+    const cont = State.cache.contratos.find(c=>c.id===contId) || (await API.contratos()).find(c=>c.id===contId);
+    if(cont) {
+      H.el('mf-pct-ant').value = cont.pct_executado || 0;
+      H.el('mf-valor-contrato').value = 'R$ ' + H.fmt(cont.valor_total);
+      this._calcEvolucao();
+    }
+  },
+
+  _calcEvolucao() {
+    const ant = parseFloat(H.el('mf-pct-ant')?.value) || 0;
+    const mes = parseFloat(H.el('mf-pct-mes')?.value) || 0;
+    const total = Math.min(ant + mes, 100);
+    const vcStr = H.el('mf-valor-contrato')?.value || '';
+    const vc = parseFloat(vcStr.replace(/[^0-9,]/g,'').replace(',','.')) || 0;
+    const valorMed = vc * mes / 100;
+    const valorAcum = vc * total / 100;
+    if(H.el('mf-pct-total')) H.el('mf-pct-total').value = total + '%';
+    if(H.el('mf-valor-med')) H.el('mf-valor-med').value = 'R$ ' + H.fmt(valorMed);
+    if(H.el('mf-valor-acum')) H.el('mf-valor-acum').value = 'R$ ' + H.fmt(valorAcum);
+    if(H.el('mf-bar-ant')) H.el('mf-bar-ant').style.width = ant + '%';
+    if(H.el('mf-bar-mes')) { H.el('mf-bar-mes').style.left = ant + '%'; H.el('mf-bar-mes').style.width = mes + '%'; }
+    if(H.el('mf-bar-lbl')) H.el('mf-bar-lbl').textContent = mes ? `${total}% acumulado (${ant}% ant + ${mes}% mês)` : 'Informe o % deste mês';
+  },
+
+  _collectForm() {
+    const empresa_id = parseInt(H.el('mf-empresa')?.value);
+    const obra_id = parseInt(H.el('mf-obra')?.value);
+    const fornecedor_id = parseInt(H.el('mf-fornecedor')?.value);
+    const contrato_id = parseInt(H.el('mf-contrato')?.value);
+    const periodo = H.el('mf-periodo')?.value;
+    const codigo = H.el('mf-codigo')?.value;
+    const pct_anterior = parseFloat(H.el('mf-pct-ant')?.value) || 0;
+    const pct_mes = parseFloat(H.el('mf-pct-mes')?.value) || 0;
+    const pct_total = parseFloat(H.el('mf-pct-total')?.value) || 0;
+    const vcStr = H.el('mf-valor-contrato')?.value || '';
+    const vc = parseFloat(vcStr.replace(/[^0-9,]/g,'').replace(',','.')) || 0;
+    const descricao = H.el('mf-descricao')?.value || '';
+    if(!empresa_id||!obra_id||!fornecedor_id||!contrato_id||!periodo||!pct_mes) return null;
+    return { empresa_id, obra_id, fornecedor_id, contrato_id, periodo, codigo, pct_anterior, pct_mes, pct_total, valor_medicao: vc*pct_mes/100, valor_acumulado: vc*pct_total/100, descricao };
+  },
+
+  async saveDraft() {
+    const data = this._collectForm();
+    if(!data) { UI.toast('Preencha os campos obrigatórios','error'); return; }
+    data.status = 'Rascunho';
+    try {
+      if(State.editingId) await API.updateMedicao(State.editingId, data);
+      else await API.createMedicao(data);
+      UI.closeModal('modal-medicao');
+      UI.toast(`Medição ${data.codigo} salva como rascunho`, 'info');
+      await Pages.medicoes();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async launch() {
+    const data = this._collectForm();
+    if(!data) { UI.toast('Preencha todos os campos obrigatórios','error'); return; }
+    data.status = 'Aguardando N1';
+    try {
+      if(State.editingId) await API.updateMedicao(State.editingId, data);
+      else await API.createMedicao(data);
+      UI.closeModal('modal-medicao');
+      UI.toast(`✓ Medição ${data.codigo} lançada — enviada para aprovação N1`, 'success');
+      await Pages.medicoes();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  openAprovar(id) {
+    State.currentActionMedicaoId = id;
+    API.medicao(id).then(m => {
+      const level = H.nextLevel(m.status);
+      H.el('apr-nivel-title').textContent = `Aprovação de ${level} · ${m.codigo}`;
+      H.el('apr-desc').textContent = `Confirma a aprovação desta medição no nível ${level}? A medição avançará para o próximo estágio.`;
+      H.el('apr-obs').value = '';
+      UI.openModal('modal-aprovar');
+    }).catch(e => UI.toast('Erro: ' + e.message, 'error'));
+  },
+
+  openReprovar(id) {
+    State.currentActionMedicaoId = id;
+    H.el('repr-motivo').value = '';
+    UI.openModal('modal-reprovar');
+  },
+
+  async confirmarAprovacao() {
+    const id = State.currentActionMedicaoId;
+    if(!id) return;
+    const obs = H.el('apr-obs').value;
+    try {
+      const r = await API.aprovar(id, obs);
+      UI.closeModal('modal-aprovar');
+      UI.toast(`✓ Medição aprovada — novo status: ${r.novoStatus}`, 'success');
+      if(State.currentPage==='medicoes') await Pages.medicoes();
+      if(State.currentPage==='acompanhamento') await Pages.acompanhamento();
+      if(State.currentPage==='dashboard') await Pages.dashboard();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async confirmarReprovacao() {
+    const id = State.currentActionMedicaoId;
+    const motivo = H.el('repr-motivo').value.trim();
+    if(!motivo) { UI.toast('Informe o motivo da reprovação','error'); return; }
+    try {
+      await API.reprovar(id, motivo);
+      UI.closeModal('modal-reprovar');
+      UI.toast('Medição reprovada. Lançador será notificado.', 'error');
+      if(State.currentPage==='medicoes') await Pages.medicoes();
+      if(State.currentPage==='acompanhamento') await Pages.acompanhamento();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async openDetalhe(id) {
+    State.currentMedicaoId = id;
+    try {
+      const m = await API.medicao(id);
+      const aprs = m.aprovacoes || [];
+      const evids = m.evidencias || [];
+      H.el('det-title').innerHTML = `<span class="cc" style="font-size:14px">${m.codigo}</span> ${H.statusBadge(m.status)}`;
+      const stepState = (lv) => {
+        const a = aprs.find(a=>a.nivel===lv);
+        if(a?.acao==='reprovado') return 'rej';
+        if(a?.acao==='aprovado') return 'done';
+        if(m.status===`Aguardando ${lv}`) return 'curr';
+        return '';
+      };
+      H.el('det-body').innerHTML = `
+        <div style="margin-bottom:20px">
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px">FLUXO DE APROVAÇÃO</div>
+          <div class="aflow" style="max-width:480px">
+            ${['N1','N2','N3'].map(lv => {
+              const a = aprs.find(a=>a.nivel===lv);
+              const sc = stepState(lv);
+              return `<div class="afstep ${sc}">
+                <div class="afdot">${a?.acao==='aprovado'?'✓':a?.acao==='reprovado'?'✗':lv}</div>
+                <div class="af-lbl">${lv}</div>
+                <div class="af-name">${a?.usuario||'Aguardando'}</div>
+                <div class="af-date">${a?H.fmtDateShort(a.data_hora):'—'}</div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+        <div class="tabs" id="det-tabs">
+          <div class="tab active" data-dtab="info">Informações</div>
+          <div class="tab" data-dtab="evidencias">Evidências (${evids.length})</div>
+          <div class="tab" data-dtab="historico">Histórico</div>
+          <div class="tab" data-dtab="nf">Nota Fiscal</div>
+        </div>
+        <div id="det-tab-content">
+          <div id="dt-info">
+            <div class="ig">
+              <div><div class="ii-lbl">Empresa</div><div class="ii-val">${m.empresa_nome||'—'}</div></div>
+              <div><div class="ii-lbl">Obra</div><div class="ii-val">${m.obra_nome||'—'}</div></div>
+              <div><div class="ii-lbl">Período</div><div class="ii-val">${H.periodoLabel(m.periodo)}</div></div>
+              <div><div class="ii-lbl">Fornecedor</div><div class="ii-val">${m.fornecedor_nome||'—'}</div></div>
+              <div><div class="ii-lbl">Contrato</div><div class="ii-val"><span class="cc">${m.contrato_numero||'—'}</span></div></div>
+              <div><div class="ii-lbl">% Anterior</div><div class="ii-val">${m.pct_anterior}%</div></div>
+              <div><div class="ii-lbl">% Este Mês</div><div class="ii-val" style="color:var(--accent)">${m.pct_mes}%</div></div>
+              <div><div class="ii-lbl">% Acumulado</div><div class="ii-val">${m.pct_total}%</div></div>
+              <div><div class="ii-lbl">Valor desta Medição</div><div class="ii-val" style="font-family:var(--font-m);color:var(--accent)">R$ ${H.fmt(m.valor_medicao)}</div></div>
+              <div><div class="ii-lbl">Valor Acumulado</div><div class="ii-val" style="font-family:var(--font-m)">R$ ${H.fmt(m.valor_acumulado)}</div></div>
+              <div><div class="ii-lbl">Lançado por</div><div class="ii-val">${m.criado_por} · ${H.fmtDateShort(m.criado_em)}</div></div>
+            </div>
+            <div><div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:8px">DESCRIÇÃO DOS SERVIÇOS</div>
+            <div class="ibox"><div class="ibox-text" style="font-size:12px;line-height:1.6">${m.descricao||'Sem descrição'}</div></div></div>
+          </div>
+          <div id="dt-evidencias" style="display:none">
+            ${evids.length ? evids.map(f=>`<div class="fitem"><span style="font-size:14px">${f.tipo==='img'?'🖼':f.tipo==='pdf'?'📄':'🎬'}</span><span class="fitem-name">${f.nome}</span><span class="fitem-sz">${f.tamanho}</span></div>`).join('') : '<div style="text-align:center;padding:30px;color:var(--text3)">Nenhuma evidência anexada</div>'}
+            <button class="btn btn-o btn-sm" style="margin-top:10px" onclick="UI.toast('Upload disponível via /api/medicoes/${id}/evidencias','info')">+ Adicionar evidência</button>
+          </div>
+          <div id="dt-historico" style="display:none">
+            <div class="tl">${[...aprs].reverse().map(a => {
+              const icons = { aprovado:['g','✓'], reprovado:['r','✗'], lançado:['b','📋'], default:['','→'] };
+              const [cls,ico] = icons[a.acao] || icons.default;
+              return `<div class="tl-item"><div class="tl-dot ${cls}">${ico}</div><div class="tl-content"><div class="tl-act">${a.nivel} · ${a.acao.charAt(0).toUpperCase()+a.acao.slice(1)}</div><div class="tl-meta">${a.usuario} · ${H.fmtDate(a.data_hora)}</div>${a.comentario?`<div class="tl-comment">${a.comentario}</div>`:''}</div></div>`;
+            }).join('')||'<div style="color:var(--text3);font-size:12px">Sem histórico registrado</div>'}</div>
+          </div>
+          <div id="dt-nf" style="display:none">
+            <div class="ibox warn" style="margin-bottom:14px">
+              <div class="ibox-title">⚠️ Instrução para Emissão da Nota Fiscal</div>
+              <div class="ibox-text">O fornecedor deverá incluir obrigatoriamente o código <strong style="color:var(--accent);font-family:var(--font-m)">${m.codigo}</strong> no campo <strong>Observações / Dados Adicionais</strong> da Nota Fiscal.</div>
+            </div>
+            <div class="ibox">
+              <div class="ii-lbl" style="margin-bottom:8px">STATUS DA NF</div>
+              <div style="font-size:12px;color:var(--text3)">${m.status==='Concluído'?'✅ NF vinculada e processada':m.status==='Em Assinatura'?'⏳ Aguardando assinatura do fornecedor':'⏳ Medição ainda não aprovada completamente'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+      document.querySelectorAll('#det-tabs .tab').forEach(t => {
+        t.addEventListener('click', function() {
+          document.querySelectorAll('#det-tabs .tab').forEach(x=>x.classList.remove('active'));
+          this.classList.add('active');
+          ['info','evidencias','historico','nf'].forEach(tabId => {
+            const el = H.el('dt-'+tabId);
+            if(el) el.style.display = this.dataset.dtab===tabId?'block':'none';
+          });
+        });
+      });
+      const canA = H.canApprove(m.status, m);
+      const canEnviarAssin = ['Aprovado','Em Assinatura'].includes(m.status);
+      H.el('det-footer').innerHTML = `
+        <button class="btn btn-o" onclick="UI.closeModal('modal-detalhe')">Fechar</button>
+        ${canEnviarAssin ? `<button class="btn btn-a" style="background:var(--teal)" onclick="UI.closeModal('modal-detalhe');Medicoes.openEnviarAssinatura(${id})">✍ Enviar para Assinatura</button>` : ''}
+        ${canA ? `<button class="btn btn-r" onclick="UI.closeModal('modal-detalhe');Medicoes.openReprovar(${id})">✗ Reprovar</button><button class="btn btn-g" onclick="UI.closeModal('modal-detalhe');Medicoes.openAprovar(${id})">✓ Aprovar</button>` : ''}
+      `;
+      UI.openModal('modal-detalhe');
+    } catch(e) { UI.toast('Erro ao carregar detalhe: ' + e.message, 'error'); }
+  },
+
+  async openEnviarAssinatura(id) {
+    try {
+      const m = await API.medicao(id);
+      if(!['Aprovado','Em Assinatura'].includes(m.status)) { UI.toast('Medição não está aprovada','error'); return; }
+      State.currentActionMedicaoId = id;
+      // Pré-preenche com dados do fornecedor
+      H.el('assin-codigo').textContent = m.codigo;
+      H.el('assin-email-forn').value = m.fornecedor_email_assin || '';
+      H.el('assin-tel-forn').value   = m.fornecedor_tel || '';
+      H.el('assin-email-rem').value  = '';
+      // Monta prévia do documento
+      const fmt = (v) => parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      const meses = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      const [ano, mes] = (m.periodo||'').split('-');
+      const periodoLabel = m.periodo ? `${meses[parseInt(mes)]}/${ano}` : '—';
+      H.el('assin-preview').textContent =
+`AUTORIZAÇÃO DE EMISSÃO DE NOTA FISCAL
+${'='.repeat(48)}
+
+Empresa  : ${m.empresa_nome||'—'}
+Obra     : ${m.obra_nome||'—'}
+Fornecedor: ${m.fornecedor_nome||'—'}
+Contrato : ${m.contrato_numero||'—'}
+Código   : ${m.codigo}
+Período  : ${periodoLabel}
+
+EVOLUÇÃO PERCENTUAL
+% Anterior acumulado : ${m.pct_anterior}%
+% Medido neste período: ${m.pct_mes}%
+% Acumulado total    : ${m.pct_total}%
+
+VALOR AUTORIZADO PARA EMISSÃO DA NF
+Valor desta medição : R$ ${fmt(m.valor_medicao)}
+Valor acumulado     : R$ ${fmt(m.valor_acumulado)}
+
+SERVIÇOS EXECUTADOS
+${m.descricao||'Conforme contrato vigente.'}
+
+${'='.repeat(48)}
+IMPORTANTE
+A Nota Fiscal deverá ser emitida no valor de
+R$ ${fmt(m.valor_medicao)} e incluir obrigatoriamente
+o código ${m.codigo} no campo
+Observações / Dados Adicionais da NF.
+${'='.repeat(48)}`;
+      UI.openModal('modal-assinatura-envio');
+    } catch(e) { UI.toast('Erro ao carregar medição: ' + e.message, 'error'); }
+  },
+
+  async confirmarEnvioAssinatura() {
+    const id = State.currentActionMedicaoId;
+    const email_fornecedor = H.el('assin-email-forn').value.trim();
+    const tel_fornecedor   = H.el('assin-tel-forn').value.trim();
+    const email_remetente  = H.el('assin-email-rem').value.trim();
+    if(!email_fornecedor && !tel_fornecedor) { UI.toast('Informe e-mail ou telefone do fornecedor','error'); return; }
+    const btn = H.el('assin-btn-enviar');
+    btn.disabled = true; btn.textContent = '⏳ Enviando...';
+    try {
+      const r = await API.enviarAssinatura(id, { email_fornecedor, tel_fornecedor, email_remetente });
+      UI.closeModal('modal-assinatura-envio');
+      UI.toast(`✓ Documento enviado para assinatura — ${r.destinatario}`, 'success');
+      if(State.currentPage==='medicoes') await Pages.medicoes.bind(Pages)();
+      if(State.currentPage==='acompanhamento') await Pages.acompanhamento.bind(Pages)();
+      if(State.currentPage==='dashboard') await Pages.dashboard.bind(Pages)();
+    } catch(e) {
+      UI.toast('Erro: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = '✉ Enviar Documento';
+    }
+  },
+};
+
+// ══════════════════════════════════════
+// CADASTROS
+// ══════════════════════════════════════
+const Cadastros = {
+  newEmpresa() { State.editingId=null; ['emp-razao','emp-fantasia','emp-cnpj'].forEach(id=>{const e=H.el(id);if(e)e.value=''}); H.el('emp-ativo').value='1'; H.el('emp-title').textContent='🏢 NOVA EMPRESA'; UI.openModal('modal-empresa'); },
+  async editEmpresa(id) {
+    State.editingId=id;
+    const e = State.cache.empresas.find(x=>x.id===id) || (await API.empresas()).find(x=>x.id===id);
+    H.el('emp-razao').value=e.razao_social||''; H.el('emp-fantasia').value=e.nome_fantasia||'';
+    H.el('emp-cnpj').value=e.cnpj||''; H.el('emp-ativo').value=e.ativo?'1':'0';
+    H.el('emp-title').textContent='✏ EDITAR EMPRESA'; UI.openModal('modal-empresa');
+  },
+  async saveEmpresa() {
+    const razao_social=H.el('emp-razao').value.trim(); const cnpj=H.el('emp-cnpj').value.trim();
+    if(!razao_social||!cnpj){UI.toast('Razão Social e CNPJ são obrigatórios','error');return;}
+    const data={razao_social, nome_fantasia:H.el('emp-fantasia').value.trim(), cnpj, ativo:parseInt(H.el('emp-ativo').value)===1};
+    try {
+      if(State.editingId) await API.updateEmpresa(State.editingId, data);
+      else await API.createEmpresa(data);
+      UI.closeModal('modal-empresa'); UI.toast('Empresa salva com sucesso','success'); await Pages._cadEmpresas();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+  async deleteEmpresa(id) { if(!confirm('Excluir empresa?'))return; try { await API.deleteEmpresa(id); UI.toast('Empresa excluída'); await Pages._cadEmpresas(); } catch(e){UI.toast('Erro: '+e.message,'error');} },
+
+  async newObra() {
+    State.editingId=null;
+    const emps=await API.empresas(); State.cache.empresas=emps;
+    H.el('obra-empresa').innerHTML='<option value="">Selecione...</option>'+emps.map(e=>`<option value="${e.id}">${e.nome_fantasia||e.razao_social}</option>`).join('');
+    ['obra-codigo','obra-nome','obra-local','obra-gestor'].forEach(id=>H.el(id).value='');
+    H.el('obra-status').value='Em andamento'; H.el('obra-title').textContent='🏗 NOVA OBRA'; UI.openModal('modal-obra');
+  },
+  async editObra(id) {
+    State.editingId=id;
+    const [o, emps] = await Promise.all([ API.obras().then(list=>list.find(x=>x.id===id)), API.empresas() ]);
+    State.cache.empresas=emps;
+    H.el('obra-empresa').innerHTML='<option value="">Selecione...</option>'+emps.map(e=>`<option value="${e.id}" ${e.id===o.empresa_id?'selected':''}>${e.nome_fantasia||e.razao_social}</option>`).join('');
+    H.el('obra-codigo').value=o.codigo||''; H.el('obra-nome').value=o.nome||'';
+    H.el('obra-local').value=o.localizacao||''; H.el('obra-gestor').value=o.gestor||'';
+    H.el('obra-status').value=o.status||'Em andamento'; H.el('obra-title').textContent='✏ EDITAR OBRA'; UI.openModal('modal-obra');
+  },
+  async saveObra() {
+    const empresa_id=parseInt(H.el('obra-empresa').value); const codigo=H.el('obra-codigo').value.trim();
+    const nome=H.el('obra-nome').value.trim();
+    if(!empresa_id||!codigo||!nome){UI.toast('Empresa, código e nome são obrigatórios','error');return;}
+    const data={empresa_id,codigo,nome,localizacao:H.el('obra-local').value.trim(),gestor:H.el('obra-gestor').value.trim(),status:H.el('obra-status').value};
+    try {
+      if(State.editingId) await API.updateObra(State.editingId, data);
+      else await API.createObra(data);
+      UI.closeModal('modal-obra'); UI.toast('Obra salva','success'); await Pages._cadObras();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+  async deleteObra(id){if(!confirm('Excluir obra?'))return;try{await API.deleteObra(id);UI.toast('Obra excluída');await Pages._cadObras();}catch(e){UI.toast('Erro: '+e.message,'error');}},
+
+  async newFornecedor() {
+    State.editingId=null; ['forn-razao','forn-fantasia','forn-cnpj','forn-tel','forn-email','forn-emailnf','forn-emailassin'].forEach(id=>H.el(id).value='');
+    H.el('forn-ativo').value='1'; H.el('forn-title').textContent='🤝 NOVO FORNECEDOR'; UI.openModal('modal-fornecedor');
+  },
+  async editFornecedor(id) {
+    State.editingId=id;
+    const f = State.cache.fornecedores.find(x=>x.id===id) || (await API.fornecedores()).find(x=>x.id===id);
+    H.el('forn-razao').value=f.razao_social||''; H.el('forn-fantasia').value=f.nome_fantasia||'';
+    H.el('forn-cnpj').value=f.cnpj||''; H.el('forn-tel').value=f.tel||'';
+    H.el('forn-email').value=f.email||''; H.el('forn-emailnf').value=f.email_nf||'';
+    H.el('forn-emailassin').value=f.email_assin||''; H.el('forn-ativo').value=f.ativo?'1':'0';
+    H.el('forn-title').textContent='✏ EDITAR FORNECEDOR'; UI.openModal('modal-fornecedor');
+  },
+  async saveFornecedor() {
+    const razao_social=H.el('forn-razao').value.trim(); const cnpj=H.el('forn-cnpj').value.trim();
+    if(!razao_social||!cnpj){UI.toast('Razão Social e CNPJ são obrigatórios','error');return;}
+    const data={razao_social, nome_fantasia:H.el('forn-fantasia').value.trim(), cnpj, tel:H.el('forn-tel').value.trim(), email:H.el('forn-email').value.trim(), email_nf:H.el('forn-emailnf').value.trim(), email_assin:H.el('forn-emailassin').value.trim(), ativo:parseInt(H.el('forn-ativo').value)===1};
+    try {
+      if(State.editingId) await API.updateFornecedor(State.editingId, data);
+      else await API.createFornecedor(data);
+      UI.closeModal('modal-fornecedor'); UI.toast('Fornecedor salvo','success'); await Pages._cadFornecedores();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+  async deleteFornecedor(id){if(!confirm('Excluir fornecedor?'))return;try{await API.deleteFornecedor(id);UI.toast('Fornecedor excluído');await Pages._cadFornecedores();}catch(e){UI.toast('Erro: '+e.message,'error');}},
+
+  async newContrato() {
+    State.editingId=null;
+    const [emps, forns] = await Promise.all([ API.empresas(), API.fornecedores() ]); State.cache.empresas=emps; State.cache.fornecedores=forns;
+    H.el('cont-empresa').innerHTML='<option value="">Selecione...</option>'+emps.map(e=>`<option value="${e.id}">${e.nome_fantasia||e.razao_social}</option>`).join('');
+    H.el('cont-obra').innerHTML='<option value="">Selecione a empresa...</option>';
+    H.el('cont-fornecedor').innerHTML='<option value="">Selecione...</option>'+forns.map(f=>`<option value="${f.id}">${f.nome_fantasia||f.razao_social}</option>`).join('');
+    ['cont-numero','cont-objeto','cont-valor','cont-inicio','cont-termino','cont-obs'].forEach(id=>H.el(id).value='');
+    H.el('cont-status').value='Vigente'; H.el('cont-title').textContent='📁 NOVO CONTRATO'; UI.openModal('modal-contrato');
+  },
+  async editContrato(id) {
+    State.editingId=id;
+    const [conts, emps, forns] = await Promise.all([ API.contratos(), API.empresas(), API.fornecedores() ]);
+    const c = conts.find(x=>x.id===id); State.cache.empresas=emps; State.cache.fornecedores=forns; State.cache.contratos=conts;
+    H.el('cont-empresa').innerHTML='<option value="">Selecione...</option>'+emps.map(e=>`<option value="${e.id}" ${e.id===c.empresa_id?'selected':''}>${e.nome_fantasia||e.razao_social}</option>`).join('');
+    await this.loadObrasByEmpresa('cont-empresa','cont-obra',c.obra_id);
+    H.el('cont-fornecedor').innerHTML='<option value="">Selecione...</option>'+forns.map(f=>`<option value="${f.id}" ${f.id===c.fornecedor_id?'selected':''}>${f.nome_fantasia||f.razao_social}</option>`).join('');
+    H.el('cont-numero').value=c.numero||''; H.el('cont-objeto').value=c.objeto||'';
+    H.el('cont-valor').value=c.valor_total||''; H.el('cont-inicio').value=c.inicio||'';
+    H.el('cont-termino').value=c.termino||''; H.el('cont-obs').value=c.obs||'';
+    H.el('cont-status').value=c.status||'Vigente'; H.el('cont-title').textContent='✏ EDITAR CONTRATO'; UI.openModal('modal-contrato');
+  },
+  async loadObrasByEmpresa(empElId, obraElId, selectedId) {
+    const empId=parseInt(H.el(empElId)?.value);
+    const obras = await API.obras(empId);
+    H.el(obraElId).innerHTML='<option value="">Selecione a obra...</option>'+obras.map(o=>`<option value="${o.id}" ${o.id===selectedId?'selected':''}>${o.nome}</option>`).join('');
+  },
+  async saveContrato() {
+    const empresa_id=parseInt(H.el('cont-empresa').value); const obra_id=parseInt(H.el('cont-obra').value);
+    const fornecedor_id=parseInt(H.el('cont-fornecedor').value); const numero=H.el('cont-numero').value.trim();
+    const objeto=H.el('cont-objeto').value.trim(); const valor_total=parseFloat(H.el('cont-valor').value)||0;
+    if(!empresa_id||!obra_id||!fornecedor_id||!numero||!objeto||!valor_total){UI.toast('Preencha todos os campos obrigatórios','error');return;}
+    const data={empresa_id,obra_id,fornecedor_id,numero,objeto,valor_total,inicio:H.el('cont-inicio').value,termino:H.el('cont-termino').value,status:H.el('cont-status').value,obs:H.el('cont-obs').value};
+    try {
+      if(State.editingId) await API.updateContrato(State.editingId, data);
+      else await API.createContrato(data);
+      UI.closeModal('modal-contrato'); UI.toast('Contrato salvo','success'); await Pages._cadContratos();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+  async deleteContrato(id){if(!confirm('Excluir contrato?'))return;try{await API.deleteContrato(id);UI.toast('Contrato excluído');await Pages._cadContratos();}catch(e){UI.toast('Erro: '+e.message,'error');}},
+};
+
+// ══════════════════════════════════════
+// ALÇADAS
+// ══════════════════════════════════════
+const Alcadas = {
+  async edit(id) {
+    State.editingId = id;
+    const a = State.cache.alcadas.find(x=>x.id===id) || (await API.alcadas()).find(x=>x.id===id);
+    H.el('alc-title').textContent = `✏ EDITAR ALÇADA · ${a.nome}`;
+    H.el('alc-body').innerHTML = await this._buildForm(a);
+    UI.openModal('modal-alcada');
+  },
+  async newAlcada() {
+    State.editingId = null;
+    H.el('alc-title').textContent = '⚡ NOVA CONFIGURAÇÃO DE ALÇADA';
+    H.el('alc-body').innerHTML = await this._buildForm(null);
+    UI.openModal('modal-alcada');
+  },
+  async _buildForm(a) {
+    const [emps, obras] = await Promise.all([ API.empresas(), API.obras() ]);
+    const obrasFilt = a ? obras.filter(o=>o.empresa_id===a.empresa_id) : obras;
+    const tagInputHtml = (id, groups) => `
+      <div class="tag-input-wrap" id="${id}-wrap" onclick="document.getElementById('${id}-input').focus()">
+        ${(groups||[]).map(g=>`<span class="adtag">${g}<span class="adtag-rm" onclick="Alcadas.removeTag(this,'${id}')">×</span></span>`).join('')}
+        <input class="tag-input" id="${id}-input" placeholder="Grupo do AD..." onkeydown="Alcadas.addTag(event,'${id}')">
+      </div>
+      <div class="hint">Pressione Enter para adicionar grupo</div>`;
+    return `
+    <div class="fgrid">
+      <div class="fg cs2"><label class="fl">Nome da Configuração *</label><input class="fi" id="alc-nome" value="${a?.nome||''}" placeholder="Ex: Padrão HAMOA Ltda"></div>
+      <div class="fg"><label class="fl">Empresa *</label>
+        <select class="fi fsel" id="alc-empresa" onchange="Alcadas._loadObras()">
+          <option value="">Selecione...</option>${emps.map(e=>`<option value="${e.id}" ${a?.empresa_id===e.id?'selected':''}>${e.nome_fantasia||e.razao_social}</option>`).join('')}
+        </select></div>
+      <div class="fg"><label class="fl">Obra (deixe vazio para todas)</label>
+        <select class="fi fsel" id="alc-obra">
+          <option value="">Todas as obras da empresa</option>${obrasFilt.map(o=>`<option value="${o.id}" ${a?.obra_id===o.id?'selected':''}>${o.nome}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="divider"></div>
+    ${[['N1','acN1','n1',a?.n1_titulo||'Gestor de Obra',a?.n1_grupos,a?.n1_prazo||3],['N2','acN2','n2',a?.n2_titulo||'Planejamento',a?.n2_grupos,a?.n2_prazo||2],['N3','acN3','n3',a?.n3_titulo||'Diretor de Obras',a?.n3_grupos,a?.n3_prazo||5]].map(([lv,cls,pfx,titulo,grupos,prazo])=>`
+    <div class="accard">
+      <div class="accard-header">
+        <div class="aclvl ${cls}">${lv}</div>
+        <div><div class="ac-title">${lv} · Configuração</div></div>
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">Título do Cargo</label><input class="fi" id="alc-${pfx}-titulo" value="${titulo}" placeholder="Ex: Gestor de Obra"></div>
+        <div class="fg"><label class="fl">Prazo de Resposta (dias úteis)</label><input class="fi" type="number" id="alc-${pfx}-prazo" min="1" max="30" value="${prazo}"></div>
+        <div class="fg cs2"><label class="fl">Grupos do Active Directory</label>${tagInputHtml(`alc-${pfx}-grupos`, grupos)}</div>
+      </div>
+    </div>`).join('')}
+    <div class="divider"></div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl" style="margin-bottom:10px">Escalonamento por prazo</label>
+        <label class="sw" id="alc-esc-sw" onclick="this.querySelector('.sw-tr').classList.toggle('on');document.getElementById('alc-esc-dias').disabled=!this.querySelector('.sw-tr.on')">
+          <div class="sw-tr ${a?.escalonamento?'on':''}" ><div class="sw-th"></div></div> Ativar escalonamento automático
+        </label></div>
+      <div class="fg"><label class="fl">Notificar superior após N dias sem resposta</label>
+        <input class="fi" type="number" id="alc-esc-dias" value="${a?.escalonamento_dias||2}" min="1" ${a?.escalonamento?'':'disabled'}></div>
+      <div class="fg cs2"><label class="fl">E-mail cópia (escalonamento)</label>
+        <input class="fi" id="alc-email-copia" value="${a?.email_copia||''}" placeholder="email@empresa.com.br"></div>
+    </div>`;
+  },
+  async _loadObras() {
+    const empId = parseInt(H.el('alc-empresa').value);
+    const obras = await API.obras(empId);
+    H.el('alc-obra').innerHTML = '<option value="">Todas as obras da empresa</option>' + obras.map(o=>`<option value="${o.id}">${o.nome}</option>`).join('');
+  },
+  addTag(e, id) {
+    if(e.key !== 'Enter') return; e.preventDefault();
+    const input = H.el(id+'-input'); const val = input.value.trim();
+    if(!val) return;
+    const wrap = H.el(id+'-wrap');
+    const span = document.createElement('span');
+    span.className = 'adtag';
+    span.innerHTML = `${val}<span class="adtag-rm" onclick="Alcadas.removeTag(this,'${id}')">×</span>`;
+    wrap.insertBefore(span, input); input.value = '';
+  },
+  removeTag(el, id) { el.closest('.adtag').remove(); },
+  _getTags(id) { return [...(H.el(id+'-wrap')?.querySelectorAll('.adtag')||[])].map(s=>s.childNodes[0].textContent.trim()).filter(Boolean); },
+  async save() {
+    const nome = H.el('alc-nome')?.value.trim();
+    const empresa_id = parseInt(H.el('alc-empresa')?.value);
+    if(!nome||!empresa_id){UI.toast('Nome e Empresa são obrigatórios','error');return;}
+    const data = {
+      nome, empresa_id, obra_id: parseInt(H.el('alc-obra')?.value)||null,
+      n1_titulo:H.el('alc-n1-titulo')?.value, n1_grupos:this._getTags('alc-n1-grupos'), n1_prazo:parseInt(H.el('alc-n1-prazo')?.value)||3,
+      n2_titulo:H.el('alc-n2-titulo')?.value, n2_grupos:this._getTags('alc-n2-grupos'), n2_prazo:parseInt(H.el('alc-n2-prazo')?.value)||2,
+      n3_titulo:H.el('alc-n3-titulo')?.value, n3_grupos:this._getTags('alc-n3-grupos'), n3_prazo:parseInt(H.el('alc-n3-prazo')?.value)||5,
+      escalonamento:!!H.el('alc-esc-sw')?.querySelector('.sw-tr.on'),
+      escalonamento_dias:parseInt(H.el('alc-esc-dias')?.value)||2,
+      email_copia:H.el('alc-email-copia')?.value||'',
+      ativo: true,
+    };
+    try {
+      if(State.editingId) await API.updateAlcada(State.editingId, data);
+      else await API.createAlcada(data);
+      UI.closeModal('modal-alcada'); UI.toast('Configuração de alçada salva com sucesso','success'); await Pages.alcadas();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+  async delete(id) {
+    if(!confirm('Excluir configuração de alçada?')) return;
+    try { await API.deleteAlcada(id); UI.toast('Configuração excluída'); await Pages.alcadas(); } catch(e){UI.toast('Erro: '+e.message,'error');}
+  },
+};
+
+// ══════════════════════════════════════
+// CONFIGURAÇÕES
+// ══════════════════════════════════════
+const Configs = {
+  async ldap() {
+    const cfg = await API.config('ldap').catch(()=>null);
+    const c = cfg ? cfg.valor : {};
+    H.el('cfg-content').innerHTML = `
+    <div style="margin-bottom:18px">
+      <div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">AUTENTICAÇÃO LDAP / ACTIVE DIRECTORY</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:5px">Configure a conexão com o servidor LDAP/AD para autenticação dos usuários do sistema</div>
+    </div>
+    <div class="ibox info" style="margin-bottom:18px">
+      <div class="ibox-title">🔒 Servidor: ${c.servidor||'Não configurado'} · Status: ${c.ativo?'<span style="color:var(--green)">Ativo ✓</span>':'<span style="color:var(--red)">Desativado</span>'}</div>
+    </div>
+    <div class="fsec"><div class="fsec-title">CONEXÃO COM SERVIDOR</div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl">Servidor LDAP/AD *</label><input class="fi" id="cfg-ldap-srv" value="${c.servidor||''}" placeholder="dc01.empresa.local"></div>
+      <div class="fg"><label class="fl">Domínio *</label><input class="fi" id="cfg-ldap-dom" value="${c.dominio||''}" placeholder="EMPRESA"></div>
+      <div class="fg"><label class="fl">Porta LDAP</label><input class="fi" id="cfg-ldap-porta" value="${c.porta||'389'}"></div>
+      <div class="fg"><label class="fl">Porta LDAPS (SSL)</label><input class="fi" id="cfg-ldap-portassl" value="${c.portaSSL||'636'}"></div>
+      <div class="fg cs2"><label class="fl">Base DN *</label><input class="fi" id="cfg-ldap-basedn" value="${c.baseDN||''}" placeholder="DC=empresa,DC=local"></div>
+    </div></div>
+    <div class="fsec"><div class="fsec-title">CONTA DE SERVIÇO</div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl">Usuário de Serviço *</label><input class="fi" id="cfg-ldap-svcuser" value="${c.usuarioServico||''}" placeholder="svc-hamoa@empresa.local"></div>
+      <div class="fg"><label class="fl">Senha do Serviço</label><input class="fi" type="password" id="cfg-ldap-svcpass" value="" placeholder="••••••••"></div>
+    </div></div>
+    <div class="fsec"><div class="fsec-title">MAPEAMENTO DE ATRIBUTOS</div>
+    <div class="fgrid fgrid3">
+      <div class="fg"><label class="fl">Atributo Login</label><input class="fi" id="cfg-ldap-atr-login" value="${c.atributoLogin||'sAMAccountName'}"></div>
+      <div class="fg"><label class="fl">Atributo Nome</label><input class="fi" id="cfg-ldap-atr-nome" value="${c.atributoNome||'displayName'}"></div>
+      <div class="fg"><label class="fl">Atributo E-mail</label><input class="fi" id="cfg-ldap-atr-email" value="${c.atributoEmail||'mail'}"></div>
+      <div class="fg"><label class="fl">Atributo Grupos</label><input class="fi" id="cfg-ldap-atr-grupos" value="${c.atributoGrupos||'memberOf'}"></div>
+    </div></div>
+    <div class="fsec"><div class="fsec-title">SEGURANÇA</div>
+    <div style="display:flex;gap:20px;margin-bottom:14px">
+      <label class="sw" id="sw-ssl" onclick="this.querySelector('.sw-tr').classList.toggle('on')"><div class="sw-tr ${c.ssl?'on':''}"><div class="sw-th"></div></div> Usar SSL/LDAPS</label>
+      <label class="sw" id="sw-tls" onclick="this.querySelector('.sw-tr').classList.toggle('on')"><div class="sw-tr ${c.starttls!==false?'on':''}"><div class="sw-th"></div></div> Usar StartTLS</label>
+      <label class="sw" id="sw-ldap-ativo" onclick="this.querySelector('.sw-tr').classList.toggle('on')"><div class="sw-tr ${c.ativo?'on':''}"><div class="sw-th"></div></div> Integração ativa</label>
+    </div></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-o" onclick="Configs._testLDAP()">🔍 Testar Conexão</button>
+      <button class="btn btn-a" onclick="Configs._saveLDAP()">💾 Salvar Configuração LDAP</button>
+    </div>`;
+  },
+  async _saveLDAP() {
+    const data = { servidor:H.el('cfg-ldap-srv').value.trim(), dominio:H.el('cfg-ldap-dom').value.trim(), porta:H.el('cfg-ldap-porta').value, portaSSL:H.el('cfg-ldap-portassl').value, baseDN:H.el('cfg-ldap-basedn').value.trim(), usuarioServico:H.el('cfg-ldap-svcuser').value.trim(), senhaServico:H.el('cfg-ldap-svcpass').value, atributoLogin:H.el('cfg-ldap-atr-login').value||'sAMAccountName', atributoNome:H.el('cfg-ldap-atr-nome').value||'displayName', atributoEmail:H.el('cfg-ldap-atr-email').value||'mail', atributoGrupos:H.el('cfg-ldap-atr-grupos').value||'memberOf', ssl:!!H.el('sw-ssl')?.querySelector('.sw-tr.on'), starttls:!!H.el('sw-tls')?.querySelector('.sw-tr.on'), ativo:!!H.el('sw-ldap-ativo')?.querySelector('.sw-tr.on') };
+    try { await API.saveConfig('ldap', data); UI.toast('Configuração LDAP salva com sucesso','success'); } catch(e){UI.toast('Erro: '+e.message,'error');}
+  },
+  async _testLDAP() { UI.toast('Testando conexão com '+H.el('cfg-ldap-srv').value+'...','info'); setTimeout(()=>UI.toast('Utilize o endpoint LDAP quando implementado','info'),1500); },
+
+  async assinatura() {
+    const cfg = await API.config('assinatura').catch(()=>null);
+    const c = cfg ? cfg.valor : {};
+    H.el('cfg-content').innerHTML = `
+    <div style="margin-bottom:18px"><div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">FERRAMENTA DE ASSINATURA ELETRÔNICA</div></div>
+    <div class="ibox ${c.ativo?'success':'warn'}" style="margin-bottom:18px"><div class="ibox-title">${c.ativo?'✅ Integração ativa · Provedor: '+c.provedor:'⚠️ Integração desativada'}</div></div>
+    <div class="fsec"><div class="fsec-title">PROVEDOR</div>
+    <div class="fgrid">
+      <div class="fg cs2"><label class="fl">Provedor *</label><select class="fi fsel" id="cfg-assin-prov">${['D4Sign','ClickSign','DocuSign','Assine Online','SignNow','Autentique'].map(p=>`<option ${c.provedor===p?'selected':''}>${p}</option>`).join('')}</select></div>
+      <div class="fg"><label class="fl">API Key *</label><input class="fi" id="cfg-assin-apikey" value="${c.apiKey||''}" placeholder="Chave de API"></div>
+      <div class="fg"><label class="fl">API Secret</label><input class="fi" type="password" id="cfg-assin-secret" placeholder="••••••••"></div>
+      <div class="fg cs2"><label class="fl">ID do Template</label><input class="fi" id="cfg-assin-template" value="${c.templateId||''}"></div>
+      <div class="fg cs2"><label class="fl">URL de Webhook</label><input class="fi" id="cfg-assin-webhook" value="${c.webhookUrl||''}"></div>
+    </div></div>
+    <div class="fsec"><div class="fsec-title">ATIVAÇÃO</div>
+    <label class="sw" id="sw-assin-ativo" onclick="this.querySelector('.sw-tr').classList.toggle('on')"><div class="sw-tr ${c.ativo?'on':''}"><div class="sw-th"></div></div> Ativar envio automático após aprovação N3</label></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-a" onclick="Configs._saveAssinatura()">💾 Salvar Configuração</button>
+    </div>`;
+  },
+  async _saveAssinatura() {
+    const data = { provedor:H.el('cfg-assin-prov').value, apiKey:H.el('cfg-assin-apikey').value, apiSecret:H.el('cfg-assin-secret').value, templateId:H.el('cfg-assin-template').value, webhookUrl:H.el('cfg-assin-webhook').value, ativo:!!H.el('sw-assin-ativo')?.querySelector('.sw-tr.on') };
+    try { await API.saveConfig('assinatura', data); UI.toast('Configuração de assinatura salva','success'); } catch(e){UI.toast('Erro: '+e.message,'error');}
+  },
+
+  async permissoes() {
+    const cfg = await API.config('permissoes').catch(()=>null);
+    const perms = cfg ? cfg.valor : {};
+    const grupos = Object.keys(perms);
+    const telas = [['dashboard','Dashboard'],['verMedicoes','Ver Medições'],['criarMedicao','Criar Medição'],['aprovarN1','Aprovar N1'],['aprovarN2','Aprovar N2'],['aprovarN3','Aprovar N3'],['acompanhamento','Acompanhamento'],['cadastros','Cadastros'],['alcadas','Alçadas'],['configuracoes','Configurações']];
+    H.el('cfg-content').innerHTML = `
+    <div style="margin-bottom:18px"><div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">PERMISSÕES POR GRUPO DO AD</div></div>
+    <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center">
+      <input class="si" id="cfg-perm-novogrupo" placeholder="Nome do grupo AD" style="max-width:300px">
+      <button class="btn btn-o btn-sm" onclick="Configs._addGrupo()">+ Adicionar Grupo</button>
+      <button class="btn btn-a btn-sm" onclick="Configs._savePerms()">💾 Salvar Permissões</button>
+    </div>
+    <div style="overflow-x:auto"><table class="pt2">
+      <thead><tr><th>Tela</th>${grupos.map(g=>`<th style="font-family:var(--font-m);font-size:9px">${g}</th>`).join('')}</tr></thead>
+      <tbody>${telas.map(([key,lbl]) => `<tr><td>${lbl}</td>${grupos.map(g=>`<td><input type="checkbox" id="perm-${g}-${key}" ${perms[g]?.[key]?'checked':''} style="accent-color:var(--green);cursor:pointer;width:14px;height:14px"></td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>`;
+  },
+  async _addGrupo() {
+    const nome = H.el('cfg-perm-novogrupo')?.value.trim();
+    if(!nome){UI.toast('Informe o nome do grupo','error');return;}
+    const cfg = await API.config('permissoes').catch(()=>null);
+    const perms = cfg ? cfg.valor : {};
+    if(perms[nome]){UI.toast('Grupo já existe','error');return;}
+    perms[nome] = { dashboard:false,verMedicoes:false,criarMedicao:false,aprovarN1:false,aprovarN2:false,aprovarN3:false,acompanhamento:false,cadastros:false,alcadas:false,configuracoes:false };
+    try { await API.saveConfig('permissoes', perms); UI.toast(`Grupo ${nome} adicionado`,'success'); await this.permissoes(); } catch(e){UI.toast('Erro: '+e.message,'error');}
+  },
+  async _savePerms() {
+    const cfg = await API.config('permissoes').catch(()=>null);
+    const perms = cfg ? cfg.valor : {};
+    const telas = ['dashboard','verMedicoes','criarMedicao','aprovarN1','aprovarN2','aprovarN3','acompanhamento','cadastros','alcadas','configuracoes'];
+    Object.keys(perms).forEach(g => { telas.forEach(t => { const el = document.getElementById(`perm-${g}-${t}`); if(el) perms[g][t] = el.checked; }); });
+    try { await API.saveConfig('permissoes', perms); UI.toast('Permissões salvas com sucesso','success'); } catch(e){UI.toast('Erro: '+e.message,'error');}
+  },
+
+  async notificacoes() {
+    const cfg = await API.config('notificacoes').catch(()=>null);
+    const c = cfg ? cfg.valor : {};
+    H.el('cfg-content').innerHTML = `
+    <div style="margin-bottom:18px"><div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">NOTIFICAÇÕES & E-MAIL</div></div>
+    <div class="fsec"><div class="fsec-title">SERVIDOR SMTP</div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl">Servidor SMTP *</label><input class="fi" id="cfg-smtp-host" value="${c.smtpHost||''}" placeholder="smtp.empresa.com.br"></div>
+      <div class="fg"><label class="fl">Porta</label><input class="fi" id="cfg-smtp-porta" value="${c.smtpPorta||587}"></div>
+      <div class="fg"><label class="fl">Usuário SMTP</label><input class="fi" id="cfg-smtp-user" value="${c.smtpUser||''}"></div>
+      <div class="fg"><label class="fl">Senha SMTP</label><input class="fi" type="password" id="cfg-smtp-pass" placeholder="••••••••"></div>
+      <div class="fg cs2"><label class="fl">Remetente (From)</label><input class="fi" id="cfg-smtp-remetente" value="${c.remetente||''}"></div>
+    </div></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-a" onclick="Configs._saveNotif()">💾 Salvar</button>
+    </div>`;
+  },
+  async _saveNotif() {
+    const data = { smtpHost:H.el('cfg-smtp-host').value, smtpPorta:parseInt(H.el('cfg-smtp-porta').value)||587, smtpUser:H.el('cfg-smtp-user').value, smtpPass:H.el('cfg-smtp-pass').value, remetente:H.el('cfg-smtp-remetente').value, tls:true };
+    try { await API.saveConfig('notificacoes', data); UI.toast('Configurações de notificação salvas','success'); } catch(e){UI.toast('Erro: '+e.message,'error');}
+  },
+
+  async geral() {
+    const cfg = await API.config('geral').catch(()=>null);
+    const c = cfg ? cfg.valor : {};
+    H.el('cfg-content').innerHTML = `
+    <div style="margin-bottom:18px"><div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">PARÂMETROS GERAIS</div></div>
+    <div class="fsec"><div class="fsec-title">IDENTIFICAÇÃO</div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl">Nome da Empresa/Sistema</label><input class="fi" id="cfg-g-nome" value="${c.nomeEmpresa||'JMD Hamoa Urbanismo'}"></div>
+      <div class="fg"><label class="fl">Máscara do Código de Medição</label><input class="fi" id="cfg-g-mascara" value="${c.codigoMedicaoMascara||'MED-{AAMM}-{SEQ}'}"></div>
+    </div></div>
+    <div class="fsec"><div class="fsec-title">REGRAS DE NEGÓCIO</div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl">Dia de corte do período</label><input class="fi" type="number" id="cfg-g-corte" value="${c.periodoCorte||5}" min="1" max="28"></div>
+      <div class="fg"><label class="fl">Dias de aviso antes do vencimento</label><input class="fi" type="number" id="cfg-g-aviso" value="${c.diasAvisoVencimento||3}" min="1"></div>
+    </div></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-a" onclick="Configs._saveGeral()">💾 Salvar Parâmetros</button>
+    </div>`;
+  },
+  async _saveGeral() {
+    const data = { nomeEmpresa:H.el('cfg-g-nome').value, codigoMedicaoMascara:H.el('cfg-g-mascara').value, periodoCorte:parseInt(H.el('cfg-g-corte').value)||5, diasAvisoVencimento:parseInt(H.el('cfg-g-aviso').value)||3 };
+    try { await API.saveConfig('geral', data); UI.toast('Parâmetros gerais salvos','success'); } catch(e){UI.toast('Erro: '+e.message,'error');}
+  },
+
+  async backup() {
+    H.el('cfg-content').innerHTML = `
+    <div style="margin-bottom:18px"><div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">BACKUP & DADOS</div></div>
+    <div class="ibox info" style="margin-bottom:18px">
+      <div class="ibox-title">ℹ️ Banco de dados PostgreSQL</div>
+      <div class="ibox-text">Os dados estão armazenados no PostgreSQL. Use as ferramentas de backup do PostgreSQL (pg_dump) para exportação completa. O Adminer está disponível em :8080 (perfil tools).</div>
+    </div>
+    <div class="fsec"><div class="fsec-title">EXPORTAR DADOS</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-o" onclick="Configs._exportMedicoes()">📊 Exportar Medições (JSON)</button>
+    </div></div>`;
+  },
+  async _exportMedicoes() {
+    try {
+      const meds = await API.medicoes();
+      const blob = new Blob([JSON.stringify(meds,null,2)],{type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href=url; a.download=`hamoa-medicoes-${new Date().toISOString().slice(0,10)}.json`;
+      a.click(); URL.revokeObjectURL(url);
+      UI.toast('Exportado com sucesso','success');
+    } catch(e){UI.toast('Erro: '+e.message,'error');}
+  },
+};
+
+// ══════════════════════════════════════
+// EVENT LISTENERS
+// ══════════════════════════════════════
+document.querySelectorAll('.ni').forEach(n => {
+  n.addEventListener('click', () => App.navigate(n.dataset.page));
 });
+
+document.querySelectorAll('.cfg-menu-item').forEach(i => {
+  i.addEventListener('click', () => Pages.configuracoes(i.dataset.cfg));
+});
+
+document.querySelectorAll('#cad-tabs .tab').forEach(t => {
+  t.addEventListener('click', () => Pages.cadastros(t.dataset.cad));
+});
+
+document.querySelectorAll('.mo').forEach(o => {
+  o.addEventListener('click', e => { if(e.target === o) o.classList.remove('open'); });
+});
+
+document.addEventListener('keydown', e => {
+  if(e.key==='Escape') document.querySelectorAll('.mo.open').forEach(m=>m.classList.remove('open'));
+});
+
+// Global function wrappers for onclick attributes
+window.Medicoes = Medicoes;
+window.Cadastros = Cadastros;
+window.Alcadas = Alcadas;
+window.Configs = Configs;
+window.Pages = Pages;
+window.App = App;
+window.UI = UI;
+window.H = H;
+
+// ══════════════════════════════════════
+// INIT
+// ══════════════════════════════════════
+console.log('JMD HAMOA OBRAS v3.0 — conectando à API real');
 </script>
 </body>
 </html>
