@@ -27,7 +27,10 @@
     "mammoth": "^1.7.2",
     "pdf-parse": "^1.1.1",
     "fast-xml-parser": "^4.4.0",
-    "pdfkit": "^0.15.0"
+    "pdfkit": "^0.15.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "googleapis": "^140.0.0"
   },
   "engines": {
     "node": ">=20"

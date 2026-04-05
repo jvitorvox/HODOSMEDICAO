@@ -78,6 +78,9 @@ const Pages = {
       State.cache.medicoes = meds;
       State.cache.empresas = empresas;
       State.cache.alcadas = alcadas;
+      // Botão "Nova Medição" só para quem tem permissão
+      const phRight = H.el('med-ph-right');
+      if (phRight) phRight.innerHTML = Perm.has('criarMedicao') ? '<button class="btn btn-a" onclick="Medicoes.openNew()">+ Nova Medição</button>' : '';
       const fe = H.el('med-filter-empresa');
       fe.innerHTML = '<option value="">Todas as empresas</option>' + empresas.map(e=>`<option value="${e.id}">${e.nome_fantasia||e.razao_social}</option>`).join('');
       const periodos = [...new Set(meds.map(m=>m.periodo))].sort().reverse();
@@ -114,35 +117,88 @@ const Pages = {
     if(!meds.length) { tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhuma medição encontrada</td></tr>'; return; }
     const u = State.user;
     tbody.innerHTML = meds.map(m => {
-      const canA = H.canApprove(m.status, m);
-      const canEdit = (m.status === 'Rascunho' || m.status === 'Reprovado') && (u.role === 'ADM' || m.criado_por === u.name);
-      const tipoBadge = H.tipoBadge(m.tipo);
-      const trClass   = m.tipo === 'Adiantamento' ? 'med-card-adt' : m.tipo === 'Avanco_Fisico' ? 'med-card-avfis' : '';
+      const canA    = H.canApprove(m.status, m);
+      const canEdit = Perm.has('criarMedicao') && (m.status === 'Rascunho' || m.status === 'Reprovado') && (u.role === 'ADM' || m.criado_por === u.name);
+      const tipo    = m.tipo || 'Normal';
+      const vMed    = parseFloat(m.valor_medicao) || 0;
+      const vTot    = parseFloat(m.contrato_valor_total) || 0;
+      // pct_fisico_desta_medicao: calculado dinamicamente no backend a partir dos itens
+      // (não depende do pct_total armazenado, que pode estar incorreto em dados antigos)
+      const pctFis  = parseFloat(m.pct_fisico_desta_medicao) || 0;
+
+      // ── Coluna "Tipo / Valor" ──────────────────────────────────────
+      const pctFinMed = vTot > 0 ? Math.min(100, +(vMed / vTot * 100).toFixed(1)) : 0;
+      let colunaValor = '';
+      if (tipo === 'Adiantamento') {
+        colunaValor = `
+          <span class="med-tipo-badge med-tipo-adt" style="display:inline-block;margin-bottom:4px">💰 Adiantamento</span>
+          <div style="display:flex;align-items:baseline;gap:4px;margin-top:3px;flex-wrap:wrap">
+            <span style="font-family:var(--font-m);font-size:12px;font-weight:700;color:#d97706">R$ ${H.fmt(vMed)}</span>
+            <span style="font-size:10px;color:var(--text3)">de R$ ${H.fmt(vTot)}</span>
+          </div>
+          <div style="font-size:10px;color:#d97706;margin-top:1px">${pctFinMed}% · sem avanço físico</div>`;
+      } else if (tipo === 'Avanco_Fisico') {
+        colunaValor = `
+          <span class="med-tipo-badge med-tipo-avfis" style="display:inline-block;margin-bottom:4px">📐 Avanço Físico</span>
+          <div style="display:flex;align-items:baseline;gap:4px;margin-top:3px">
+            <span style="font-family:var(--font-m);font-size:12px;color:var(--text3)">R$ 0,00</span>
+            <span style="font-size:10px;color:var(--text3)">financeiro</span>
+          </div>
+          <div style="font-size:10px;color:#2563eb;margin-top:1px">confirmação de execução física</div>`;
+      } else {
+        colunaValor = `
+          <span class="med-tipo-badge" style="display:inline-block;margin-bottom:4px;background:rgba(99,102,241,.1);color:var(--accent);border:1px solid rgba(99,102,241,.25)">📋 Normal</span>
+          <div style="display:flex;align-items:baseline;gap:4px;margin-top:3px;flex-wrap:wrap">
+            <span style="font-family:var(--font-m);font-size:12px;font-weight:700">R$ ${H.fmt(vMed)}</span>
+            <span style="font-size:10px;color:var(--text3)">de R$ ${H.fmt(vTot)}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:1px">${pctFinMed}% do valor do contrato</div>`;
+      }
+
+      // ── Coluna "Progresso Físico" ──────────────────────────────────
+      let colunaFisico = '';
+      if (tipo === 'Adiantamento') {
+        colunaFisico = `
+          <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:3px">
+            <span style="font-size:12px;font-weight:600;color:#d97706">0%</span>
+            <span style="font-size:10px;color:var(--text3)">de 100%</span>
+          </div>
+          <div style="background:var(--border);border-radius:4px;height:5px;overflow:hidden;margin-bottom:3px">
+            <div style="height:100%;width:0%;background:#d97706;border-radius:4px"></div>
+          </div>
+          <div style="font-size:9px;color:#d97706">⏳ aguarda confirmação por Avanço Físico</div>`;
+      } else if (pctFis > 0) {
+        const barColor = tipo === 'Avanco_Fisico' ? '#2563eb' : 'var(--accent)';
+        const label    = tipo === 'Avanco_Fisico' ? 'acumulado após confirmação' : 'físico acumulado no contrato';
+        colunaFisico = `
+          <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:3px">
+            <span style="font-size:13px;font-weight:700;color:${barColor}">${pctFis}%</span>
+            <span style="font-size:10px;color:var(--text3)">de 100%</span>
+          </div>
+          <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;margin-bottom:3px">
+            <div style="height:100%;border-radius:4px;width:${Math.min(pctFis,100)}%;background:${barColor}"></div>
+          </div>
+          <div style="font-size:9px;color:var(--text3)">${label}</div>`;
+      } else {
+        colunaFisico = `<span style="font-size:10px;color:var(--text3)">— sem registro físico</span>`;
+      }
+
+      const trClass = tipo === 'Adiantamento' ? 'med-card-adt' : tipo === 'Avanco_Fisico' ? 'med-card-avfis' : '';
       return `<tr class="${trClass}">
         <td><span class="cc">${m.codigo}</span></td>
         <td style="font-size:11px">${m.empresa_nome||'—'}</td>
         <td class="tp">${m.obra_nome||'—'}</td>
-        <td>${m.fornecedor_nome||'—'}</td>
+        <td style="font-size:11px">${m.fornecedor_nome||'—'}</td>
         <td><span class="cc" style="font-size:10px">${m.contrato_numero||'—'}</span></td>
-        <td>${H.periodoLabel(m.periodo)}</td>
-        <td style="min-width:110px">
-          ${(() => {
-            if (m.tipo === 'Avanco_Fisico') {
-              const pct = parseFloat(m.pct_total) || 0;
-              return `<div class="pw"><div class="pb"><div class="pf" style="width:${Math.min(pct,100)}%;background:#3b82f6"></div></div><span class="pp" style="font-size:10px;color:#2563eb">${pct}%</span></div><div style="font-size:9px;color:var(--text3)">físico</div>`;
-            }
-            const pct = parseFloat(m.pct_desta_medicao_no_contrato) || 0;
-            if(pct > 0) return `<div class="pw"><div class="pb"><div class="pf" style="width:${Math.min(pct,100)}%"></div></div><span class="pp" style="font-size:10px">${pct}%</span></div><div style="font-size:9px;color:var(--text3)">do contrato</div>`;
-            return '<span style="font-size:10px;color:var(--text3)">—</span>';
-          })()}
-        </td>
-        <td style="font-family:var(--font-m);font-size:11px">${m.tipo==='Avanco_Fisico'?'<span style="color:var(--text3)">R$ 0,00</span>':`R$ ${H.fmt(m.valor_medicao)}`}</td>
-        <td>${tipoBadge} ${H.statusBadge(m.status)}</td>
+        <td style="font-size:11px">${H.periodoLabel(m.periodo)}</td>
+        <td style="min-width:150px">${colunaValor}</td>
+        <td style="min-width:120px">${colunaFisico}</td>
+        <td>${H.statusBadge(m.status)}</td>
         <td>
           <div style="display:flex;gap:4px">
             <button class="btn btn-ghost btn-xs" onclick="Medicoes.openDetalhe(${m.id})">👁</button>
             ${canEdit ? `<button class="btn btn-b btn-xs" onclick="Medicoes.edit(${m.id})">✏</button>` : ''}
-            ${canA && m.tipo !== 'Avanco_Fisico' ? `<button class="btn btn-g btn-xs" onclick="Medicoes.openAprovar(${m.id})">✓</button><button class="btn btn-r btn-xs" onclick="Medicoes.openReprovar(${m.id})">✗</button>` : ''}
+            ${canA ? `<button class="btn btn-g btn-xs" onclick="Medicoes.openAprovar(${m.id})">✓</button><button class="btn btn-r btn-xs" onclick="Medicoes.openReprovar(${m.id})">✗</button>` : ''}
           </div>
         </td>
       </tr>`;
@@ -208,12 +264,26 @@ const Pages = {
           </div>
           <div>${H.statusBadge(m.status)}</div>
           <div>
-            <div class="aflow">
-              ${['N1','N2','N3'].map(lv => `<div class="afstep ${stepClass(lv)}">
-                <div class="afdot">${aprs.find(a=>a.nivel===lv&&a.acao==='aprovado')?'✓':aprs.find(a=>a.nivel===lv&&a.acao==='reprovado')?'✗':lv}</div>
-                <div class="af-lbl">${lv}</div>
-                <div class="af-date">${aprs.find(a=>a.nivel===lv)?H.fmtDateShort(aprs.find(a=>a.nivel===lv).data_hora):'—'}</div>
-              </div>`).join('')}
+            <div class="aflow" style="gap:4px">
+              ${['N1','N2','N3'].map(lv => {
+                const a   = aprs.find(a => a.nivel === lv);
+                const sc  = stepClass(lv);
+                const dot = a?.acao === 'aprovado' ? '✓'
+                          : a?.acao === 'reprovado' ? '✗'
+                          : lv;
+                // Nome curto: pega o primeiro nome ou login
+                const nomeAprov = a?.usuario
+                  ? a.usuario.split(' ')[0].split('@')[0]
+                  : (m.status === `Aguardando ${lv}` ? '…' : '—');
+                const dataAprov = a?.data_hora ? H.fmtDateShort(a.data_hora) : '';
+                return `<div class="afstep ${sc}" style="min-width:52px">
+                  <div class="afdot" style="width:34px;height:34px;font-size:${a?'14':'11'}px">${dot}</div>
+                  <div class="af-lbl" style="font-size:9px;font-weight:700;margin-top:5px">${lv}</div>
+                  <div class="af-name" style="font-size:9px;max-width:56px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center"
+                       title="${H.esc(a?.usuario || '')}">${H.esc(nomeAprov)}</div>
+                  ${dataAprov ? `<div class="af-date" style="font-size:8px">${dataAprov}</div>` : ''}
+                </div>`;
+              }).join('')}
             </div>
           </div>
           <div><div style="font-size:11px;color:var(--text);font-weight:500">${comQuem.nome}</div><div style="font-size:10px;color:var(--text3)">${comQuem.cargo}</div><div style="font-size:10px;color:var(--blue);margin-top:2px">${comQuem.email}</div></div>
@@ -248,13 +318,13 @@ const Pages = {
       const data = await API.empresas(); State.cache.empresas = data;
       H.el('cad-content').innerHTML = `
         <div class="tc">
-          <div class="tb-bar"><span class="tb-bar-title">EMPRESAS</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newEmpresa()">+ Empresa</button></div>
-          <table><thead><tr><th>Razão Social</th><th>Nome Fantasia</th><th>CNPJ</th><th>Status</th><th>Ações</th></tr></thead>
+          <div class="tb-bar"><span class="tb-bar-title">EMPRESAS</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-a btn-sm" onclick="Cadastros.newEmpresa()">+ Empresa</button>':''}</div>
+          <table><thead><tr><th>Razão Social</th><th>Nome Fantasia</th><th>CNPJ</th><th>Status</th>${Perm.has('cadastros')?'<th>Ações</th>':''}</tr></thead>
           <tbody>${data.length ? data.map(e => `<tr>
             <td class="tp">${e.razao_social}</td><td>${e.nome_fantasia||'—'}</td>
             <td style="font-family:var(--font-m);font-size:11px">${e.cnpj}</td>
             <td>${e.ativo ? '<span class="badge b-ativo">Ativo</span>' : '<span class="badge b-inativo">Inativo</span>'}</td>
-            <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editEmpresa(${e.id})">✏ Editar</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteEmpresa(${e.id})">🗑</button></div></td>
+            ${Perm.has('cadastros')?`<td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editEmpresa(${e.id})">✏ Editar</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteEmpresa(${e.id})">🗑</button></div></td>`:''}
           </tr>`).join('') : '<tr class="empty-row"><td colspan="5">Nenhuma empresa cadastrada</td></tr>'}</tbody></table>
         </div>`;
     } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
@@ -265,8 +335,8 @@ const Pages = {
       const [data, emps] = await Promise.all([ API.obras(), API.empresas() ]); State.cache.obras = data; State.cache.empresas = emps;
       H.el('cad-content').innerHTML = `
         <div class="tc">
-          <div class="tb-bar"><span class="tb-bar-title">OBRAS</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newObra()">+ Obra</button></div>
-          <table><thead><tr><th>Código</th><th>Empresa</th><th>Nome da Obra</th><th>Localização</th><th>Gestor</th><th>Status</th><th>Ações</th></tr></thead>
+          <div class="tb-bar"><span class="tb-bar-title">OBRAS</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-a btn-sm" onclick="Cadastros.newObra()">+ Obra</button>':''}</div>
+          <table><thead><tr><th>Código</th><th>Empresa</th><th>Nome da Obra</th><th>Localização</th><th>Gestor</th><th>Status</th>${Perm.has('cadastros')?'<th>Ações</th>':''}</tr></thead>
           <tbody>${data.length ? data.map(o => {
             const emp = emps.find(e=>e.id===o.empresa_id);
             return `<tr>
@@ -274,7 +344,7 @@ const Pages = {
               <td style="font-size:11px">${o.empresa_nome||emp?.nome_fantasia||'—'}</td>
               <td class="tp">${o.nome}</td><td>${o.localizacao||'—'}</td><td>${o.gestor||'—'}</td>
               <td>${H.statusBadgeCad(o.status)}</td>
-              <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editObra(${o.id})">✏ Editar</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteObra(${o.id})">🗑</button></div></td>
+              ${Perm.has('cadastros')?`<td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editObra(${o.id})">✏ Editar</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteObra(${o.id})">🗑</button></div></td>`:''}
             </tr>`;
           }).join('') : '<tr class="empty-row"><td colspan="7">Nenhuma obra cadastrada</td></tr>'}</tbody></table>
         </div>`;
@@ -286,15 +356,15 @@ const Pages = {
       const data = await API.fornecedores(); State.cache.fornecedores = data;
       H.el('cad-content').innerHTML = `
         <div class="tc">
-          <div class="tb-bar"><span class="tb-bar-title">FORNECEDORES</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newFornecedor()">+ Fornecedor</button></div>
-          <table><thead><tr><th>Razão Social</th><th>CNPJ</th><th>E-mail Contato</th><th>E-mail NF</th><th>Status</th><th>Ações</th></tr></thead>
+          <div class="tb-bar"><span class="tb-bar-title">FORNECEDORES</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-a btn-sm" onclick="Cadastros.newFornecedor()">+ Fornecedor</button>':''}</div>
+          <table><thead><tr><th>Razão Social</th><th>CNPJ</th><th>E-mail Contato</th><th>E-mail NF</th><th>Status</th>${Perm.has('cadastros')?'<th>Ações</th>':''}</tr></thead>
           <tbody>${data.length ? data.map(f => `<tr>
             <td class="tp">${f.razao_social}<br><span style="font-size:10px;color:var(--text3)">${f.nome_fantasia||''}</span></td>
             <td style="font-family:var(--font-m);font-size:11px">${f.cnpj}</td>
             <td style="font-size:11px">${f.email||'—'}</td>
             <td style="font-size:11px">${f.email_nf||'—'}</td>
             <td>${f.ativo ? '<span class="badge b-ativo">Ativo</span>' : '<span class="badge b-inativo">Inativo</span>'}</td>
-            <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editFornecedor(${f.id})">✏</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteFornecedor(${f.id})">🗑</button></div></td>
+            ${Perm.has('cadastros')?`<td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editFornecedor(${f.id})">✏</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteFornecedor(${f.id})">🗑</button></div></td>`:''}
           </tr>`).join('') : '<tr class="empty-row"><td colspan="6">Nenhum fornecedor cadastrado</td></tr>'}</tbody></table>
         </div>`;
     } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
@@ -305,46 +375,61 @@ const Pages = {
       const [data, obras, forns] = await Promise.all([ API.contratos(), API.obras(), API.fornecedores() ]); State.cache.contratos = data;
       H.el('cad-content').innerHTML = `
         <div class="tc">
-          <div class="tb-bar"><span class="tb-bar-title">CONTRATOS</span><div style="flex:1"></div><button class="btn btn-a btn-sm" onclick="Cadastros.newContrato()">+ Contrato</button></div>
-          <table><thead><tr><th>Nº</th><th>Empresa/Obra</th><th>Fornecedor</th><th>Objeto</th><th>Valor Total</th><th>Financeiro / Físico</th><th>Descompasso</th><th>Status</th><th>Ações</th></tr></thead>
+          <div class="tb-bar"><span class="tb-bar-title">CONTRATOS</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-a btn-sm" onclick="Cadastros.newContrato()">+ Contrato</button>':''}</div>
+          <table><thead><tr><th>Nº</th><th>Empresa/Obra</th><th>Fornecedor</th><th>Objeto</th><th>Valor Total</th><th>💰 Financeiro</th><th>📐 Físico</th><th>Status</th><th>Ações</th></tr></thead>
           <tbody>${data.length ? data.map(c => {
-            const pct      = parseFloat(c.pct_executado_real) || 0;
-            const pctFis   = parseFloat(c.pct_fisico_executado) || 0;
-            const vTot     = parseFloat(c.valor_total) || 0;
-            const vFin     = parseFloat(c.total_financeiro_pago) || 0;
-            const vAdt     = parseFloat(c.total_adiantado) || 0;
-            const dsc      = parseFloat(c.descompasso) || 0;
-            const temDsc   = vAdt > 0 && dsc > 100; // descompasso relevante (> R$100)
+            const vTot  = parseFloat(c.valor_total)           || 0;
+            const vFin  = parseFloat(c.total_financeiro_pago) || 0;
+            const vAdt  = parseFloat(c.total_adiantado)       || 0;
+            const vFis  = parseFloat(c.valor_fisico_executado)|| 0;
+            const pctFin= vTot > 0 ? Math.min(100, +(vFin / vTot * 100).toFixed(1)) : 0;
+            const pctFis= parseFloat(c.pct_fisico_executado)  || 0;
+            const dsc   = parseFloat(c.descompasso)           || 0;
+            const temDsc= vAdt > 0 && dsc > 100;
             return `<tr style="${temDsc?'background:rgba(245,158,11,.04)':''}">
               <td><span class="cc">${c.numero}</span></td>
               <td class="tp" style="font-size:11px">${c.obra_nome||'—'}<br><span style="color:var(--text3);font-size:10px">${c.empresa_nome||''}</span></td>
               <td style="font-size:11px">${c.fornecedor_nome||'—'}</td>
-              <td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.objeto}">${c.objeto}</td>
+              <td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${H.esc(c.objeto)}">${H.esc(c.objeto)}</td>
               <td style="font-family:var(--font-m);font-size:11px;white-space:nowrap">R$ ${H.fmt(vTot)}</td>
-              <td style="min-width:140px">
-                <div style="font-size:10px;color:var(--text3);margin-bottom:2px">
-                  💰 R$ ${H.fmt(vFin)} <span style="color:var(--text3)">· ${pct}%</span>
+
+              <!-- Coluna Financeiro -->
+              <td style="min-width:160px;padding:6px 8px">
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:3px;flex-wrap:wrap">
+                  <span style="font-family:var(--font-m);font-size:12px;font-weight:700">R$ ${H.fmt(vFin)}</span>
+                  <span style="font-size:10px;color:var(--text3)">de R$ ${H.fmt(vTot)}</span>
                 </div>
-                <div class="pw" style="margin-bottom:2px">
-                  <div class="pb" style="height:5px">
-                    <div class="pf" style="width:${Math.min(pct,100)}%;height:100%"></div>
-                  </div>
+                <div style="background:var(--border);border-radius:4px;height:7px;overflow:hidden;margin-bottom:3px">
+                  <div style="height:100%;border-radius:4px;width:${Math.min(pctFin,100)}%;background:${vAdt>0?'#d97706':'var(--accent)'};transition:width .3s"></div>
                 </div>
-                ${pctFis !== pct ? `<div style="font-size:10px;color:#2563eb">📐 ${pctFis}% físico</div>` : ''}
+                <div style="font-size:10px;color:var(--text3)">
+                  ${pctFin}% de 100% pago
+                  ${vAdt>0?`<span style="color:#d97706"> · R$ ${H.fmt(vAdt)} adiantado</span>`:''}
+                </div>
               </td>
-              <td style="min-width:110px">
-                ${temDsc
-                  ? `<div style="display:flex;flex-direction:column;gap:3px">
-                      <span style="font-size:10px;font-weight:700;color:#d97706">⚠️ R$ ${H.fmt(dsc)}</span>
-                      <button class="btn btn-xs" style="font-size:9px;padding:2px 6px;background:rgba(245,158,11,.15);color:#d97706;border:1px solid rgba(245,158,11,.4)"
-                        onclick="Medicoes.openNew();setTimeout(()=>{ const r=document.querySelector('input[name=mf-tipo][value=Avanco_Fisico]'); if(r){r.checked=true;Medicoes._onTipoChange();} },400)">
-                        📐 Registrar Avanço Físico
-                      </button>
-                    </div>`
-                  : `<span style="font-size:10px;color:var(--green)">✓ OK</span>`}
+
+              <!-- Coluna Físico -->
+              <td style="min-width:160px;padding:6px 8px">
+                <div style="display:flex;align-items:baseline;gap:4px;margin-bottom:3px;flex-wrap:wrap">
+                  <span style="font-family:var(--font-m);font-size:12px;font-weight:700;color:#2563eb">R$ ${H.fmt(vFis)}</span>
+                  <span style="font-size:10px;color:var(--text3)">de R$ ${H.fmt(vTot)}</span>
+                </div>
+                <div style="background:var(--border);border-radius:4px;height:7px;overflow:hidden;margin-bottom:3px">
+                  <div style="height:100%;border-radius:4px;width:${Math.min(pctFis,100)}%;background:#2563eb;transition:width .3s"></div>
+                </div>
+                <div style="font-size:10px;color:var(--text3)">
+                  ${pctFis}% de 100% executado
+                  ${temDsc
+                    ? `<span style="color:#d97706;font-weight:600"> · ⚠ R$ ${H.fmt(dsc)} a confirmar</span>`
+                    : (vFin>0 && vFis>=vFin ? ' <span style="color:var(--green)">✓ em dia</span>' : '')}
+                </div>
+                ${temDsc?`<button class="btn btn-xs" style="margin-top:4px;font-size:9px;padding:2px 6px;background:rgba(245,158,11,.12);color:#d97706;border:1px solid rgba(245,158,11,.35)"
+                  onclick="Medicoes.openNew();setTimeout(()=>{const r=document.querySelector('input[name=mf-tipo][value=Avanco_Fisico]');if(r){r.checked=true;Medicoes._onTipoChange();}},350)">
+                  📐 Confirmar execução</button>`:''}
               </td>
+
               <td>${H.statusBadgeCad(c.status)}</td>
-              <td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editContrato(${c.id})">✏</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteContrato(${c.id})">🗑</button></div></td>
+              ${Perm.has('cadastros')?`<td><div style="display:flex;gap:4px"><button class="btn btn-ghost btn-xs" onclick="Cadastros.editContrato(${c.id})">✏</button><button class="btn btn-r btn-xs" onclick="Cadastros.deleteContrato(${c.id})">🗑</button></div></td>`:''}
             </tr>`;
           }).join('') : '<tr class="empty-row"><td colspan="9">Nenhum contrato cadastrado</td></tr>'}</tbody></table>
         </div>`;
@@ -392,8 +477,8 @@ const Pages = {
   async configuracoes(section) {
     const active = section || document.querySelector('.cfg-menu-item.active')?.dataset.cfg || 'ldap';
     document.querySelectorAll('.cfg-menu-item').forEach(i => i.classList.toggle('active', i.dataset.cfg === active));
-    const loaders = { ldap: Configs.ldap, assinatura: Configs.assinatura, permissoes: Configs.permissoes, notificacoes: Configs.notificacoes, geral: Configs.geral, ia: Configs.ia, backup: Configs.backup };
-    if(loaders[active]) await loaders[active]();
+    const loaders = { ldap: Configs.ldap, assinatura: Configs.assinatura, permissoes: Configs.permissoes, notificacoes: Configs.notificacoes, geral: Configs.geral, ia: Configs.ia, backup: Configs.backup, usuarios: Configs.usuarios, audit: Configs.audit, storage: Configs.storage };
+    if(loaders[active]) await loaders[active].call(Configs);
   },
 };
 

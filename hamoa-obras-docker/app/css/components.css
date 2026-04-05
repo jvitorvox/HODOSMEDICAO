@@ -250,8 +250,8 @@ textarea.fi{resize:vertical;min-height:80px}
 .login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:44px 38px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
 .login-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--accent),#1c2132)}
 .llogo{font-family:var(--font-d);line-height:1;margin-bottom:2px}
-.llogo .jmd{font-size:42px;letter-spacing:3px;color:var(--accent)}
-.llogo .hamoa{font-size:42px;letter-spacing:4px;color:var(--text)}
+.llogo .jmd{font-size:32px;letter-spacing:2px;color:var(--accent)}
+.llogo .hamoa{font-size:32px;letter-spacing:3px;color:var(--text)}
 .lsub{font-size:10px;color:var(--text3);letter-spacing:3px;text-transform:uppercase;margin-bottom:30px;margin-top:4px}
 .lad{display:inline-flex;align-items:center;gap:6px;background:rgba(184,145,90,.08);border:1px solid rgba(184,145,90,.30);border-radius:var(--r);padding:5px 10px;font-size:10px;color:var(--accent2);margin-bottom:22px;letter-spacing:.5px}
 .login-btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:var(--r);padding:13px;font-family:var(--font-d);font-size:20px;letter-spacing:3px;cursor:pointer;margin-top:6px;transition:background .2s}

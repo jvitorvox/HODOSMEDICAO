@@ -269,6 +269,26 @@ const Cadastros = {
     }));
   },
 
+  _highlightItensIncompletos() {
+    document.querySelectorAll('#cont-itens .citem-row').forEach(row => {
+      const qtyEl = row.querySelector('.citem-qty');
+      const vunEl = row.querySelector('.citem-vun');
+      const qty   = parseFloat(qtyEl?.value) || 0;
+      const vun   = parseFloat(vunEl?.value) || 0;
+      const markEl = (el, bad) => {
+        if (!el) return;
+        el.style.borderColor = bad ? 'var(--red)' : '';
+        el.style.background  = bad ? 'rgba(239,68,68,.07)' : '';
+        if (bad) el.addEventListener('input', () => {
+          el.style.borderColor = '';
+          el.style.background  = '';
+        }, { once: true });
+      };
+      markEl(qtyEl, !(qty > 0));
+      markEl(vunEl, !(vun > 0));
+    });
+  },
+
   // ── Atividades do Cronograma — seletor no formulário de contrato ──
   _clearAtividades() {
     const w = H.el('cont-cron-wrap');
@@ -344,8 +364,34 @@ const Cadastros = {
     const objeto=H.el('cont-objeto').value.trim();
     if(!empresa_id||!obra_id||!fornecedor_id||!numero||!objeto){UI.toast('Preencha todos os campos obrigatórios','error');return;}
     const itens = this._collectContratoItens();
-    if(itens.some(it=>!it.descricao)){UI.toast('Todos os itens precisam ter descrição','error');return;}
     if(itens.length===0){UI.toast('Adicione pelo menos um item ao contrato','error');return;}
+    if(itens.some(it=>!it.descricao)){UI.toast('Todos os itens precisam ter descrição','error');return;}
+
+    // ── Validação: qtd e valor unitário obrigatórios ─────────────
+    const itensIncompletos = itens.filter(it => !(it.qtd_total > 0) || !(it.valor_unitario > 0));
+    if (itensIncompletos.length > 0) {
+      this._highlightItensIncompletos();
+      const n = itensIncompletos.length;
+      UI.toast(`Preencha quantidade e valor unitário dos ${n} item${n>1?'s':''} destacado${n>1?'s':''}`, 'error');
+      document.getElementById('cont-itens-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    // ── Validação: ao menos uma atividade do cronograma vinculada ─
+    const cronWrap = H.el('cont-cron-wrap');
+    if (cronWrap && cronWrap.style.display !== 'none') {
+      const atIds = this._collectAtividadesIds();
+      if (atIds.length === 0) {
+        cronWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Destaca o painel de seleção de atividades
+        cronWrap.style.outline = '2px solid var(--red)';
+        cronWrap.style.borderRadius = 'var(--r2)';
+        setTimeout(() => { cronWrap.style.outline = ''; }, 3000);
+        UI.toast('Associe pelo menos uma atividade do cronograma ao contrato', 'error');
+        return;
+      }
+    }
+
     const valor_total = parseFloat(H.el('cont-valor').value)||0;
     const data={empresa_id,obra_id,fornecedor_id,numero,objeto,valor_total,
       inicio:H.el('cont-inicio').value||null,termino:H.el('cont-termino').value||null,
@@ -385,10 +431,12 @@ const Cadastros = {
     status.innerHTML = `<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2)"><span class="ia-spin">⚙️</span> Analisando <b>${H.esc(file.name)}</b>… extraindo dados do contrato, fornecedor e planilha</div>`;
 
     try {
-      const result = await API.interpretarContrato(file);
-      const itens     = result.itens     || [];
-      const contrato  = result.contrato  || {};
-      const fornecedor= result.fornecedor|| {};
+      const obraId = parseInt(H.el('cont-obra')?.value) || null;
+      const result = await API.interpretarContrato(file, obraId);
+      const itens       = result.itens       || [];
+      const contrato    = result.contrato    || {};
+      const fornecedor  = result.fornecedor  || {};
+      const wbs_matches = result.wbs_matches || [];
 
       // ── 1. Preencher campos do contrato ──────────────────────────
       const fillFld = (id, val) => { const el = H.el(id); if (el && val) el.value = val; };
@@ -448,19 +496,48 @@ const Cadastros = {
         setTimeout(() => document.getElementById('cont-itens-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 400);
       }
 
-      // ── 4. Painel de resumo final ─────────────────────────────────
+      // ── 4. Auto-vincular atividades WBS identificadas ─────────────
+      let wbsMsg = '';
+      if (wbs_matches.length > 0) {
+        // Marcar checkboxes das atividades encontradas no seletor de WBS
+        const markedIds = [];
+        wbs_matches.forEach(m => {
+          const cb = document.querySelector(`.cron-at-check[value="${m.atividade_id}"]`);
+          if (cb) { cb.checked = true; markedIds.push(m); }
+        });
+        if (markedIds.length > 0) {
+          const wbsList = markedIds.map(m =>
+            `<span style="font-family:var(--font-m);font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:1px 6px;color:var(--accent)">${H.esc(m.wbs)}</span> ${H.esc(m.nome)}`
+          ).join('<br>');
+          wbsMsg = `<div style="margin-top:8px;background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.25);border-radius:var(--r);padding:8px 12px;font-size:11px">
+            <b style="color:var(--accent)">🗓 ${markedIds.length} atividade${markedIds.length>1?'s':''} WBS vinculada${markedIds.length>1?'s':''} automaticamente</b><br>
+            <div style="margin-top:4px;line-height:1.8">${wbsList}</div>
+          </div>`;
+          // Garante que o painel de cronograma está visível
+          const w = H.el('cont-cron-wrap');
+          if (w) w.style.display = 'block';
+        } else if (obraId) {
+          // WBS encontrados no documento mas sem cronograma carregado ainda
+          const codesFound = wbs_matches.map(m => m.wbs).join(', ');
+          wbsMsg = `<div style="margin-top:8px;font-size:10px;color:var(--text3)">🗓 Códigos WBS encontrados no documento: <b>${H.esc(codesFound)}</b> — selecione a obra primeiro para vincular automaticamente.</div>`;
+        }
+      }
+
+      // ── 5. Painel de resumo final ─────────────────────────────────
       const badges = [];
       if (camposContrato > 0) badges.push(`<span style="background:rgba(99,102,241,.12);color:var(--accent);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">📋 ${camposContrato} campo${camposContrato>1?'s':''} do contrato</span>`);
       if (fornMatch)           badges.push(`<span style="background:rgba(34,197,94,.12);color:var(--green);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">🤝 Fornecedor selecionado</span>`);
       if (itens.length > 0)    badges.push(`<span style="background:rgba(20,184,166,.12);color:var(--teal);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">📊 ${itens.length} itens na planilha</span>`);
+      if (wbs_matches.length > 0) badges.push(`<span style="background:rgba(99,102,241,.12);color:var(--accent);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600">🗓 ${wbs_matches.length} WBS vinculado${wbs_matches.length>1?'s':''}</span>`);
 
       status.innerHTML = `
         <div style="background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.25);border-radius:var(--r);padding:10px 14px">
-          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:${fornMsg?'8':'0'}px">
+          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:${(fornMsg||wbsMsg)?'8':'0'}px">
             <span style="font-size:12px;font-weight:700;color:var(--green)">✅ Preenchimento automático concluído</span>
             ${badges.join('')}
           </div>
           ${fornMsg}
+          ${wbsMsg}
           ${itens.length > 0 ? `<div style="font-size:10px;color:var(--text3);margin-top:6px">Planilha orçamentária com ${itens.length} ${itens.length===1?'item':'itens'} inserida abaixo — revise os dados e salve quando estiver pronto.</div>` : ''}
         </div>
         ${(camposContrato === 0 && !fornMatch && itens.length === 0) ? `<div class="ibox warn" style="margin-top:8px"><div class="ibox-title">⚠️ Poucos dados identificados</div><div class="ibox-text">O documento pode não ser um contrato de obras ou estar em formato não reconhecível. Preencha os campos manualmente.</div></div>` : ''}`;

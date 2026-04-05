@@ -3,11 +3,44 @@
 // ══════════════════════════════════════
 const State = {
   user: null,
+  userPerms: {},   // permissões efetivas resolvidas após login
+  authMode: 'local', // 'local' | 'ldap' — detectado no init
   currentPage: 'dashboard',
   editingId: null,
   currentMedicaoId: null,
   currentActionMedicaoId: null,
   cache: { empresas:[], obras:[], fornecedores:[], contratos:[], alcadas:[] },
+};
+
+// ── Verificador de permissões ─────────────────────────────────────────
+const Perm = {
+  /** Chaves válidas de permissão */
+  _keys: ['dashboard','verMedicoes','criarMedicao','aprovarN1','aprovarN2','aprovarN3',
+          'acompanhamento','cadastros','alcadas','configuracoes','enviarAssinatura',
+          'cronograma','cronogramaEditar','cronogramaVinculos','cronogramaIA'],
+
+  /** Retorna true se o usuário logado possui a permissão */
+  has(key) {
+    if (!State.user) return false;
+    if (State.user.role === 'ADM') return true;
+    return !!State.userPerms[key];
+  },
+
+  /** Resolve as permissões efetivas a partir dos grupos do usuário e do mapa de permissões */
+  resolve(grupos, permsMap) {
+    const resolved = {};
+    this._keys.forEach(k => {
+      resolved[k] = grupos.some(g => permsMap[g]?.[k] === true);
+    });
+    State.userPerms = resolved;
+  },
+
+  /** ADM: todas as permissões ativas */
+  grantAll() {
+    const all = {};
+    this._keys.forEach(k => all[k] = true);
+    State.userPerms = all;
+  },
 };
 
 // ══════════════════════════════════════
@@ -56,7 +89,10 @@ const H = {
     const level = this.nextLevel(status);
     if(!level) return false;  // status não é aprovável (já aprovado, rascunho, etc.)
     if(u.role === 'ADM') return true;
-    // Verifica grupos da alçada configurada para a obra/empresa da medição
+    // Primeira barreira: permissão do grupo AD (Perm) deve autorizar o nível
+    const permKey = `aprovar${level}`; // 'aprovarN1' | 'aprovarN2' | 'aprovarN3'
+    if(!Perm.has(permKey)) return false;
+    // Segunda barreira: alçada configurada para a obra/empresa (grupos da alçada)
     if(medicao && State.cache.alcadas && State.cache.alcadas.length) {
       const alc = State.cache.alcadas.find(a => a.ativo && a.empresa_id === medicao.empresa_id && a.obra_id === medicao.obra_id)
                || State.cache.alcadas.find(a => a.ativo && a.empresa_id === medicao.empresa_id && !a.obra_id);
@@ -68,14 +104,12 @@ const H = {
           // Usuário precisa estar em pelo menos um dos grupos configurados na alçada
           return userGrupos.some(g => grupos.includes(g));
         }
-        // Alçada existe mas sem grupos configurados: cai no check de perfil abaixo
+        // Alçada existe mas sem grupos configurados: já passou pelo Perm, libera
+        return true;
       }
     }
-    // Fallback: permissão por perfil do usuário
-    if(level === 'N1' && (u.role === 'N1' || u.role === 'N3')) return true;
-    if(level === 'N2' && (u.role === 'N2' || u.role === 'N3')) return true;
-    if(level === 'N3' && u.role === 'N3') return true;
-    return false;
+    // Sem alçada configurada: já passou pelo Perm, libera
+    return true;
   },
   genCodigo() {
     const d = new Date();

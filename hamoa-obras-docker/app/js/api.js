@@ -10,9 +10,13 @@ const API = (() => {
   function _setToken(t) { if(t) sessionStorage.setItem('hamoa_token', t); else sessionStorage.removeItem('hamoa_token'); }
 
   // Upload multipart — usa sessionStorage igual ao req() normal
-  function _uploadIA(endpoint, file) {
+  // extraFields: objeto opcional com campos adicionais a incluir no FormData
+  function _uploadIA(endpoint, file, extraFields) {
     const fd = new FormData();
     fd.append('arquivo', file);
+    if (extraFields && typeof extraFields === 'object') {
+      Object.entries(extraFields).forEach(([k, v]) => { if (v != null) fd.append(k, v); });
+    }
     const token = _getToken();
     return fetch(endpoint, {
       method: 'POST',
@@ -48,6 +52,8 @@ const API = (() => {
     login: async (login, senha) => { const r = await req('POST', '/api/auth/login', { login, senha }); _setToken(r.token); return r; },
     logout: () => _setToken(null),
     isLoggedIn: () => !!_getToken(),
+    trocarSenha: (senha_atual, nova_senha) => req('PUT', '/api/auth/senha', { senha_atual, nova_senha }),
+    _req: req, // exposto para uso interno de módulos (ex: Configs.audit)
 
     empresas:       () => req('GET', '/api/empresas'),
     createEmpresa:  (d) => req('POST', '/api/empresas', d),
@@ -74,7 +80,8 @@ const API = (() => {
     updateContrato:  (id, d) => req('PUT', `/api/contratos/${id}`, d),
     deleteContrato:  (id) => req('DELETE', `/api/contratos/${id}`),
     contratoItens:   (id) => req('GET', `/api/contratos/${id}/itens`),
-    acumulados:      (contrato_id) => req('GET', `/api/contratos/${contrato_id}/acumulados`),
+    acumulados:              (contrato_id) => req('GET', `/api/contratos/${contrato_id}/acumulados`),
+    adiantamentosPendentes:  (contrato_id) => req('GET', `/api/medicoes/adiantamentos-pendentes?contrato_id=${contrato_id}`),
 
     medicoes: (filters) => {
       const params = filters ? Object.entries(filters).filter(([,v])=>v).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&') : '';
@@ -102,7 +109,7 @@ const API = (() => {
     testClickSign: (cfg) => req('POST', '/api/config/clicksign/test', cfg),
 
     // Upload de arquivo (multipart/form-data) — não usa req() genérico
-    interpretarContrato:   (file) => _uploadIA('/api/contratos/interpretar', file),
+    interpretarContrato:   (file, obraId) => _uploadIA('/api/contratos/interpretar', file, obraId ? { obra_id: obraId } : undefined),
     interpretarFornecedor: (file) => _uploadIA('/api/fornecedores/interpretar', file),
 
     dashboard: () => req('GET', '/api/dashboard'),
@@ -111,6 +118,7 @@ const API = (() => {
     cronogramas:        (obraId) => req('GET', '/api/cronogramas' + (obraId ? `?obra_id=${obraId}` : '')),
     cronograma:         (id) => req('GET', `/api/cronogramas/${id}`),
     cronogramaAtividades: (id) => req('GET', `/api/cronogramas/${id}/atividades`),
+    cronogramaFinanceiro: (id) => req('GET', `/api/cronogramas/${id}/financeiro`),
     updateCronograma:   (id, d) => req('PUT', `/api/cronogramas/${id}`, d),
     deleteCronograma:   (id) => req('DELETE', `/api/cronogramas/${id}`),
     updateAtividadePct: (id, pct) => req('PUT', `/api/cronogramas/atividades/${id}/pct`, { pct_realizado: pct }),
@@ -156,5 +164,47 @@ const API = (() => {
     contratoAtividades:            (id) => req('GET', `/api/contratos/${id}/atividades`),
     contratoAtividadesDisponiveis: (id) => req('GET', `/api/contratos/${id}/cronograma-atividades-disponiveis`),
     saveContratoAtividades:        (id, ids) => req('POST', `/api/contratos/${id}/atividades`, { atividade_ids: ids }),
+    cronogramaContratosVinculos:   (id) => req('GET', `/api/cronogramas/${id}/contratos-vinculos`),
+    cronogramaChat: (id, message, history) => req('POST', `/api/cronogramas/${id}/chat`, { message, history }),
+
+    // ── Usuários ─────────────────────────────────────────────────
+    usuarios:             ()       => req('GET',    '/api/usuarios'),
+    usuario:              (id)     => req('GET',    `/api/usuarios/${id}`),
+    createUsuario:        (d)      => req('POST',   '/api/usuarios', d),
+    updateUsuario:        (id, d)  => req('PUT',    `/api/usuarios/${id}`, d),
+    deleteUsuario:        (id)     => req('DELETE', `/api/usuarios/${id}`),
+    resetSenhaUsuario:    (id, senha) => req('PUT', `/api/usuarios/${id}/senha`, { senha }),
+
+    // ── Evidências de Medição ─────────────────────────────────────
+    evidencias:       (medicaoId)       => req('GET',    `/api/medicoes/${medicaoId}/evidencias`),
+    deleteEvidencia:  (medicaoId, evId) => req('DELETE', `/api/medicoes/${medicaoId}/evidencias/${evId}`),
+
+    // Upload de evidências — FormData com múltiplos arquivos
+    uploadEvidencias(medicaoId, files, onProgress) {
+      return new Promise((resolve, reject) => {
+        const fd  = new FormData();
+        for (const f of files) fd.append('files', f);
+        const token = _getToken();
+        const xhr   = new XMLHttpRequest();
+        xhr.open('POST', `/api/medicoes/${medicaoId}/evidencias`);
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        if (onProgress) xhr.upload.onprogress = onProgress;
+        xhr.onload = () => {
+          try {
+            const d = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) resolve(d);
+            else reject(new Error(d.error || `HTTP ${xhr.status}`));
+          } catch { reject(new Error('Resposta inválida do servidor')); }
+        };
+        xhr.onerror = () => reject(new Error('Erro de rede ao enviar arquivo'));
+        xhr.send(fd);
+      });
+    },
+
+    // ── Configuração de Armazenamento ─────────────────────────────
+    configStorage:    ()    => req('GET',  '/api/config/storage'),
+    saveStorage:      (d)   => req('PUT',  '/api/config/storage', d),
+    testS3:           (d)   => req('POST', '/api/config/storage/test-s3',     d),
+    testGDrive:       (d)   => req('POST', '/api/config/storage/test-gdrive', d),
   };
 })();

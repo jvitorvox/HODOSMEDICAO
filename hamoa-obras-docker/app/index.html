@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JMD HAMOA OBRAS · Sistema de Gestão de Medições</title>
+<title>Construtivo AI · Sistema de Gestão de Medições</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/variables.css">
 <link rel="stylesheet" href="css/base.css">
@@ -17,8 +17,8 @@
 <div id="login-screen">
   <div class="login-wrap">
     <div class="login-card">
-      <div class="llogo"><span class="jmd">JMD</span> <span class="hamoa">HAMOA</span></div>
-      <div class="lsub">OBRAS · Sistema de Gestão de Medições</div>
+      <div class="llogo"><span class="jmd">Construtivo</span> <span class="hamoa">AI</span></div>
+      <div class="lsub">Sistema de Gestão de Medições</div>
       <div class="lad" id="l-auth-mode">🔒 Autenticação corporativa</div>
       <div class="fg">
         <label class="fl">Usuário</label>
@@ -29,7 +29,7 @@
         <input class="fi" type="password" id="l-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')App.login()">
       </div>
       <button class="login-btn" onclick="App.login()">ENTRAR</button>
-      <div class="lfooter">JMD HAMOA OBRAS v3.0 · © JMD Urbanismo</div>
+      <div class="lfooter">Construtivo AI v3.0 · © JMD Urbanismo</div>
     </div>
   </div>
 </div>
@@ -38,7 +38,7 @@
 <div id="app" style="display:none;flex-direction:column;height:100%">
   <div id="topbar">
     <button id="menu-toggle" onclick="App.toggleNav()" aria-label="Menu">☰</button>
-    <div class="t-logo" onclick="App.navigate('dashboard');App.closeNav()"><span class="jmd">JMD</span><span class="hamoa">HAMOA</span><span class="obras">OBRAS</span></div>
+    <div class="t-logo" onclick="App.navigate('dashboard');App.closeNav()"><span class="jmd">Construtivo</span><span class="hamoa">AI</span></div>
     <div class="t-sep"></div>
     <nav class="t-nav" id="t-nav">
       <div class="ni active" data-page="dashboard">📊 Dashboard</div>
@@ -50,10 +50,16 @@
       <div class="ni" data-page="configuracoes">⚙️ Configurações</div>
     </nav>
     <div class="t-right">
-      <div class="user-chip" id="user-chip">
+      <div class="user-chip" id="user-chip" onclick="App.toggleUserMenu()">
         <div class="avatar" id="user-avatar">JS</div>
         <span id="user-name">João Silva</span>
         <span class="rbadge rN1" id="user-role-badge">N1</span>
+        <span style="font-size:9px;color:var(--text3);margin-left:2px">▾</span>
+        <div class="user-menu" id="user-menu">
+          <div class="user-menu-item" id="user-menu-senha" onclick="event.stopPropagation();App.openTrocarSenha()">🔑 Trocar Senha</div>
+          <div class="user-menu-sep"></div>
+          <div class="user-menu-item danger" onclick="event.stopPropagation();App.logout()">⏻ Sair</div>
+        </div>
       </div>
     </div>
   </div>
@@ -85,9 +91,7 @@
             <div class="pt">MEDIÇÕES</div>
             <div class="ps">Lançamento, aprovação e rastreabilidade</div>
           </div>
-          <div class="ph-right">
-            <button class="btn btn-a" onclick="Medicoes.openNew()">+ Nova Medição</button>
-          </div>
+          <div class="ph-right" id="med-ph-right"></div>
         </div>
         <div class="tc">
           <div class="tb-bar">
@@ -103,7 +107,7 @@
           </div>
           <table><thead><tr>
             <th>Código</th><th>Empresa</th><th>Obra</th><th>Fornecedor</th><th>Contrato</th>
-            <th>Período</th><th>Evolução</th><th>Valor</th><th>Status</th><th>Ações</th>
+            <th>Período</th><th>Tipo / Valor</th><th>Progresso Físico</th><th>Status</th><th>Ações</th>
           </tr></thead>
           <tbody id="med-tbody"></tbody></table>
         </div>
@@ -174,12 +178,13 @@
 
           <div style="flex:1"></div>
 
-          <!-- Ações contextuais -->
+          <!-- Ações contextuais (visibilidade controlada por permissão via JS após login) -->
           <button id="cron-btn-replace" class="btn btn-sm btn-o" style="display:none"
                   onclick="Cronograma.openReplaceSelected()">🔄 Substituir</button>
           <button id="cron-btn-delete" class="btn btn-sm btn-r" style="display:none"
                   onclick="Cronograma.deleteSelected()">✕ Excluir</button>
-          <button class="btn btn-sm btn-a" onclick="Cronograma.openImport()">+ Importar Cronograma</button>
+          <button id="cron-btn-import" class="btn btn-sm btn-a" style="display:none"
+                  onclick="Cronograma.openImport()">+ Importar Cronograma</button>
         </div>
 
         <!-- ② Estado vazio -->
@@ -232,6 +237,10 @@
                   <th style="width:86px;text-align:center">Término</th>
                   <th style="width:48px;text-align:center">Dur.</th>
                   <th style="width:76px;text-align:center">Planejado</th>
+                  <th style="width:120px;text-align:right">
+                    Custo Plan. (R$)
+                    <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">importado do MS Project</div>
+                  </th>
                   <th style="min-width:200px">
                     % por Medições
                     <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--teal);text-transform:none;margin-top:2px;opacity:.9">calculado das medições aprovadas</div>
@@ -239,6 +248,10 @@
                   <th style="min-width:120px">
                     % Manual
                     <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">digitado · fallback sem contrato</div>
+                  </th>
+                  <th style="width:110px;text-align:center">
+                    Possui Contrato?
+                    <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">vínculo ativo</div>
                   </th>
                 </tr>
               </thead>
@@ -297,6 +310,9 @@
             <div class="cfg-menu-item" data-cfg="geral">🔧 Parâmetros Gerais</div>
             <div class="cfg-menu-item" data-cfg="ia">🤖 Inteligência Artificial</div>
             <div class="cfg-menu-item" data-cfg="backup">💾 Backup & Dados</div>
+            <div class="cfg-menu-item" data-cfg="usuarios">👤 Usuários</div>
+            <div class="cfg-menu-item" data-cfg="audit">📋 Logs de Auditoria</div>
+            <div class="cfg-menu-item" data-cfg="storage">☁ Armazenamento</div>
           </div>
           <div class="cfg-panel">
             <div class="cfg-panel-inner" id="cfg-content"></div>
@@ -752,6 +768,54 @@
     <div class="mf">
       <button class="btn btn-o" onclick="UI.closeModal('modal-assinatura-envio')">Cancelar</button>
       <button class="btn btn-a" id="assin-btn-enviar" onclick="Medicoes.confirmarEnvioAssinatura()">✉ Enviar para Assinatura</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Trocar Senha (próprio usuário) ──────────────────────── -->
+<div class="mo" id="modal-trocar-senha">
+  <div class="mc" style="max-width:380px">
+    <div class="mh"><div class="mh-title">🔑 TROCAR SENHA</div><button class="mc-btn" onclick="UI.closeModal('modal-trocar-senha')">✕</button></div>
+    <div class="mb">
+      <div class="fgrid">
+        <div class="fg cs2"><label class="fl">Senha Atual *</label><input class="fi" type="password" id="ts-senha-atual" placeholder="••••••••" autocomplete="current-password"></div>
+        <div class="fg cs2"><label class="fl">Nova Senha *</label><input class="fi" type="password" id="ts-nova-senha" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
+        <div class="fg cs2"><label class="fl">Confirmar Nova Senha *</label><input class="fi" type="password" id="ts-conf-senha" placeholder="Repita a nova senha" autocomplete="new-password"></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-trocar-senha')">Cancelar</button>
+      <button class="btn btn-a" onclick="App._confirmarTrocarSenha()">🔑 Alterar Senha</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Usuário ─────────────────────────────────────────────── -->
+<div class="mo" id="modal-usuario">
+  <div class="mc" style="max-width:560px">
+    <div class="mh"><div class="mh-title" id="usr-modal-title">👤 USUÁRIO</div><button class="mc-btn" onclick="UI.closeModal('modal-usuario')">✕</button></div>
+    <div class="mb" id="usr-modal-body"></div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-usuario')">Cancelar</button>
+      <button class="btn btn-a" onclick="Configs._saveUsuario()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Redefinir Senha ─────────────────────────────────────── -->
+<div class="mo" id="modal-reset-senha">
+  <div class="mc" style="max-width:400px">
+    <div class="mh"><div class="mh-title">🔑 REDEFINIR SENHA</div><button class="mc-btn" onclick="UI.closeModal('modal-reset-senha')">✕</button></div>
+    <div class="mb">
+      <div id="usr-reset-nome" style="font-weight:600;margin-bottom:12px;color:var(--accent)"></div>
+      <div class="fgrid">
+        <div class="fg cs2"><label class="fl">Nova Senha *</label><input class="fi" type="password" id="usr-nova-senha" placeholder="Mínimo 6 caracteres" autocomplete="new-password"></div>
+        <div class="fg cs2"><label class="fl">Confirmar Senha *</label><input class="fi" type="password" id="usr-conf-senha" placeholder="Repita a nova senha" autocomplete="new-password"></div>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-reset-senha')">Cancelar</button>
+      <button class="btn btn-a" onclick="Configs._confirmarResetSenha()">🔑 Redefinir Senha</button>
     </div>
   </div>
 </div>

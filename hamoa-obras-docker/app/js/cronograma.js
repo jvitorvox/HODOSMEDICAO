@@ -14,6 +14,7 @@ const Cronograma = (() => {
   let _searchTerm     = '';
   let _childMap       = {};          // id → [childId, ...]
   let _editingAtId    = null;        // ID da atividade em edição
+  let _vinculosData   = [];          // cache dos contratos para painel de vínculos
 
   // ── Helpers de formato ─────────────────────────────────────
   function _fmt(v) {
@@ -182,6 +183,8 @@ const Cronograma = (() => {
   }
 
   // ── Carrega e renderiza a árvore WBS ───────────────────────
+  let _financeiroData = null;
+
   async function _loadAtividades(cronId) {
     const tbody   = H.el('cron-wbs-tbody');
     const titleEl = H.el('cron-wbs-title');
@@ -189,25 +192,397 @@ const Cronograma = (() => {
     if (!tbody) return;
 
     _showWBS();
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text3);padding:20px;text-align:center">Carregando atividades...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--text3);padding:20px;text-align:center">Carregando atividades...</td></tr>';
 
     try {
-      _atividades = await API.cronogramaAtividades(cronId);
+      // Busca atividades e dados financeiros em paralelo
+      const [atividadesData, finData] = await Promise.all([
+        API.cronogramaAtividades(cronId),
+        API.cronogramaFinanceiro(cronId).catch(() => null),
+      ]);
+      _atividades     = atividadesData;
+      _financeiroData = finData;
+
       const cron  = _cronogramas.find(c => c.id === cronId);
       if (titleEl) titleEl.textContent = cron ? `${cron.nome} (v${cron.versao})` : 'Cronograma';
 
       _childMap = _buildChildMap(_atividades);
 
       if (!_atividades.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text3);padding:20px;text-align:center">Nenhuma atividade encontrada neste cronograma.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="color:var(--text3);padding:20px;text-align:center">Nenhuma atividade encontrada neste cronograma.</td></tr>';
         if (countEl) countEl.textContent = '';
+        _renderProgressSummary([]);
         return;
       }
 
+      _renderProgressSummary(_atividades);
+      _renderVinculosPanel();
       _renderWBS();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:20px">${H.esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);padding:20px">${H.esc(e.message)}</td></tr>`;
     }
+  }
+
+  // ── Painel de progresso geral (acima da tabela WBS) ─────────
+  function _renderProgressSummary(atividades) {
+    // Encontra ou cria o container do painel
+    let panel = H.el('cron-progress-summary');
+    if (!panel) {
+      const wrap = H.el('cron-wbs-wrap');
+      if (!wrap) return;
+      panel = document.createElement('div');
+      panel.id = 'cron-progress-summary';
+      wrap.insertBefore(panel, wrap.firstChild);
+    }
+
+    if (!atividades.length) { panel.style.display = 'none'; return; }
+
+    // Pega itens raiz (nivel=0 ou parent_id nulo)
+    // Exclui do painel os cards de WBS 2, 3 e 4 (Check List, Entrega Definitiva, Inauguração)
+    const _wbsExcluidos = ['2', '3', '4'];
+    const roots = atividades.filter(a => !a.parent_id && !_wbsExcluidos.includes((a.wbs || '').trim()));
+    if (!roots.length) { panel.style.display = 'none'; return; }
+
+    // Se há apenas 1 raiz, mostra como barra principal
+    // Se há múltiplas raízes, mostra mini-cards lado a lado
+    const fmtPct = v => {
+      const n = parseFloat(v) || 0;
+      return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+    };
+
+    const cards = roots.map(r => {
+      const pct    = parseFloat(r.pct_realizado_calc) || 0;
+      const col    = _barColor(pct);
+      const fonte  = r.eh_rollup ? 'consolidado das atividades' : (r.pct_medicoes != null ? 'por medições' : 'manual');
+
+      // Conta folhas com medição neste galho
+      const allDesc = _getAllDescendants(r.id);
+      const totalLeafs = allDesc.filter(a => !a.eh_resumo).length;
+      const withMed   = allDesc.filter(a => !a.eh_resumo && a.pct_medicoes != null).length;
+      const medInfo   = totalLeafs > 0
+        ? `<span style="font-size:10px;color:var(--text3)">${withMed} de ${totalLeafs} tarefas com medição</span>`
+        : '';
+
+      return `
+        <div style="flex:1;min-width:220px;background:var(--surface2);border:1px solid var(--border);
+                    border-radius:var(--r2);padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;color:var(--text);flex:1;min-width:0;
+                         white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+                  title="${H.esc(r.nome)}">
+              ${r.wbs ? `<span style="color:var(--text3);font-size:10px;margin-right:4px">${H.esc(r.wbs)}</span>` : ''}
+              ${H.esc(r.nome)}
+            </span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="flex:1;height:10px;background:var(--border);border-radius:5px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100, pct)}%;background:${col};
+                          border-radius:5px;transition:width .4s ease"></div>
+            </div>
+            <span style="font-size:22px;font-weight:800;color:${col};min-width:60px;text-align:right;
+                         font-variant-numeric:tabular-nums">${fmtPct(pct)}</span>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">
+            ${medInfo}
+            <span style="font-size:10px;color:var(--text3);font-style:italic">${fonte}</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    // ── Card Financeiro ───────────────────────────────────────
+    const fmtMoeda = v => {
+      const n = parseFloat(v) || 0;
+      return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    };
+
+    let cardFinanceiro = '';
+    if (_financeiroData && (parseFloat(_financeiroData.val_contratado) > 0 || parseFloat(_financeiroData.val_medido) > 0)) {
+      const valCont  = parseFloat(_financeiroData.val_contratado) || 0;
+      const valMed   = parseFloat(_financeiroData.val_medido)     || 0;
+      const pctFin   = parseFloat(_financeiroData.pct_financeiro) || 0;
+      const qtdCont  = parseInt(_financeiroData.qtd_contratos)    || 0;
+      const valSaldo = valCont - valMed;
+      const colFin   = pctFin >= 90 ? 'var(--red)' : pctFin >= 70 ? 'var(--yellow)' : 'var(--teal)';
+
+      cardFinanceiro = `
+        <div style="flex:1;min-width:220px;background:var(--surface2);border:1px solid var(--border);
+                    border-radius:var(--r2);padding:14px 16px;display:flex;flex-direction:column;gap:8px;
+                    border-left:3px solid var(--teal)">
+          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;color:var(--text);flex:1">
+              💰 Gasto Financeiro da Obra
+            </span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="flex:1;height:10px;background:var(--border);border-radius:5px;overflow:hidden">
+              <div style="height:100%;width:${Math.min(100, pctFin)}%;background:${colFin};
+                          border-radius:5px;transition:width .4s ease"></div>
+            </div>
+            <span style="font-size:22px;font-weight:800;color:${colFin};min-width:60px;text-align:right;
+                         font-variant-numeric:tabular-nums">${pctFin.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})}%</span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:10px;color:var(--text3)">Medido</span>
+              <span style="font-size:13px;font-weight:800;color:${colFin}">${fmtMoeda(valMed)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:10px;color:var(--text3)">Contratado</span>
+              <span style="font-size:11px;font-weight:600;color:var(--text2)">${fmtMoeda(valCont)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:10px;color:var(--text3)">Saldo disponível</span>
+              <span style="font-size:11px;font-weight:600;color:${valSaldo >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtMoeda(valSaldo)}</span>
+            </div>
+          </div>
+
+          <div style="font-size:10px;color:var(--text3);font-style:italic">
+            ${qtdCont} contrato${qtdCont !== 1 ? 's' : ''} vinculado${qtdCont !== 1 ? 's' : ''} · soma das medições aprovadas
+          </div>
+        </div>`;
+    }
+
+    // ── Card Orçado vs Realizado ─────────────────────────────────
+    let cardOrcado = '';
+    if (_financeiroData && parseFloat(_financeiroData.val_orcado) > 0) {
+      const valOrc  = parseFloat(_financeiroData.val_orcado) || 0;
+      const valReal = parseFloat(_financeiroData.val_medido)  || 0;
+      const pctOrc  = valOrc > 0 ? Math.min(100, (valReal / valOrc) * 100) : 0;
+      const colOrc  = pctOrc >= 90 ? 'var(--red)' : pctOrc >= 70 ? 'var(--yellow)' : 'var(--teal)';
+      const valSaldo = valOrc - valReal;
+
+      cardOrcado = `
+        <div style="flex:1;min-width:220px;background:var(--surface2);border:1px solid var(--border);
+                    border-radius:var(--r2);padding:14px 16px;display:flex;flex-direction:column;gap:8px;
+                    border-left:3px solid var(--purple,#8b5cf6)">
+          <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;color:var(--text);flex:1">
+              📋 Orçado vs Realizado
+            </span>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="flex:1;height:10px;background:var(--border);border-radius:5px;overflow:hidden">
+              <div style="height:100%;width:${pctOrc.toFixed(1)}%;background:${colOrc};
+                          border-radius:5px;transition:width .4s ease"></div>
+            </div>
+            <span style="font-size:22px;font-weight:800;color:${colOrc};min-width:60px;text-align:right;
+                         font-variant-numeric:tabular-nums">${pctOrc.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})}%</span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:10px;color:var(--text3)">Realizado</span>
+              <span style="font-size:13px;font-weight:800;color:${colOrc}">${fmtMoeda(valReal)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:10px;color:var(--text3)">Orçado</span>
+              <span style="font-size:11px;font-weight:600;color:var(--text2)">${fmtMoeda(valOrc)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="font-size:10px;color:var(--text3)">Saldo orçamentário</span>
+              <span style="font-size:11px;font-weight:600;color:${valSaldo >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtMoeda(valSaldo)}</span>
+            </div>
+          </div>
+
+          <div style="font-size:10px;color:var(--text3);font-style:italic">
+            Orçado = custo planejado (MS Project) · Realizado = medições aprovadas
+          </div>
+        </div>`;
+    }
+
+    // Título do painel
+    const totalLeafsGlobal = atividades.filter(a => !a.eh_resumo).length;
+    const withMedGlobal    = atividades.filter(a => !a.eh_resumo && a.pct_medicoes != null).length;
+
+    panel.style.display = '';
+    panel.innerHTML = `
+      <div style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">📊 Progresso Geral da Obra</span>
+          <span style="font-size:10px;color:var(--text3);background:var(--surface2);
+                       border:1px solid var(--border);border-radius:10px;padding:1px 8px">
+            ${withMedGlobal} de ${totalLeafsGlobal} tarefas com medição
+          </span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">${cards}${cardFinanceiro}${cardOrcado}</div>
+      </div>`;
+  }
+
+  // ── Retorna todos os descendentes de um nó ──────────────────
+  function _getAllDescendants(parentId) {
+    const result = [];
+    const kids = _childMap[parentId] || [];
+    for (const cid of kids) {
+      const a = _atividades.find(x => x.id === cid);
+      if (a) {
+        result.push(a);
+        result.push(..._getAllDescendants(cid));
+      }
+    }
+    return result;
+  }
+
+  // ── Painel de vínculos: contratos da obra × atividades WBS ──
+  async function _renderVinculosPanel() {
+    let panel = H.el('cron-vinculos-panel');
+    if (!panel) {
+      const wrap = H.el('cron-wbs-wrap');
+      if (!wrap) return;
+      panel = document.createElement('div');
+      panel.id = 'cron-vinculos-panel';
+      // Insere ABAIXO do painel de progresso mas ACIMA da tabela WBS
+      const progressPanel = H.el('cron-progress-summary');
+      if (progressPanel && progressPanel.nextSibling) {
+        wrap.insertBefore(panel, progressPanel.nextSibling);
+      } else {
+        wrap.insertBefore(panel, wrap.firstChild);
+      }
+    }
+
+    if (!_currentCronId) { panel.style.display = 'none'; return; }
+
+    try {
+      _vinculosData = await API.cronogramaContratosVinculos(_currentCronId);
+    } catch (e) {
+      panel.style.display = 'none';
+      return;
+    }
+
+    if (!_vinculosData.length) { panel.style.display = 'none'; return; }
+
+    const semVinculo  = _vinculosData.filter(c => !c.atividade_id);
+    const comVinculo  = _vinculosData.filter(c =>  c.atividade_id);
+
+    // Opções de atividades folha para o dropdown de vínculo
+    const leafOpts = _atividades
+      .filter(a => !a.eh_resumo)
+      .map(a => `<option value="${a.id}">${a.wbs ? a.wbs + ' · ' : ''}${H.esc(a.nome)}</option>`)
+      .join('');
+
+    const fmtVal = v => (parseFloat(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+
+    const rowSem = semVinculo.map(c => `
+      <tr data-cid="${c.id}">
+        <td style="font-size:11px;font-weight:600">${H.esc(c.numero)}</td>
+        <td style="font-size:11px;color:var(--text2)">${H.esc(c.fornecedor_nome||'')}</td>
+        <td style="font-size:11px;text-align:right;color:var(--text2)">${fmtVal(c.valor_total)}</td>
+        <td style="min-width:260px">
+          <select class="vinc-at-sel" data-cid="${c.id}"
+                  style="width:100%;font-size:11px;padding:3px 6px;border-radius:var(--r);
+                         border:1px solid var(--border);background:var(--surface);color:var(--text)">
+            <option value="">— selecione a atividade WBS —</option>
+            ${leafOpts}
+          </select>
+        </td>
+        <td>
+          ${Perm.has('cronogramaVinculos') ? `<button class="btn btn-xs" onclick="Cronograma.salvarVinculo(${c.id})"
+                  style="font-size:10px;white-space:nowrap">🔗 Vincular</button>` : ''}
+        </td>
+      </tr>`).join('');
+
+    const rowCom = comVinculo.map(c => `
+      <tr data-cid="${c.id}">
+        <td style="font-size:11px;font-weight:600">${H.esc(c.numero)}</td>
+        <td style="font-size:11px;color:var(--text2)">${H.esc(c.fornecedor_nome||'')}</td>
+        <td style="font-size:11px;text-align:right;color:var(--text2)">${fmtVal(c.valor_total)}</td>
+        <td colspan="2" style="font-size:11px">
+          <span style="color:var(--green)">✅</span>
+          <span style="color:var(--accent);font-size:10px;font-weight:600;margin:0 4px">
+            ${H.esc(c.atividade_wbs||'')}
+          </span>
+          <span style="color:var(--text2)">${H.esc(c.atividade_nome||'')}</span>
+          <button onclick="Cronograma.removerVinculo(${c.id},${c.atividade_id})"
+                  style="margin-left:8px;background:none;border:none;cursor:pointer;
+                         font-size:10px;color:var(--text3)" title="Remover vínculo">✕</button>
+        </td>
+      </tr>`).join('');
+
+    panel.style.display = '';
+    panel.innerHTML = `
+      <div style="margin-bottom:14px;border:1px solid var(--border);border-radius:var(--r2);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;
+                    padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);
+                    cursor:pointer" onclick="Cronograma.toggleVinculos()">
+          <span style="font-size:12px;font-weight:700;color:var(--text)">
+            🔗 Vínculos Contrato × WBS
+          </span>
+          <span style="display:flex;align-items:center;gap:8px">
+            ${semVinculo.length > 0
+              ? `<span style="background:rgba(239,68,68,.12);color:var(--red);font-size:10px;
+                             font-weight:700;padding:2px 8px;border-radius:10px">
+                   ⚠️ ${semVinculo.length} sem vínculo
+                 </span>`
+              : `<span style="background:rgba(34,197,94,.12);color:var(--green);font-size:10px;
+                             font-weight:700;padding:2px 8px;border-radius:10px">
+                   ✅ Todos vinculados
+                 </span>`}
+            <span id="cron-vinculos-arrow" style="font-size:11px;color:var(--text3)">▼</span>
+          </span>
+        </div>
+        <div id="cron-vinculos-body" style="display:${semVinculo.length > 0 ? 'block' : 'none'}">
+          <table style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr style="background:var(--surface2)">
+                <th style="padding:6px 10px;font-size:10px;color:var(--text3);text-align:left;
+                           font-weight:600;border-bottom:1px solid var(--border)">Contrato</th>
+                <th style="padding:6px 10px;font-size:10px;color:var(--text3);text-align:left;
+                           font-weight:600;border-bottom:1px solid var(--border)">Fornecedor</th>
+                <th style="padding:6px 10px;font-size:10px;color:var(--text3);text-align:right;
+                           font-weight:600;border-bottom:1px solid var(--border)">Valor</th>
+                <th style="padding:6px 10px;font-size:10px;color:var(--text3);
+                           font-weight:600;border-bottom:1px solid var(--border)">Atividade WBS</th>
+                <th style="border-bottom:1px solid var(--border)"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${semVinculo.length > 0 ? `
+                <tr><td colspan="5" style="padding:4px 10px;font-size:10px;font-weight:700;
+                    color:var(--red);background:rgba(239,68,68,.05)">
+                  Sem vínculo — o progresso NÃO cascateia para o cronograma</td></tr>
+                ${rowSem}` : ''}
+              ${comVinculo.length > 0 ? `
+                <tr><td colspan="5" style="padding:4px 10px;font-size:10px;font-weight:700;
+                    color:var(--green);background:rgba(34,197,94,.05)">
+                  Vinculados — progresso cascateia ✅</td></tr>
+                ${rowCom}` : ''}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function toggleVinculos() {
+    const body  = H.el('cron-vinculos-body');
+    const arrow = H.el('cron-vinculos-arrow');
+    if (!body) return;
+    const isOpen = body.style.display !== 'none';
+    body.style.display  = isOpen ? 'none' : 'block';
+    if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+  }
+
+  async function salvarVinculo(contratoId) {
+    const sel = document.querySelector(`.vinc-at-sel[data-cid="${contratoId}"]`);
+    const atId = parseInt(sel?.value);
+    if (!atId) { UI.toast('Selecione uma atividade WBS', 'error'); return; }
+    try {
+      await API.saveContratoAtividades(contratoId, [atId]);
+      UI.toast('Vínculo salvo! Recarregando progresso…', 'success');
+      await _loadAtividades(_currentCronId);  // recarrega tudo com novos vínculos
+    } catch (e) { UI.toast('Erro: ' + e.message, 'error'); }
+  }
+
+  async function removerVinculo(contratoId, atividadeId) {
+    if (!confirm('Remover vínculo deste contrato com a atividade WBS?')) return;
+    try {
+      await API.saveContratoAtividades(contratoId, []);
+      UI.toast('Vínculo removido', 'success');
+      await _loadAtividades(_currentCronId);
+    } catch (e) { UI.toast('Erro: ' + e.message, 'error'); }
   }
 
   // ── Renderiza a tabela WBS (respeitando busca e collapse) ───
@@ -229,7 +604,7 @@ const Cronograma = (() => {
     }
 
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--text3);padding:20px;text-align:center">${term ? '🔍 Nenhuma atividade encontrada.' : 'Nenhuma atividade.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="color:var(--text3);padding:20px;text-align:center">${term ? '🔍 Nenhuma atividade encontrada.' : 'Nenhuma atividade.'}</td></tr>`;
       if (countEl) countEl.textContent = '';
       return;
     }
@@ -276,14 +651,58 @@ const Cronograma = (() => {
          </div>`
       : '';
 
-    // ── Coluna "Por Medições" ─────────────────────────────────
-    // Mostra barra + % calculado das medições aprovadas.
-    // Se não há contrato vinculado: hint cinza. Se há contrato mas sem medições: 0% pendente.
+    // ── Coluna "Por Medições" / Roll-up ──────────────────────────
+    const ehRollup   = !!a.eh_rollup;
+    const pctRollup  = a.pct_rollup != null ? parseFloat(a.pct_rollup) : null;
+    const rollupFil  = parseInt(a.rollup_filhos) || 0;
+    const rollupMed  = parseInt(a.rollup_com_med) || 0;
+
     let colMedicoes;
-    if (qtdCont === 0) {
-      // sem contrato vinculado
-      colMedicoes = `<span style="font-size:10px;color:var(--text3);font-style:italic">sem contrato</span>`;
+    if (isResume && ehRollup) {
+      // ── Linha resumo com progresso roll-up dos filhos ────────
+      const pctVal = pctEfet;
+      const barCol = _barColor(pctVal);
+      const desvR  = pctVal - pctPlan;
+      const desvTag = pctPlan > 0
+        ? `<div style="font-size:9px;margin-top:2px;color:${desvR >= 0 ? 'var(--green)' : 'var(--red)'}">
+             ${desvR >= 0 ? '▲' : '▼'} ${Math.abs(desvR).toFixed(1)}% vs. plan.
+           </div>`
+        : '';
+      colMedicoes = `
+        <div style="display:flex;align-items:center;gap:7px">
+          <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;
+                      border:1px dashed rgba(99,102,241,.35)">
+            <div style="height:100%;width:${Math.min(100, pctVal)}%;background:${barCol};
+                        border-radius:4px;opacity:.85;
+                        background:repeating-linear-gradient(45deg,${barCol},${barCol} 4px,transparent 4px,transparent 8px)"></div>
+          </div>
+          <span style="font-size:11px;font-weight:700;color:${barCol};min-width:38px;text-align:right">${_fmt(pctVal)}</span>
+        </div>
+        ${desvTag}
+        <div style="font-size:9px;color:var(--accent);margin-top:2px;opacity:.8">
+          ↳ consolidado de ${rollupFil} subfase${rollupFil !== 1 ? 's' : ''}
+          ${rollupMed > 0 ? `· ${rollupMed} com medição` : '· sem medição'}
+        </div>`;
+    } else if (qtdCont === 0 && !isResume) {
+      // folha sem contrato — exibe 0%
+      colMedicoes = `
+        <div style="display:flex;align-items:center;gap:7px">
+          <div class="wbs-bar-bg" style="flex:1;opacity:.3">
+            <div class="wbs-bar-fill" style="width:0%;background:var(--text3)"></div>
+          </div>
+          <span style="font-size:11px;font-weight:700;color:var(--text3);min-width:38px;text-align:right">0,0%</span>
+        </div>`;
+    } else if (qtdCont === 0 && isResume) {
+      // resumo sem contrato e sem roll-up — exibe 0%
+      colMedicoes = `
+        <div style="display:flex;align-items:center;gap:7px">
+          <div class="wbs-bar-bg" style="flex:1;opacity:.3">
+            <div class="wbs-bar-fill" style="width:0%;background:var(--text3)"></div>
+          </div>
+          <span style="font-size:11px;font-weight:700;color:var(--text3);min-width:38px;text-align:right">0,0%</span>
+        </div>`;
     } else {
+      // ── Folha ou resumo com contratos diretos ────────────────
       const pctVal  = pctMed !== null ? pctMed : 0;
       const barCol  = _barColor(pctVal);
       const semMed  = qtdMed === 0;
@@ -321,12 +740,29 @@ const Cronograma = (() => {
       ? `<div style="font-size:9px;color:var(--text3);margin-top:1px">substituído por medições</div>`
       : (pctMan > 0 ? '' : `<div style="font-size:9px;color:var(--text3);margin-top:1px">não definido</div>`);
 
-    return `<tr class="${rowClass}" data-id="${a.id}" title="${H.esc(a.nome)}">
+    // ── Coluna "Possui Contrato?" ─────────────────────────────
+    const colContrato = qtdCont > 0
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;
+                      background:rgba(16,185,129,.12);color:var(--green);border:1px solid rgba(16,185,129,.3)">SIM</span>`
+      : `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;
+                      background:var(--surface2);color:var(--text3);border:1px solid var(--border)">NÃO</span>`;
+
+    // Estilo da linha: raiz (nivel=0) recebe destaque máximo
+    const isRoot    = (a.nivel === 0 || a.nivel == null);
+    const rowBg     = isRoot && isResume
+      ? 'background:rgba(99,102,241,.07);border-bottom:2px solid rgba(99,102,241,.2)'
+      : (isResume ? 'background:var(--surface2)' : '');
+    const nomeStyle = isRoot && isResume
+      ? 'font-weight:800;font-size:13px;color:var(--text)'
+      : (isResume ? 'font-weight:700;font-size:12px;color:var(--text)' : '');
+
+    return `<tr class="${rowClass}" data-id="${a.id}" title="${H.esc(a.nome)}"
+                style="${rowBg}">
       <td style="padding-left:${indent + 6}px;min-width:0">
         <div style="display:flex;align-items:flex-start;gap:5px">
           ${toggleEl}
           <div style="min-width:0;flex:1">
-            <div class="wbs-nome">${H.esc(a.nome)}</div>
+            <div class="wbs-nome" style="${nomeStyle}">${H.esc(a.nome)}</div>
             ${contratos}
           </div>
         </div>
@@ -337,18 +773,30 @@ const Cronograma = (() => {
       <td class="tc">${a.duracao != null ? a.duracao + 'd' : '—'}</td>
       <td class="tc">${_fmt(pctPlan)}</td>
 
-      <!-- Coluna: Por Medições -->
+      <!-- Coluna: Custo Planejado -->
+      <td style="text-align:right;font-size:11px;white-space:nowrap;padding-right:10px;vertical-align:middle">
+        ${a.custo_planejado != null && parseFloat(a.custo_planejado) > 0
+          ? `<span style="font-weight:${isResume ? '700' : '400'};color:${isResume ? 'var(--text)' : 'var(--text2)'}">
+               ${parseFloat(a.custo_planejado).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
+             </span>`
+          : `<span style="color:var(--text3)">—</span>`}
+      </td>
+
+      <!-- Coluna: Por Medições / Roll-up -->
       <td style="min-width:190px">${colMedicoes}</td>
 
       <!-- Coluna: Manual (pct_realizado) -->
       <td style="min-width:110px;vertical-align:middle">
         <div style="display:flex;align-items:center;gap:6px">
           <span style="${manStyle}">${pctMan > 0 ? _fmt(pctMan) : '—'}</span>
-          <button class="btn btn-xs btn-o" onclick="Cronograma.openEditAtividade(${a.id})"
-                  title="Editar atividade" style="padding:2px 6px;font-size:10px">✏</button>
+          ${Perm.has('cronogramaEditar') ? `<button class="btn btn-xs btn-o" onclick="Cronograma.openEditAtividade(${a.id})"
+                  title="Editar atividade" style="padding:2px 6px;font-size:10px">✏</button>` : ''}
         </div>
         ${manHint}
       </td>
+
+      <!-- Coluna: Possui Contrato? -->
+      <td class="tc" style="vertical-align:middle">${colContrato}</td>
     </tr>`;
   }
 
@@ -615,6 +1063,9 @@ const Cronograma = (() => {
     // Reset select de cronogramas
     const sel = H.el('cron-sel');
     if (sel) { sel.innerHTML = '<option value="">— selecione a obra primeiro —</option>'; sel.disabled = false; }
+
+    // Inicializa painel de chat apenas se o usuário tiver permissão
+    if (Perm.has('cronogramaIA') && !document.getElementById('cron-chat-panel')) _initChat();
   }
 
   // ── onChange da obra ────────────────────────────────────────
@@ -635,6 +1086,252 @@ const Cronograma = (() => {
     await _loadCronogramas(obraId);
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // CHAT IA — Painel conversacional sobre o cronograma
+  // ══════════════════════════════════════════════════════════════
+  let _chatHistory  = [];   // [{role:'user'|'model', text:'...'}]
+  let _chatOpen     = false;
+  let _chatLoading  = false;
+
+  function _initChat() {
+    // Botão flutuante
+    const btn = document.createElement('button');
+    btn.id        = 'cron-chat-fab';
+    btn.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg><span>Perguntar à IA</span>`;
+    btn.onclick = toggleChat;
+    btn.style.cssText = `
+      position:fixed; bottom:28px; right:28px; z-index:1200;
+      display:flex; align-items:center; gap:8px;
+      background:linear-gradient(135deg,#6366f1,#8b5cf6);
+      color:#fff; border:none; border-radius:28px;
+      padding:12px 20px; font-size:14px; font-weight:600;
+      cursor:pointer; box-shadow:0 4px 20px rgba(99,102,241,.45);
+      transition:all .2s; white-space:nowrap;`;
+    btn.onmouseenter = () => btn.style.transform = 'scale(1.05)';
+    btn.onmouseleave = () => btn.style.transform = '';
+    document.body.appendChild(btn);
+
+    // Painel lateral de chat
+    const panel = document.createElement('div');
+    panel.id = 'cron-chat-panel';
+    panel.style.cssText = `
+      position:fixed; top:0; right:-440px; width:420px; height:100vh; z-index:1100;
+      background:#fff; box-shadow:-4px 0 30px rgba(0,0,0,.12);
+      display:flex; flex-direction:column;
+      transition:right .3s cubic-bezier(.4,0,.2,1);
+      font-family:inherit;`;
+    panel.innerHTML = `
+      <div id="cron-chat-header" style="
+        padding:16px 20px; border-bottom:1px solid #e5e7eb;
+        background:linear-gradient(135deg,#6366f1,#8b5cf6);
+        color:#fff; display:flex; align-items:center; justify-content:space-between; flex-shrink:0;">
+        <div style="display:flex;align-items:center;gap:10px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <div>
+            <div style="font-weight:700;font-size:15px">Construv IA</div>
+            <div style="font-size:11px;opacity:.85">Assistente do Cronograma</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button onclick="Cronograma.clearChat()" title="Limpar conversa" style="
+            background:rgba(255,255,255,.2); border:none; color:#fff; border-radius:8px;
+            padding:5px 10px; font-size:11px; cursor:pointer; font-weight:600;">↺ Limpar</button>
+          <button onclick="Cronograma.toggleChat()" style="
+            background:rgba(255,255,255,.2); border:none; color:#fff; border-radius:8px;
+            width:30px; height:30px; cursor:pointer; font-size:18px; line-height:1;">✕</button>
+        </div>
+      </div>
+
+      <div id="cron-chat-messages" style="
+        flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px;
+        background:#f8f9ff;">
+        <div id="cron-chat-welcome" style="
+          background:#fff; border-radius:14px; padding:16px; border:1px solid #e5e7eb;
+          color:#374151; font-size:13.5px; line-height:1.6;">
+          <div style="font-size:22px;margin-bottom:8px">👋</div>
+          <strong>Olá! Sou o assistente de cronograma Construv IA.</strong><br>
+          Posso responder perguntas sobre:<br>
+          <ul style="margin:8px 0 0 16px;padding:0">
+            <li>Progresso de atividades e fases</li>
+            <li>Status dos contratos e fornecedores</li>
+            <li>Desvios de planejado × realizado</li>
+            <li>Prazos e durações</li>
+          </ul>
+          <div style="margin-top:10px;font-size:12px;color:#6b7280">
+            Experimente: <em>"Qual o progresso da infraestrutura geral?"</em>
+          </div>
+        </div>
+      </div>
+
+      <div id="cron-chat-suggestions" style="
+        padding:8px 16px; display:flex; gap:6px; flex-wrap:wrap; flex-shrink:0;
+        border-top:1px solid #e5e7eb; background:#fff;">
+        ${['Qual o progresso geral?','Quais contratos estão ativos?','Há atividades atrasadas?','Quem são os fornecedores?'].map(s =>
+          `<button onclick="Cronograma.chatSuggest('${s.replace(/'/g,"\\'")}') " style="
+            background:#f3f4f6; border:1px solid #e5e7eb; border-radius:20px;
+            padding:4px 10px; font-size:11px; color:#374151; cursor:pointer;
+            transition:background .15s; white-space:nowrap;"
+            onmouseenter="this.style.background='#e5e7eb'"
+            onmouseleave="this.style.background='#f3f4f6'"
+          >${s}</button>`
+        ).join('')}
+      </div>
+
+      <div style="padding:12px 16px; border-top:1px solid #e5e7eb; background:#fff; flex-shrink:0;">
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <textarea id="cron-chat-input" rows="2" placeholder="Faça uma pergunta sobre o cronograma..." style="
+            flex:1; border:1.5px solid #d1d5db; border-radius:12px; padding:10px 12px;
+            font-size:13.5px; font-family:inherit; resize:none; outline:none; line-height:1.4;
+            transition:border-color .2s;"
+            onfocus="this.style.borderColor='#6366f1'"
+            onblur="this.style.borderColor='#d1d5db'"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();Cronograma.sendChat()}"
+          ></textarea>
+          <button id="cron-chat-send" onclick="Cronograma.sendChat()" style="
+            background:linear-gradient(135deg,#6366f1,#8b5cf6); border:none; color:#fff;
+            border-radius:12px; width:42px; height:42px; cursor:pointer; font-size:18px;
+            display:flex;align-items:center;justify-content:center;
+            box-shadow:0 2px 8px rgba(99,102,241,.3); flex-shrink:0;
+            transition:opacity .2s;">➤</button>
+        </div>
+        <div style="font-size:11px;color:#9ca3af;margin-top:6px;text-align:center">
+          Enter para enviar · Shift+Enter para nova linha
+        </div>
+      </div>`;
+    document.body.appendChild(panel);
+  }
+
+  function toggleChat() {
+    _chatOpen = !_chatOpen;
+    const panel = document.getElementById('cron-chat-panel');
+    const fab   = document.getElementById('cron-chat-fab');
+    if (panel) panel.style.right = _chatOpen ? '0' : '-440px';
+    if (fab)   fab.style.right   = _chatOpen ? '448px' : '28px';
+    if (_chatOpen) {
+      setTimeout(() => {
+        const inp = document.getElementById('cron-chat-input');
+        if (inp) inp.focus();
+      }, 320);
+    }
+  }
+
+  function clearChat() {
+    _chatHistory = [];
+    const msgs = document.getElementById('cron-chat-messages');
+    if (!msgs) return;
+    msgs.innerHTML = `<div id="cron-chat-welcome" style="
+      background:#fff; border-radius:14px; padding:16px; border:1px solid #e5e7eb;
+      color:#374151; font-size:13.5px; line-height:1.6;">
+      <div style="font-size:22px;margin-bottom:8px">👋</div>
+      <strong>Conversa reiniciada.</strong> Como posso ajudar?
+    </div>`;
+  }
+
+  function chatSuggest(text) {
+    const inp = document.getElementById('cron-chat-input');
+    if (inp) { inp.value = text; inp.focus(); }
+  }
+
+  function _appendMessage(role, text) {
+    const msgs = document.getElementById('cron-chat-messages');
+    if (!msgs) return;
+    // Remove welcome se ainda existir
+    const welcome = document.getElementById('cron-chat-welcome');
+    if (welcome) welcome.remove();
+
+    const isUser = role === 'user';
+    const div = document.createElement('div');
+    div.style.cssText = `display:flex; flex-direction:column; align-items:${isUser ? 'flex-end' : 'flex-start'}`;
+
+    // Converte markdown simples para HTML
+    const html = text
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/`(.+?)`/g, '<code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
+      .replace(/\n/g, '<br>');
+
+    div.innerHTML = `
+      <div style="
+        max-width:88%; padding:10px 14px; border-radius:${isUser ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};
+        background:${isUser ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : '#fff'};
+        color:${isUser ? '#fff' : '#1f2937'};
+        font-size:13.5px; line-height:1.6;
+        border:${isUser ? 'none' : '1px solid #e5e7eb'};
+        box-shadow:0 1px 4px rgba(0,0,0,.07);">
+        ${html}
+      </div>
+      <div style="font-size:10px;color:#9ca3af;margin:3px 4px">
+        ${isUser ? 'Você' : '🤖 Construv IA'} · agora
+      </div>`;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function _appendTyping() {
+    const msgs = document.getElementById('cron-chat-messages');
+    if (!msgs) return;
+    const div = document.createElement('div');
+    div.id = 'cron-chat-typing';
+    div.style.cssText = 'display:flex;align-items:flex-start';
+    div.innerHTML = `<div style="
+      background:#fff; border:1px solid #e5e7eb; border-radius:14px 14px 14px 4px;
+      padding:12px 16px; box-shadow:0 1px 4px rgba(0,0,0,.07);">
+      <span style="display:inline-flex;gap:4px">
+        <span style="width:7px;height:7px;background:#6366f1;border-radius:50%;animation:bounce .8s infinite .0s"></span>
+        <span style="width:7px;height:7px;background:#6366f1;border-radius:50%;animation:bounce .8s infinite .15s"></span>
+        <span style="width:7px;height:7px;background:#6366f1;border-radius:50%;animation:bounce .8s infinite .3s"></span>
+      </span>
+    </div>`;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+
+    // Injeta animação se ainda não existir
+    if (!document.getElementById('cron-chat-style')) {
+      const s = document.createElement('style');
+      s.id = 'cron-chat-style';
+      s.textContent = `@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}`;
+      document.head.appendChild(s);
+    }
+  }
+
+  async function sendChat() {
+    if (_chatLoading) return;
+    if (!_currentCronId) { alert('Selecione um cronograma primeiro.'); return; }
+    const inp = document.getElementById('cron-chat-input');
+    const msg = inp?.value?.trim();
+    if (!msg) return;
+
+    inp.value = '';
+    _chatLoading = true;
+    const sendBtn = document.getElementById('cron-chat-send');
+    if (sendBtn) sendBtn.style.opacity = '.4';
+
+    _appendMessage('user', msg);
+    _appendTyping();
+
+    try {
+      const result = await API.cronogramaChat(_currentCronId, msg, _chatHistory);
+      const reply  = result?.reply || '(sem resposta)';
+      document.getElementById('cron-chat-typing')?.remove();
+      _appendMessage('model', reply);
+      _chatHistory.push({ role: 'user',  text: msg });
+      _chatHistory.push({ role: 'model', text: reply });
+      // Limita histórico a 20 turnos para não exceder tokens
+      if (_chatHistory.length > 40) _chatHistory = _chatHistory.slice(-40);
+    } catch (err) {
+      document.getElementById('cron-chat-typing')?.remove();
+      _appendMessage('model', `❌ Erro: ${err.message}`);
+    } finally {
+      _chatLoading = false;
+      if (sendBtn) sendBtn.style.opacity = '1';
+      inp?.focus();
+    }
+  }
+
   return {
     init, onObraChange, onCronogramaChange, selectCronograma,
     openImport, openReplace, openReplaceSelected, submitImport,
@@ -643,6 +1340,9 @@ const Cronograma = (() => {
     onSearch, clearSearch,
     exportXml,
     openEditAtividade, submitEditAtividade,
-    editPct,  // mantido por compatibilidade
+    editPct,
+    toggleVinculos, salvarVinculo, removerVinculo,
+    // Chat IA
+    toggleChat, clearChat, chatSuggest, sendChat,
   };
 })();

@@ -9,6 +9,8 @@
 const router  = require('express').Router();
 const db      = require('../db');
 const auth    = require('../middleware/auth');
+const { perm } = require('../middleware/perm');
+const audit   = require('../middleware/audit');
 const { uploadMem, _iaGetKey, _iaFileToParts, _iaCall } = require('../helpers/ia');
 
 // ── CRUD ────────────────────────────────────────────────────────
@@ -18,7 +20,7 @@ router.get('/', auth, async (req, res) => {
   res.json(r.rows);
 });
 
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, perm('cadastros'), async (req, res) => {
   const { razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
           endereco, representante, cargo_representante } = req.body;
   const r = await db.query(
@@ -28,10 +30,12 @@ router.post('/', auth, async (req, res) => {
     [razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
      endereco||null, representante||null, cargo_representante||null]
   );
-  res.status(201).json(r.rows[0]);
+  const row = r.rows[0];
+  await audit(req, 'criar', 'fornecedor', row.id, `Fornecedor "${row.razao_social}" criado`);
+  res.status(201).json(row);
 });
 
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', auth, perm('cadastros'), async (req, res) => {
   const { razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
           endereco, representante, cargo_representante, ativo } = req.body;
   const r = await db.query(
@@ -42,11 +46,16 @@ router.put('/:id', auth, async (req, res) => {
     [razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
      endereco||null, representante||null, cargo_representante||null, ativo, req.params.id]
   );
-  res.json(r.rows[0]);
+  const row = r.rows[0];
+  const status = row.ativo ? 'ativo' : 'inativo';
+  await audit(req, 'editar', 'fornecedor', row.id, `Fornecedor "${row.razao_social}" atualizado — ${status}`);
+  res.json(row);
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, perm('cadastros'), async (req, res) => {
+  const prev = await db.query('SELECT razao_social FROM fornecedores WHERE id=$1', [req.params.id]);
   await db.query('UPDATE fornecedores SET ativo=false WHERE id=$1', [req.params.id]);
+  await audit(req, 'excluir', 'fornecedor', parseInt(req.params.id), `Fornecedor "${prev.rows[0]?.razao_social || req.params.id}" desativado`);
   res.status(204).end();
 });
 

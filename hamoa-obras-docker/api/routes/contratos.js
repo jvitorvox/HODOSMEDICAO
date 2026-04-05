@@ -11,6 +11,7 @@
 const router  = require('express').Router();
 const db      = require('../db');
 const auth    = require('../middleware/auth');
+const { perm } = require('../middleware/perm');
 const { uploadMem, _iaGetKey, _iaFileToParts, _iaCall, _parseDate } = require('../helpers/ia');
 
 // ── Helper interno: salva itens de contrato (delete + re-insert) ──
@@ -52,12 +53,17 @@ router.get('/', auth, async (req, res) => {
       -- ── Dados de adiantamento e descompasso financeiro-físico ──────────────
       COALESCE(adt.total_adiantado, 0)::NUMERIC(15,2)   AS total_adiantado,
       COALESCE(adt.total_financeiro, 0)::NUMERIC(15,2)  AS total_financeiro_pago,
-      COALESCE(adt.pct_fisico, 0)::NUMERIC(5,2)         AS pct_fisico_executado,
-      -- Descompasso = financeiro pago - (% físico × valor total)
+      -- Valor físico executado (Normal + AvFis, baseado em itens)
+      COALESCE(phys.valor_fisico, 0)::NUMERIC(15,2)     AS valor_fisico_executado,
+      -- % físico = valor_fisico / valor_total × 100
+      CASE WHEN c.valor_total > 0
+           THEN LEAST(100, ROUND(COALESCE(phys.valor_fisico,0) / c.valor_total * 100, 2))
+           ELSE 0 END::NUMERIC(5,2)                     AS pct_fisico_executado,
+      -- Descompasso = financeiro pago - valor físico executado
       CASE WHEN c.valor_total > 0
            THEN ROUND(
              COALESCE(adt.total_financeiro, 0)
-             - c.valor_total * COALESCE(adt.pct_fisico, 0) / 100,
+             - COALESCE(phys.valor_fisico, 0),
            2)
            ELSE 0 END::NUMERIC(15,2) AS descompasso
     FROM contratos c
@@ -65,6 +71,7 @@ router.get('/', auth, async (req, res) => {
     JOIN fornecedores f ON c.fornecedor_id = f.id
     JOIN empresas     e ON c.empresa_id    = e.id
     LEFT JOIN (
+      -- Valor financeiro pago em medições Normais (para pct_executado_real)
       SELECT m.contrato_id, SUM(mi.valor_item) AS valor_executado
       FROM medicao_itens mi
       JOIN medicoes m ON m.id = mi.medicao_id
@@ -73,23 +80,34 @@ router.get('/', auth, async (req, res) => {
       GROUP BY m.contrato_id
     ) ex ON ex.contrato_id = c.id
     LEFT JOIN (
+      -- Totais financeiros (Normal + Adiantamento)
       SELECT
         m.contrato_id,
-        -- Total de adiantamentos aprovados
         SUM(CASE WHEN COALESCE(m.tipo,'Normal') = 'Adiantamento'
                       AND m.status NOT IN ('Rascunho','Reprovado')
                  THEN m.valor_medicao ELSE 0 END) AS total_adiantado,
-        -- Total financeiro pago (Normal + Adiantamento)
         SUM(CASE WHEN COALESCE(m.tipo,'Normal') IN ('Normal','Adiantamento')
                       AND m.status NOT IN ('Rascunho','Reprovado')
-                 THEN m.valor_medicao ELSE 0 END) AS total_financeiro,
-        -- % físico acumulado (Normal + Avanço Físico)
-        MAX(CASE WHEN COALESCE(m.tipo,'Normal') IN ('Normal','Avanco_Fisico')
-                      AND m.status NOT IN ('Rascunho','Reprovado')
-                 THEN m.pct_total END) AS pct_fisico
+                 THEN m.valor_medicao ELSE 0 END) AS total_financeiro
       FROM medicoes m
       GROUP BY m.contrato_id
-    ) adt ON adt.contrato_id = c.id`;
+    ) adt ON adt.contrato_id = c.id
+    LEFT JOIN (
+      -- Valor físico executado calculado direto dos itens (independe de unidade %)
+      -- Normal:       usa valor_item (qtd_mes × valor_unitario)
+      -- Avanco_Fisico: usa qtd_mes × valor_unitario (armazenado do contrato_itens)
+      SELECT m.contrato_id,
+        SUM(
+          CASE WHEN COALESCE(m.tipo,'Normal') = 'Normal'        THEN mi.valor_item
+               WHEN COALESCE(m.tipo,'Normal') = 'Avanco_Fisico' THEN mi.qtd_mes * mi.valor_unitario
+               ELSE 0 END
+        ) AS valor_fisico
+      FROM medicoes m
+      JOIN medicao_itens mi ON mi.medicao_id = m.id
+      WHERE m.status NOT IN ('Rascunho','Reprovado')
+        AND COALESCE(m.tipo,'Normal') IN ('Normal','Avanco_Fisico')
+      GROUP BY m.contrato_id
+    ) phys ON phys.contrato_id = c.id`;
 
   const params     = [];
   const conditions = [];
@@ -125,11 +143,17 @@ router.get('/:id/acumulados', auth, async (req, res) => {
     'SELECT * FROM contrato_itens WHERE contrato_id=$1 ORDER BY ordem,id', [contId]
   );
 
+  // Acumula quantidades separadas por tipo para cálculo correto de saldos:
+  // qtd_normal  = medições Normal (físico+financeiro)
+  // qtd_adt     = adiantamentos (financeiro apenas, físico pendente)
+  // qtd_avfis   = avanço físico (confirma fisicamente os adiantamentos)
   const acumR = await db.query(`
     SELECT
       mi.contrato_item_id,
-      SUM(mi.qtd_mes)    AS qtd_acumulada,
-      SUM(mi.valor_item) AS valor_acumulado
+      SUM(CASE WHEN COALESCE(m.tipo,'Normal') = 'Normal'        THEN mi.qtd_mes ELSE 0 END) AS qtd_normal,
+      SUM(CASE WHEN COALESCE(m.tipo,'Normal') = 'Adiantamento'  THEN mi.qtd_mes ELSE 0 END) AS qtd_adt,
+      SUM(CASE WHEN COALESCE(m.tipo,'Normal') = 'Avanco_Fisico' THEN mi.qtd_mes ELSE 0 END) AS qtd_avfis,
+      SUM(CASE WHEN COALESCE(m.tipo,'Normal') IN ('Normal','Adiantamento') THEN mi.valor_item ELSE 0 END) AS valor_financeiro
     FROM medicao_itens mi
     JOIN medicoes m ON m.id = mi.medicao_id
     WHERE m.contrato_id = $1
@@ -141,31 +165,45 @@ router.get('/:id/acumulados', auth, async (req, res) => {
   const acumMap = {};
   acumR.rows.forEach(r => {
     acumMap[r.contrato_item_id] = {
-      qtd_acumulada:   parseFloat(r.qtd_acumulada)  || 0,
-      valor_acumulado: parseFloat(r.valor_acumulado) || 0,
+      qtd_normal:  parseFloat(r.qtd_normal)  || 0,
+      qtd_adt:     parseFloat(r.qtd_adt)     || 0,
+      qtd_avfis:   parseFloat(r.qtd_avfis)   || 0,
+      valor_financeiro: parseFloat(r.valor_financeiro) || 0,
     };
   });
 
   const itens = itensR.rows.map(ci => {
-    const a        = acumMap[ci.id] || { qtd_acumulada: 0, valor_acumulado: 0 };
-    const qtdTot   = parseFloat(ci.qtd_total)      || 0;
-    const qtdAcum  = a.qtd_acumulada;
-    const qtdSaldo = Math.max(0, parseFloat((qtdTot - qtdAcum).toFixed(4)));
-    const pctExec  = qtdTot > 0
-      ? parseFloat(Math.min(100, (qtdAcum / qtdTot) * 100).toFixed(2))
+    const a      = acumMap[ci.id] || { qtd_normal: 0, qtd_adt: 0, qtd_avfis: 0, valor_financeiro: 0 };
+    const qtdTot = parseFloat(ci.qtd_total) || 0;
+    // Saldo para nova Normal ou novo Adiantamento = qtd_total - Normal - Adt (ambos consomem financeiro)
+    const qtdSaldoFinanceiro = Math.max(0, parseFloat((qtdTot - a.qtd_normal - a.qtd_adt).toFixed(4)));
+    // Saldo ADT pendente de confirmação física = Adt - AvFis
+    const qtdSaldoAdtPendente = Math.max(0, parseFloat((a.qtd_adt - a.qtd_avfis).toFixed(4)));
+    // Quantidade acumulada financeira (para exibição)
+    const qtdAcumFinanceiro = a.qtd_normal + a.qtd_adt;
+    // % físico executado = Normal + AvFis
+    const qtdFisicoExec = a.qtd_normal + a.qtd_avfis;
+    const pctExec = qtdTot > 0
+      ? parseFloat(Math.min(100, (qtdFisicoExec / qtdTot) * 100).toFixed(2))
       : 0;
     return {
-      id:              ci.id,
-      ordem:           ci.ordem,
-      descricao:       ci.descricao,
-      unidade:         ci.unidade,
-      qtd_total:       qtdTot,
-      valor_unitario:  parseFloat(ci.valor_unitario) || 0,
-      valor_total:     parseFloat(ci.valor_total)    || 0,
-      qtd_acumulada:   qtdAcum,
-      qtd_saldo:       qtdSaldo,
-      pct_executado:   pctExec,
-      valor_acumulado: a.valor_acumulado,
+      id:                    ci.id,
+      ordem:                 ci.ordem,
+      descricao:             ci.descricao,
+      unidade:               ci.unidade,
+      qtd_total:             qtdTot,
+      valor_unitario:        parseFloat(ci.valor_unitario) || 0,
+      valor_total:           parseFloat(ci.valor_total)    || 0,
+      // Campos separados por tipo
+      qtd_normal:            a.qtd_normal,
+      qtd_adt:               a.qtd_adt,
+      qtd_avfis:             a.qtd_avfis,
+      // Compatibilidade legada (usa saldo financeiro como "acumulada")
+      qtd_acumulada:         qtdAcumFinanceiro,
+      qtd_saldo:             qtdSaldoFinanceiro,
+      qtd_saldo_adt_pendente: qtdSaldoAdtPendente,
+      pct_executado:         pctExec,
+      valor_acumulado:       a.valor_financeiro,
     };
   });
 
@@ -184,8 +222,9 @@ router.get('/:id/acumulados', auth, async (req, res) => {
 });
 
 // ── CRUD ────────────────────────────────────────────────────────
+const audit = require('../middleware/audit');
 
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, perm('cadastros'), async (req, res) => {
   const { empresa_id, obra_id, fornecedor_id, numero, objeto,
           valor_total, inicio, termino, status, obs, itens } = req.body;
   const client = await db.connect();
@@ -202,14 +241,17 @@ router.post('/', auth, async (req, res) => {
       await _saveContratoItens(client, r.rows[0].id, itens);
     }
     await client.query('COMMIT');
-    res.status(201).json(r.rows[0]);
+    const row = r.rows[0];
+    await audit(req, 'criar', 'contrato', row.id,
+      `Contrato "${row.numero}" criado — valor: R$ ${Number(row.valor_total).toLocaleString('pt-BR',{minimumFractionDigits:2})}`);
+    res.status(201).json(row);
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: e.message });
   } finally { client.release(); }
 });
 
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', auth, perm('cadastros'), async (req, res) => {
   const { empresa_id, obra_id, fornecedor_id, numero, objeto, valor_total,
           pct_executado, inicio, termino, status, obs, itens } = req.body;
   const client = await db.connect();
@@ -227,15 +269,21 @@ router.put('/:id', auth, async (req, res) => {
       await _saveContratoItens(client, req.params.id, itens);
     }
     await client.query('COMMIT');
-    res.json(r.rows[0]);
+    const row = r.rows[0];
+    await audit(req, 'editar', 'contrato', row.id,
+      `Contrato "${row.numero}" atualizado — status: ${row.status}`);
+    res.json(row);
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_) {}
     res.status(500).json({ error: e.message });
   } finally { client.release(); }
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, perm('cadastros'), async (req, res) => {
+  const prev = await db.query('SELECT numero FROM contratos WHERE id=$1', [req.params.id]);
   await db.query('DELETE FROM contratos WHERE id=$1', [req.params.id]);
+  await audit(req, 'excluir', 'contrato', parseInt(req.params.id),
+    `Contrato "${prev.rows[0]?.numero || req.params.id}" excluído`);
   res.status(204).end();
 });
 
@@ -250,6 +298,8 @@ router.post('/interpretar', auth, uploadMem.single('arquivo'), async (req, res) 
     });
     if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
 
+    const obraId = parseInt(req.body?.obra_id) || null;
+
     const parts = await _iaFileToParts(req.file);
     parts.push({
       text: `Você é um especialista em contratos de obras e serviços de engenharia no Brasil.
@@ -263,7 +313,8 @@ Retorne SOMENTE o objeto JSON abaixo (sem markdown, sem explicações, sem texto
     "objeto": "Descrição completa do objeto/escopo do contrato — null se não encontrado",
     "data_inicio": "Data de início/vigência inicial do contrato — retorne EXATAMENTE como aparece no documento (ex: '15/03/2024', '15 de março de 2024', '2024-03-15') — null se não encontrado",
     "data_termino": "Data de término/fim de vigência do contrato — retorne EXATAMENTE como aparece no documento (ex: '14/03/2025', '14 de março de 2025', '2025-03-14') — null se não encontrado",
-    "observacoes": "Informações relevantes adicionais (prazo de execução, local de obra, condições especiais) — null se não encontrado"
+    "observacoes": "Informações relevantes adicionais (prazo de execução, local de obra, condições especiais) — null se não encontrado",
+    "wbs_codes": ["1.3.12", "2.4.1"]
   },
   "fornecedor": {
     "razao_social": "Razão Social completa do CONTRATADO/FORNECEDOR — null se não encontrado",
@@ -294,7 +345,19 @@ Regras gerais:
 - Números (qtd, valores): sem R$, sem ponto de milhar — use ponto como separador decimal (ex: 1500.50).
 - Campos não encontrados devem ser null (nunca invente dados).
 - Em "itens": inclua TODOS os itens da planilha orçamentária; exclua linhas de totais, subtotais e BDI.
-- Se não houver planilha orçamentária, retorne "itens" como array vazio [].`,
+- Se não houver planilha orçamentária, retorne "itens" como array vazio [].
+- Em "wbs_codes": procure no documento por códigos de EAP/WBS — sequências numéricas hierárquicas separadas por ponto (ex: 1.3.12.4.1.3, 2.1, 4.2.3). Inclua todos os que encontrar. Se não houver, retorne [].
+
+Regras CRÍTICAS para extração de itens (qtd_total e valor_unitario):
+- Procure a planilha orçamentária em TODAS as tabelas do documento — pode estar em anexo, apêndice ou cláusula específica.
+- Colunas comuns para quantidade: "Quant.", "Qtd", "Qtde", "Quantidade", "Qtd. Total", "Q".
+- Colunas comuns para valor unitário: "V. Unit.", "Valor Unit.", "Preço Unit.", "PU", "Preço Unitário", "Valor Unitário".
+- Colunas comuns para valor total do item: "Valor Total", "V. Total", "Total", "Preço Total", "PT".
+- Se o valor_unitario não estiver explícito na tabela mas qtd_total e valor_total estiverem: calcule valor_unitario = valor_total / qtd_total.
+- Se qtd_total não estiver explícito mas valor_total e valor_unitario estiverem: calcule qtd_total = valor_total / valor_unitario.
+- Retorne null apenas se NENHUMA dessas derivações for possível — nunca retorne 0 para indicar "não encontrado".
+- Itens com escopo global (ex: "Serviços gerais", "Administração local") frequentemente têm unidade "vb" (verba) ou "gl" (global) e qtd_total = 1; nesse caso use qtd_total=1 e valor_unitario=valor_total.
+- Itens de percentual (BDI, bonificação) devem ser excluídos da lista de itens.`,
     });
 
     const cleaned = await _iaCall(apiKey, parts);
@@ -302,7 +365,9 @@ Regras gerais:
     try {
       parsed = JSON.parse(cleaned);
       if (typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
-    } catch {
+    } catch (parseErr) {
+      console.error('[IA/contrato] JSON parse error:', parseErr.message);
+      console.error('[IA/contrato] Raw response (primeiros 1000 chars):', cleaned.slice(0, 1000));
       return res.status(422).json({
         error: 'Formato inesperado retornado pelo modelo. Tente novamente.',
         raw: cleaned.slice(0, 800),
@@ -346,7 +411,43 @@ Regras gerais:
                       || 0,
     })).filter(i => i.descricao);
 
-    res.json({ contrato: contratoSan, fornecedor: fornSan, itens, total: itens.length, modelo: 'gemini-2.5-flash' });
+    // ── WBS auto-link: busca atividades do cronograma da obra ────────
+    let wbs_matches = [];
+    const wbsCodes = Array.isArray(contrato.wbs_codes)
+      ? contrato.wbs_codes.filter(c => typeof c === 'string' && /^\d[\d.]+$/.test(c.trim()))
+      : [];
+
+    if (obraId && wbsCodes.length > 0) {
+      try {
+        const wbsR = await db.query(
+          `SELECT ac.id, ac.wbs, ac.nome, ac.nivel, ac.eh_resumo,
+                  ac.data_inicio, ac.data_termino, ac.cronograma_id,
+                  cr.nome AS cronograma_nome, cr.versao
+             FROM atividades_cronograma ac
+             JOIN cronogramas cr ON cr.id = ac.cronograma_id
+            WHERE cr.obra_id = $1
+              AND ac.wbs = ANY($2::text[])
+            ORDER BY cr.versao DESC, ac.ordem`,
+          [obraId, wbsCodes.map(c => c.trim())]
+        );
+        wbs_matches = wbsR.rows.map(r => ({
+          atividade_id:   r.id,
+          wbs:            r.wbs,
+          nome:           r.nome,
+          nivel:          r.nivel,
+          eh_resumo:      r.eh_resumo,
+          data_inicio:    r.data_inicio,
+          data_termino:   r.data_termino,
+          cronograma_id:  r.cronograma_id,
+          cronograma_nome: r.cronograma_nome,
+          versao:         r.versao,
+        }));
+      } catch(wbsErr) {
+        console.warn('[IA/contrato] Erro ao buscar WBS:', wbsErr.message);
+      }
+    }
+
+    res.json({ contrato: contratoSan, fornecedor: fornSan, itens, total: itens.length, modelo: 'gemini-2.5-flash', wbs_matches });
   } catch (e) {
     console.error('[IA/contrato]', e);
     res.status(500).json({ error: e.message });
@@ -379,7 +480,7 @@ router.get('/:id/atividades', auth, async (req, res) => {
 // POST /api/contratos/:id/atividades — vincular/desvincular atividades
 // Body: { atividade_ids: [1, 2, 3] }  — substitui vínculos existentes
 // ═══════════════════════════════════════════════════════════════
-router.post('/:id/atividades', auth, async (req, res) => {
+router.post('/:id/atividades', auth, perm('cronogramaVinculos'), async (req, res) => {
   const contratoId = parseInt(req.params.id);
   const ids = Array.isArray(req.body.atividade_ids) ? req.body.atividade_ids.map(Number) : [];
 
@@ -395,6 +496,10 @@ router.post('/:id/atividades', auth, async (req, res) => {
       );
     }
     await client.query('COMMIT');
+    const numCont = await db.query('SELECT numero FROM contratos WHERE id=$1', [contratoId]);
+    await audit(req, 'vincular', 'contrato', contratoId,
+      `Contrato "${numCont.rows[0]?.numero || contratoId}" vinculado a ${ids.length} atividade(s) do cronograma`,
+      { atividade_ids: ids });
     res.json({ contrato_id: contratoId, atividades_vinculadas: ids.length });
   } catch (err) {
     await client.query('ROLLBACK');

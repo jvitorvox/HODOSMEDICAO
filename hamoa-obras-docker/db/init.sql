@@ -265,7 +265,8 @@ CREATE TABLE IF NOT EXISTS atividades_cronograma (
     pct_realizado   NUMERIC(5,2) NOT NULL DEFAULT 0,   -- atualizado via contratos vinculados
     eh_resumo       BOOLEAN NOT NULL DEFAULT FALSE,    -- TRUE = nó pai/grupo no WBS
     ordem           INTEGER NOT NULL DEFAULT 0,        -- ordem original do MPP
-    uid_externo     INTEGER                            -- UniqueID original do MS Project
+    uid_externo     INTEGER,                           -- UniqueID original do MS Project
+    custo_planejado NUMERIC(15,2)                      -- Custo planejado importado do MS Project (campo Cost)
 );
 
 -- ── Vínculo Contrato ↔ Atividade(s) ──────────────────────────
@@ -282,3 +283,23 @@ CREATE INDEX IF NOT EXISTS idx_atividades_cronograma  ON atividades_cronograma(c
 CREATE INDEX IF NOT EXISTS idx_atividades_parent      ON atividades_cronograma(parent_id);
 CREATE INDEX IF NOT EXISTS idx_contratos_atividades_c ON contratos_atividades(contrato_id);
 CREATE INDEX IF NOT EXISTS idx_contratos_atividades_a ON contratos_atividades(atividade_id);
+
+-- ── Auditoria ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id            BIGSERIAL PRIMARY KEY,
+    usuario_id    INTEGER,                          -- NULL se ação anônima (ex: login falhou)
+    usuario_login VARCHAR(100) NOT NULL DEFAULT '', -- login do usuário
+    usuario_nome  VARCHAR(200) NOT NULL DEFAULT '', -- nome legível
+    acao          VARCHAR(80)  NOT NULL,            -- ex: 'criar', 'editar', 'excluir', 'importar', 'aprovar'
+    entidade      VARCHAR(60)  NOT NULL,            -- ex: 'medicao', 'contrato', 'cronograma', 'empresa'
+    entidade_id   INTEGER,                          -- PK do registro afetado (quando aplicável)
+    descricao     TEXT,                             -- resumo legível da operação
+    detalhes      JSONB,                            -- payload extra (campos alterados, etc.)
+    ip            VARCHAR(50),                      -- IP do cliente
+    criado_em     TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_criado_em  ON audit_logs(criado_em DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_entidade   ON audit_logs(entidade);
+CREATE INDEX IF NOT EXISTS idx_audit_usuario_id ON audit_logs(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_audit_acao       ON audit_logs(acao);

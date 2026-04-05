@@ -60,7 +60,12 @@ async function _iaCall(apiKey, parts) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 8192,
+          // Desativa "thinking" do Gemini 2.5 Flash (não necessário para extração de JSON)
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
     }
   );
@@ -69,8 +74,22 @@ async function _iaCall(apiKey, parts) {
     throw new Error(`Erro na API Gemini: ${err?.error?.message || `HTTP ${r.status}`}`);
   }
   const data = await r.json();
-  const raw  = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return raw.replace(/^```[a-z]*\n?/i, '').replace(/```\s*$/, '').trim();
+
+  // Gemini 2.5 Flash pode retornar thinking em parts separados — agrega todos os parts de texto
+  const allParts = data?.candidates?.[0]?.content?.parts || [];
+  const raw = allParts
+    .filter(p => p.text && !p.thought)   // exclui parts marcados como thought
+    .map(p => p.text)
+    .join('') || allParts.map(p => p.text || '').join('');
+
+  // 1. Remove blocos de markdown (```json ... ```) em qualquer variação
+  let cleaned = raw.replace(/^```[\w]*\r?\n?/i, '').replace(/\r?\n?```[\w]*\s*$/i, '').trim();
+  // 2. Se ainda não começa com {, extrai o primeiro objeto {...} da resposta
+  if (!cleaned.startsWith('{')) {
+    const m = cleaned.match(/\{[\s\S]*\}/);
+    if (m) cleaned = m[0];
+  }
+  return cleaned;
 }
 
 /**

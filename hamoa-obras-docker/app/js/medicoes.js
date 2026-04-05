@@ -1,6 +1,7 @@
 const Medicoes = {
   async openNew() {
     State.editingId = null;
+    Medicoes._pendingFiles = [];
     H.el('mm-title').textContent = '📋 NOVA MEDIÇÃO';
     H.el('mm-body').innerHTML = await this._buildForm(null);
     this._bindFormEvents();
@@ -9,6 +10,7 @@ const Medicoes = {
 
   async edit(id) {
     State.editingId = id;
+    Medicoes._pendingFiles = [];
     const m = await API.medicao(id);
     H.el('mm-title').textContent = `✏ EDITAR MEDIÇÃO · ${m.codigo}`;
     H.el('mm-body').innerHTML = await this._buildForm(m);
@@ -87,36 +89,33 @@ const Medicoes = {
       </div>
     </div>
 
-    <!-- Seção exclusiva: Adiantamento (valor avulso) -->
-    <div class="fsec" id="mf-sec-adt" style="${tipoAtual!=='Adiantamento'?'display:none':''}">
-      <div class="fsec-title" style="color:#d97706">💰 VALOR DO ADIANTAMENTO</div>
-      <div class="ibox warn" style="margin-bottom:12px;font-size:12px">
-        ⚠️ Este valor será registrado como pagamento antecipado e <strong>não avançará o progresso físico</strong> da obra nem do cronograma.
-        O descompasso financeiro-físico ficará visível no contrato até ser compensado por uma Medição de Avanço Físico.
-      </div>
-      <div class="fgrid">
-        <div class="fg"><label class="fl">Valor do Adiantamento (R$) *</label>
-          <input class="fi" type="number" id="mf-valor-adt" min="0" step="0.01"
-            value="${m?.valor_medicao||''}" placeholder="0,00"
-            style="font-family:var(--font-m);font-size:15px;font-weight:600;color:var(--accent)">
-          <div class="hint">Informe o valor financeiro a ser adiantado ao fornecedor.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Seção de itens: Normal e Avanço Físico -->
-    <div class="fsec" id="mf-sec-itens" style="${tipoAtual==='Adiantamento'?'display:none':''}">
+    <!-- Seção de itens: todos os tipos usam itens do contrato -->
+    <div class="fsec" id="mf-sec-itens">
       <div class="fsec-title" style="display:flex;justify-content:space-between;align-items:center">
-        ${tipoAtual==='Avanco_Fisico'?'📐 ITENS DE AVANÇO FÍSICO':'ITENS DE MEDIÇÃO'}
-        <button class="btn btn-o btn-xs" onclick="Medicoes._addItem('un')" title="Adiciona item não vinculado ao contrato">+ Item Avulso</button>
+        <span id="mf-itens-titulo">${
+          tipoAtual==='Avanco_Fisico' ? '📐 CONFIRMAR EXECUÇÃO FÍSICA (SALDO DE ADIANTAMENTOS)' :
+          tipoAtual==='Adiantamento'  ? '💰 ITENS DO ADIANTAMENTO' :
+          'ITENS DE MEDIÇÃO'
+        }</span>
+        <button class="btn btn-o btn-xs" id="mf-btn-avulso"
+          onclick="Medicoes._addItem('un')"
+          style="${tipoAtual==='Avanco_Fisico'?'display:none':''}"
+          title="Adiciona item não vinculado ao contrato">+ Item Avulso</button>
       </div>
-      ${tipoAtual==='Avanco_Fisico'?`<div class="ibox info" style="margin-bottom:10px;font-size:12px">
-        📐 Registre as quantidades físicas executadas. <strong>Valor financeiro = R$ 0,00</strong> — este tipo fecha o descompasso com adiantamentos anteriores.
-      </div>`:''}
+      <div id="mf-tipo-banner" style="margin-bottom:10px;font-size:12px;${tipoAtual==='Normal'?'display:none':''}">
+        ${tipoAtual==='Adiantamento'?`<div class="ibox warn">
+          💰 Selecione os itens e quantidades a adiantar. O valor financeiro será pago agora.
+          <strong>O progresso físico só avança quando confirmado por uma Medição de Avanço Físico.</strong>
+        </div>`:
+        tipoAtual==='Avanco_Fisico'?`<div class="ibox info">
+          📐 Estes itens foram <strong>adiantados financeiramente</strong> e aguardam confirmação de execução física.
+          Ajuste as quantidades se necessário. Valor financeiro = R$ 0,00.
+        </div>`:''}
+      </div>
       <div class="ibox info" id="mf-acum-banner" style="margin-bottom:10px;font-size:11px;${m?.itens?.length?'':'display:none'}"></div>
-      <div id="mf-itens">${(m?.itens||[]).map((it,i)=>Medicoes._itemRowHTML(it,i)).join('')||`<div class="items-empty" id="mf-itens-empty">Nenhum item adicionado. Use os botões acima para adicionar itens de medição.</div>`}</div>
+      <div id="mf-itens">${(m?.itens||[]).map((it,i)=>Medicoes._itemRowHTML(it,i)).join('')||`<div class="items-empty" id="mf-itens-empty">Selecione o contrato para carregar os itens.</div>`}</div>
       <div class="item-totais" id="mf-totais" style="${!(m?.itens||[]).length?'display:none':''}">
-        <div><div class="item-total-lbl">Valor desta Medição</div><div class="item-total-val" id="mf-total-med">R$ ${H.fmt(m?.valor_medicao||0)}</div></div>
+        <div><div class="item-total-lbl">${tipoAtual==='Avanco_Fisico'?'Qtd Física Confirmada':'Valor desta Medição'}</div><div class="item-total-val" id="mf-total-med">${tipoAtual==='Avanco_Fisico'?'—':'R$ '+H.fmt(m?.valor_medicao||0)}</div></div>
         <div style="width:1px;height:30px;background:var(--border)"></div>
         <div><div class="item-total-lbl">Valor Acumulado</div><div class="item-total-acum" id="mf-total-acum">R$ ${H.fmt(m?.valor_acumulado||0)}</div></div>
       </div>
@@ -127,34 +126,157 @@ const Medicoes = {
     </div>
     <div class="fsec">
       <div class="fsec-title">EVIDÊNCIAS (imagens, PDFs, vídeos)</div>
-      <div class="upz" onclick="UI.toast('Selecione arquivos para upload','info')">
+      <input type="file" id="mf-file-input" multiple accept="image/*,.pdf,.mp4,.mov,.avi,.webm,.doc,.docx,.xls,.xlsx"
+             style="display:none" onchange="Medicoes._onFileSelect(this)">
+      <div class="upz" onclick="document.getElementById('mf-file-input').click()"
+           ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+           ondragleave="this.style.borderColor=''"
+           ondrop="event.preventDefault();this.style.borderColor='';Medicoes._onFileDrop(event.dataTransfer.files)">
         <div class="upz-ico">📎</div>
         <div class="upz-txt">Clique para selecionar ou arraste arquivos</div>
-        <div class="upz-sub">JPG, PNG, PDF, DOCX, MP4 · Máx. 50MB por arquivo</div>
+        <div class="upz-sub">JPG, PNG, PDF, DOCX, MP4 · Máx. 50MB por arquivo · Os arquivos são enviados após salvar a medição</div>
       </div>
       <div class="flist" id="mf-files">
-        ${(m?.evidencias||[]).map(f=>`<div class="fitem"><span style="font-size:14px">${f.tipo==='img'?'🖼':f.tipo==='pdf'?'📄':'🎬'}</span><span class="fitem-name">${f.nome}</span><span class="fitem-sz">${f.tamanho}</span><span class="fitem-rm" onclick="this.closest('.fitem').remove()">×</span></div>`).join('')}
+        ${(m?.evidencias||[]).map(f=>`
+          <div class="fitem" data-evid="${f.id}">
+            <span style="font-size:14px">${f.tipo==='img'?'🖼':f.tipo==='pdf'?'📄':f.tipo==='video'?'🎬':'📄'}</span>
+            <span class="fitem-name">${H.esc(f.nome)}</span>
+            <span class="fitem-sz">${H.esc(f.tamanho||'')}</span>
+            <span class="fitem-rm" onclick="Medicoes._removeExistingEvidencia(this,${f.id})">×</span>
+          </div>`).join('')}
       </div>
+      <div id="mf-upload-progress" style="display:none;margin-top:8px;font-size:12px;color:var(--text3)"></div>
     </div>`;
+  },
+
+  // Arquivos pendentes de upload (selecionados mas ainda não enviados)
+  _pendingFiles: [],
+
+  _onFileSelect(input) {
+    Medicoes._addPendingFiles(Array.from(input.files));
+    input.value = ''; // reset para permitir re-seleção do mesmo arquivo
+  },
+
+  _onFileDrop(fileList) {
+    Medicoes._addPendingFiles(Array.from(fileList));
+  },
+
+  _addPendingFiles(files) {
+    const list = H.el('mf-files');
+    if (!list) return;
+    for (const f of files) {
+      Medicoes._pendingFiles.push(f);
+      const ext  = f.name.split('.').pop().toLowerCase();
+      const ico  = ['jpg','jpeg','png','gif','webp','heic'].includes(ext) ? '🖼'
+                 : ['pdf'].includes(ext) ? '📄'
+                 : ['mp4','mov','avi','mkv','webm'].includes(ext) ? '🎬' : '📄';
+      const sz   = f.size < 1048576
+        ? `${(f.size/1024).toFixed(0)} KB`
+        : `${(f.size/1048576).toFixed(1)} MB`;
+      const idx  = Medicoes._pendingFiles.length - 1;
+      const div  = document.createElement('div');
+      div.className = 'fitem pending-file';
+      div.dataset.pidx = idx;
+      div.innerHTML = `<span style="font-size:14px">${ico}</span>
+        <span class="fitem-name">${H.esc(f.name)}</span>
+        <span class="fitem-sz">${sz}</span>
+        <span style="font-size:10px;color:var(--accent);margin:0 4px">pendente</span>
+        <span class="fitem-rm" onclick="Medicoes._removePendingFile(this,${idx})">×</span>`;
+      list.appendChild(div);
+    }
+  },
+
+  _removePendingFile(el, idx) {
+    Medicoes._pendingFiles[idx] = null; // marca como removido (sem reindexar)
+    el.closest('.fitem')?.remove();
+  },
+
+  async _removeExistingEvidencia(el, evId) {
+    const medicaoId = State.editingId;
+    if (!medicaoId) { el.closest('.fitem')?.remove(); return; }
+    try {
+      await API.deleteEvidencia(medicaoId, evId);
+      el.closest('.fitem')?.remove();
+      UI.toast('Evidência removida', 'info');
+    } catch(e) { UI.toast('Erro ao remover: ' + e.message, 'error'); }
+  },
+
+  // Envia os arquivos pendentes para uma medição já criada
+  async _uploadPendingFiles(medicaoId) {
+    const files = (Medicoes._pendingFiles || []).filter(Boolean);
+    if (!files.length) return;
+    const prog = H.el('mf-upload-progress');
+    if (prog) { prog.style.display = ''; prog.textContent = `⬆ Enviando ${files.length} arquivo(s)...`; }
+    try {
+      await API.uploadEvidencias(medicaoId, files, (e) => {
+        if (prog && e.total) {
+          const pct = Math.round(e.loaded / e.total * 100);
+          prog.textContent = `⬆ Enviando... ${pct}%`;
+        }
+      });
+      Medicoes._pendingFiles = [];
+      if (prog) { prog.textContent = `✓ ${files.length} arquivo(s) enviado(s)`; }
+    } catch(e) {
+      console.error('[uploadPendingFiles]', e);
+      if (prog) { prog.style.color = 'var(--red)'; prog.textContent = `Erro no upload: ${e.message}`; }
+    }
   },
 
   _onTipoChange() {
     const tipo = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
-    const secAdt   = H.el('mf-sec-adt');
-    const secItens = H.el('mf-sec-itens');
-    if (secAdt)   secAdt.style.display   = tipo === 'Adiantamento' ? '' : 'none';
-    if (secItens) secItens.style.display = tipo === 'Adiantamento' ? 'none' : '';
+
     // Atualiza visual dos radio cards
     document.querySelectorAll('input[name="mf-tipo"]').forEach(r => {
       const card = r.closest('label');
       if (!card) return;
-      card.style.borderColor  = r.checked ? 'var(--accent)' : 'var(--border)';
-      card.style.background   = r.checked ? 'var(--accent3)' : 'var(--surface)';
+      card.style.borderColor = r.checked ? 'var(--accent)' : 'var(--border)';
+      card.style.background  = r.checked ? 'var(--accent3)' : 'var(--surface)';
     });
-    // Atualiza label da seção de itens
-    const tituloItens = secItens?.querySelector('.fsec-title');
-    if (tituloItens) {
-      tituloItens.textContent = tipo === 'Avanco_Fisico' ? '📐 ITENS DE AVANÇO FÍSICO' : 'ITENS DE MEDIÇÃO';
+
+    // Atualiza título da seção de itens
+    const titulo = H.el('mf-itens-titulo');
+    if (titulo) {
+      titulo.textContent =
+        tipo === 'Avanco_Fisico' ? '📐 CONFIRMAR EXECUÇÃO FÍSICA (SALDO DE ADIANTAMENTOS)' :
+        tipo === 'Adiantamento'  ? '💰 ITENS DO ADIANTAMENTO' :
+        'ITENS DE MEDIÇÃO';
+    }
+
+    // Mostra/oculta botão de item avulso (não faz sentido em Avanço Físico)
+    const btnAvulso = H.el('mf-btn-avulso');
+    if (btnAvulso) btnAvulso.style.display = tipo === 'Avanco_Fisico' ? 'none' : '';
+
+    // Atualiza banner informativo
+    const tipoBanner = H.el('mf-tipo-banner');
+    if (tipoBanner) {
+      if (tipo === 'Normal') {
+        tipoBanner.style.display = 'none';
+        tipoBanner.innerHTML = '';
+      } else if (tipo === 'Adiantamento') {
+        tipoBanner.style.display = '';
+        tipoBanner.innerHTML = `<div class="ibox warn">
+          💰 Selecione os itens e quantidades a adiantar. O valor financeiro será pago agora.
+          <strong>O progresso físico só avança quando confirmado por uma Medição de Avanço Físico.</strong>
+        </div>`;
+      } else if (tipo === 'Avanco_Fisico') {
+        tipoBanner.style.display = '';
+        tipoBanner.innerHTML = `<div class="ibox info">
+          📐 Estes itens foram <strong>adiantados financeiramente</strong> e aguardam confirmação de execução física.
+          Ajuste as quantidades se necessário. Valor financeiro = R$ 0,00.
+        </div>`;
+      }
+    }
+
+    // Recarrega itens do contrato de acordo com o novo tipo
+    const contId = parseInt(H.el('mf-contrato')?.value);
+    if (contId) {
+      this._onContratoChange();
+    } else {
+      // Atualiza mensagem vazia
+      const container = H.el('mf-itens');
+      if (container) {
+        container.innerHTML = `<div class="items-empty" id="mf-itens-empty">Selecione o contrato para carregar os itens.</div>`;
+      }
     }
   },
 
@@ -355,46 +477,56 @@ const Medicoes = {
   },
 
   async _onContratoChange() {
-    const contId = parseInt(H.el('mf-contrato').value);
+    const contId = parseInt(H.el('mf-contrato')?.value);
     if(!contId) {
       State.cache.acumulados = null;
-      H.el('mf-itens').innerHTML = `<div class="items-empty" id="mf-itens-empty">Selecione o contrato para carregar os itens de medição.</div>`;
+      H.el('mf-itens').innerHTML = `<div class="items-empty" id="mf-itens-empty">Selecione o contrato para carregar os itens.</div>`;
       if(H.el('mf-totais')) H.el('mf-totais').style.display = 'none';
       return;
     }
 
+    const tipo = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
+
+    if (tipo === 'Avanco_Fisico') {
+      await this._loadAdiantamentosPendentes(contId);
+    } else {
+      await this._loadItensDoContrato(contId);
+    }
+  },
+
+  // ── Carrega itens normais do contrato (Normal / Adiantamento) ────
+  async _loadItensDoContrato(contId) {
     try {
-      // Busca acumulados — retorna itens do contrato + histórico somado
       const acum = await API.acumulados(contId);
       State.cache.acumulados = acum;
 
-      const banner = H.el('mf-acum-banner');
+      const banner    = H.el('mf-acum-banner');
       const container = H.el('mf-itens');
       const totaisEl  = H.el('mf-totais');
+      const tipo      = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
 
       if(!acum.itens || acum.itens.length === 0) {
-        // Contrato sem itens cadastrados na planilha
         container.innerHTML = `<div class="items-empty" id="mf-itens-empty" style="color:var(--warning)">
           ⚠ Este contrato não possui itens orçamentários cadastrados.<br>
           <small>Edite o contrato e adicione os itens antes de criar a medição.</small>
         </div>`;
-        if(banner) { banner.innerHTML = `<span style="color:var(--warning)">⚠</span> Contrato sem planilha orçamentária. Acesse Cadastros → Contratos para adicionar os itens.`; banner.style.display=''; }
+        if(banner) { banner.innerHTML = `<span style="color:var(--warning)">⚠</span> Contrato sem planilha orçamentária.`; banner.style.display=''; }
         if(totaisEl) totaisEl.style.display='none';
         return;
       }
 
-      // Popula banner com status do contrato
       if(banner) {
+        // Para Adiantamento: mostra saldo financeiro disponível
+        // Para Normal: mostra % físico executado
         const itensComSaldo = acum.itens.filter(i => i.qtd_saldo > 0.0001);
-        const pctGeral = acum.pct_executado.toFixed(1);
-        const nMsg = acum.itens.some(i => i.qtd_acumulada > 0)
-          ? `${pctGeral}% executado · ${itensComSaldo.length} de ${acum.itens.length} itens com saldo disponível`
-          : `Primeira medição — todos os saldos zerados.`;
-        banner.innerHTML = `<span style="color:var(--blue)">ℹ</span> ${nMsg}`;
+        const pctFisico = acum.pct_executado.toFixed(1);
+        const adtPendente = acum.itens.reduce((s,i) => s + (i.qtd_saldo_adt_pendente||0), 0);
+        let msg = `<span style="color:var(--blue)">ℹ</span> ${pctFisico}% físico executado · ${itensComSaldo.length}/${acum.itens.length} itens com saldo financeiro disponível`;
+        if (adtPendente > 0) msg += ` · <span style="color:#d97706">⚠ ${adtPendente.toFixed(2)} un. adiantadas aguardando confirmação física</span>`;
+        banner.innerHTML = msg;
         banner.style.display = '';
       }
 
-      // Limpa itens atuais e re-popula a partir do contrato
       container.innerHTML = '';
       acum.itens.forEach((ci, i) => {
         const itemData = {
@@ -402,12 +534,12 @@ const Medicoes = {
           descricao:        ci.descricao,
           unidade:          ci.unidade,
           qtd_contrato:     ci.qtd_total,
-          qtd_anterior:     ci.qtd_acumulada,   // ← soma real do histórico
+          qtd_anterior:     ci.qtd_acumulada,   // financeiro acumulado (Normal+Adt)
           qtd_mes:          '',
           qtd_acumulada:    ci.qtd_acumulada,
-          valor_unitario:   ci.valor_unitario,
+          valor_unitario:   tipo === 'Adiantamento' ? ci.valor_unitario : ci.valor_unitario,
           valor_item:       0,
-          qtd_saldo:        ci.qtd_saldo,
+          qtd_saldo:        ci.qtd_saldo,        // saldo financeiro (qtd_total - Normal - Adt)
         };
         container.insertAdjacentHTML('beforeend', this._itemRowHTML(itemData, i));
       });
@@ -416,6 +548,62 @@ const Medicoes = {
     } catch(e) {
       State.cache.acumulados = null;
       UI.toast('Erro ao carregar itens do contrato: ' + e.message, 'error');
+    }
+  },
+
+  // ── Carrega itens de adiantamentos pendentes (Avanço Físico) ─────
+  async _loadAdiantamentosPendentes(contId) {
+    const container = H.el('mf-itens');
+    const totaisEl  = H.el('mf-totais');
+    const banner    = H.el('mf-acum-banner');
+
+    try {
+      const pendentes = await API.adiantamentosPendentes(contId);
+
+      if (!pendentes.length) {
+        container.innerHTML = `<div class="items-empty" id="mf-itens-empty" style="color:var(--text2)">
+          <div style="font-size:22px;margin-bottom:8px">📋</div>
+          <strong>Nenhum adiantamento pendente de confirmação física</strong><br>
+          <div style="margin-top:8px;font-size:12px;color:var(--text3);max-width:480px;text-align:left">
+            O Avanço Físico só exibe itens quando existe uma <strong>Medição de Adiantamento já lançada</strong> (status ≥ Aguardando N1) com saldo de execução física pendente.<br><br>
+            <strong>Passos:</strong><br>
+            1️⃣ Crie uma Medição de <strong>Adiantamento</strong> e clique em <em>🚀 Lançar</em><br>
+            2️⃣ Volte e crie uma Medição de <strong>Avanço Físico</strong> — os itens aparecerão automaticamente<br><br>
+            <em>Medições em Rascunho não geram saldo para o Avanço Físico.</em>
+          </div>
+        </div>`;
+        if(banner) { banner.style.display='none'; }
+        if(totaisEl) totaisEl.style.display='none';
+        return;
+      }
+
+      if(banner) {
+        const totalPendente = pendentes.reduce((s,p) => s + p.qtd_pendente * p.valor_unitario, 0);
+        banner.innerHTML = `<span style="color:#d97706">💰</span> ${pendentes.length} ite${pendentes.length>1?'ns':'m'} com adiantamento pendente · R$ ${H.fmt(totalPendente)} a confirmar fisicamente`;
+        banner.style.display = '';
+      }
+
+      container.innerHTML = '';
+      pendentes.forEach((p, i) => {
+        // Exibe como item travado: qtd_contrato = adiantada, qtd_anterior = já confirmada, qtd_mes = pendente
+        const itemData = {
+          contrato_item_id: p.contrato_item_id,
+          descricao:        p.descricao,
+          unidade:          p.unidade,
+          qtd_contrato:     p.qtd_adiantada,   // "contratado" para AvFis = total adiantado
+          qtd_anterior:     p.qtd_confirmada,   // já confirmado fisicamente
+          qtd_mes:          p.qtd_pendente,     // pré-preenchido com o saldo pendente
+          qtd_acumulada:    p.qtd_confirmada + p.qtd_pendente,
+          valor_unitario:   0,                  // Avanço Físico não tem valor financeiro
+          valor_item:       0,
+          qtd_saldo:        p.qtd_pendente,
+        };
+        container.insertAdjacentHTML('beforeend', this._itemRowHTML(itemData, i));
+      });
+      if(totaisEl) totaisEl.style.display = '';
+      this._recalcTotals();
+    } catch(e) {
+      UI.toast('Erro ao carregar adiantamentos pendentes: ' + e.message, 'error');
     }
   },
 
@@ -430,16 +618,7 @@ const Medicoes = {
     const tipo         = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
     if(!empresa_id||!obra_id||!fornecedor_id||!contrato_id||!periodo) { UI.toast('Preencha os campos obrigatórios de identificação','error'); return null; }
 
-    // ── Adiantamento: valor avulso ──
-    if (tipo === 'Adiantamento') {
-      const valor_adiantamento = parseFloat(H.el('mf-valor-adt')?.value) || 0;
-      if (valor_adiantamento <= 0) { UI.toast('Informe o valor do adiantamento','error'); return null; }
-      return { empresa_id, obra_id, fornecedor_id, contrato_id, periodo, codigo, descricao,
-               tipo, valor_adiantamento,
-               pct_anterior: 0, pct_mes: 0, pct_total: 0, itens: [] };
-    }
-
-    // ── Normal / Avanço Físico: usa itens ──
+    // ── Todos os tipos usam itens ──
     const rows = document.querySelectorAll('#mf-itens .item-row');
     if(!rows.length) { UI.toast('Adicione pelo menos um item de medição','error'); return null; }
 
@@ -465,25 +644,31 @@ const Medicoes = {
     });
     if(itens.some(it=>!it.descricao)) { UI.toast('Todos os itens precisam ter descrição','error'); return null; }
     if(!itens.some(it=>it.qtd_mes>0)) { UI.toast('Informe a quantidade deste mês em pelo menos um item','error'); return null; }
-    // Valida saldo (apenas Normal — Avanço Físico não tem restrição financeira)
-    if (tipo === 'Normal') {
-      for(const it of itens) {
-        if(!it.contrato_item_id || it.qtd_mes <= 0) continue;
-        const saldo = parseFloat(it.qtd_contrato) - parseFloat(it.qtd_anterior);
-        if(it.qtd_mes > saldo + 0.0001) {
-          UI.toast(`Item "${it.descricao}": ${it.qtd_mes} excede o saldo disponível de ${parseFloat(saldo.toFixed(4))} ${it.unidade}`, 'error');
-          return null;
-        }
+    // Valida saldo no frontend antes de enviar
+    // Normal/Adiantamento: qtd_anterior = acumulado financeiro (Normal+Adt), qtd_contrato = qtd_total
+    // Avanco_Fisico: qtd_anterior = já confirmado, qtd_contrato = total adiantado
+    for(const it of itens) {
+      if(!it.contrato_item_id || it.qtd_mes <= 0) continue;
+      const saldo = parseFloat(it.qtd_contrato) - parseFloat(it.qtd_anterior);
+      if(it.qtd_mes > saldo + 0.0001) {
+        const label = tipo === 'Avanco_Fisico' ? 'saldo de adiantamento pendente' : 'saldo disponível';
+        UI.toast(`Item "${it.descricao}": ${it.qtd_mes} excede o ${label} de ${parseFloat(saldo.toFixed(4))} ${it.unidade}`, 'error');
+        return null;
       }
     }
 
+    // Valor financeiro: 0 para Avanço Físico (já pago no Adiantamento)
     const valor_medicao   = tipo === 'Avanco_Fisico' ? 0 : itens.reduce((s,it)=>s+it.qtd_mes*it.valor_unitario,0);
     const valor_acumulado = tipo === 'Avanco_Fisico' ? 0 : itens.reduce((s,it)=>s+it.qtd_acumulada*it.valor_unitario,0);
 
-    const pctItens    = itens.filter(it=>it.unidade==='%');
-    const pct_mes     = pctItens.reduce((s,it)=>s+it.qtd_mes,0);
-    const pct_anterior= pctItens.length ? pctItens.reduce((s,it)=>s+it.qtd_anterior,0) : 0;
-    const pct_total   = Math.min(pct_anterior + pct_mes, 100);
+    // % físico: Adiantamento não avança o físico (pct=0)
+    let pct_anterior = 0, pct_mes = 0, pct_total = 0;
+    if (tipo !== 'Adiantamento') {
+      const pctItens = itens.filter(it=>it.unidade==='%');
+      pct_mes      = pctItens.reduce((s,it)=>s+it.qtd_mes,0);
+      pct_anterior = pctItens.length ? pctItens.reduce((s,it)=>s+it.qtd_anterior,0) : 0;
+      pct_total    = Math.min(pct_anterior + pct_mes, 100);
+    }
 
     return { empresa_id, obra_id, fornecedor_id, contrato_id, periodo, codigo, descricao,
              tipo, valor_medicao, valor_acumulado, pct_anterior, pct_mes, pct_total, itens };
@@ -500,8 +685,11 @@ const Medicoes = {
     const btn = H.el('mm-btn-draft');
     if(btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
     try {
-      if(State.editingId) await API.updateMedicao(State.editingId, data);
-      else await API.createMedicao(data);
+      let medicaoId = State.editingId;
+      if(medicaoId) await API.updateMedicao(medicaoId, data);
+      else { const r = await API.createMedicao(data); medicaoId = r?.id; }
+      // Upload de arquivos pendentes (não bloqueia o modal)
+      if (medicaoId) Medicoes._uploadPendingFiles(medicaoId).catch(()=>{});
       UI.closeModal('modal-medicao');
       UI.toast(`Medição ${data.codigo} salva como rascunho`, 'info');
       await Pages.medicoes();
@@ -524,8 +712,11 @@ const Medicoes = {
     const btn = H.el('mm-btn-launch');
     if(btn) { btn.disabled = true; btn.textContent = '⏳ Lançando...'; }
     try {
-      if(State.editingId) await API.updateMedicao(State.editingId, data);
-      else await API.createMedicao(data);
+      let medicaoId = State.editingId;
+      if(medicaoId) await API.updateMedicao(medicaoId, data);
+      else { const r = await API.createMedicao(data); medicaoId = r?.id; }
+      // Upload de arquivos pendentes (não bloqueia o lançamento)
+      if (medicaoId) Medicoes._uploadPendingFiles(medicaoId).catch(()=>{});
       UI.closeModal('modal-medicao');
       UI.toast(`✓ Medição ${data.codigo} lançada — enviada para aprovação N1`, 'success');
       await Pages.medicoes();
@@ -535,6 +726,102 @@ const Medicoes = {
     } finally {
       if(btn) { btn.disabled = false; btn.textContent = '🚀 Lançar'; }
     }
+  },
+
+  // ── Renderiza aba de evidências no detalhe/aprovação ─────────
+  _buildEvidenciasTab(evids, medicaoId, status) {
+    const fmtIco = (tipo) => tipo==='img'?'🖼':tipo==='pdf'?'📄':tipo==='video'?'🎬':'📄';
+    const canUpload = ['Rascunho','Reprovado','Aguardando N1','Aguardando N2','Aguardando N3'].includes(status);
+
+    const gallery = evids.length
+      ? `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+          ${evids.map(f => {
+            const url  = f.url_view || f.url_storage || null;
+            const isImg = f.tipo === 'img';
+            const thumb = isImg && url
+              ? `<div style="width:100%;height:120px;background:var(--surface3);border-radius:var(--r);overflow:hidden;margin-bottom:6px">
+                   <img src="${H.esc(url)}" alt="${H.esc(f.nome)}"
+                        style="width:100%;height:100%;object-fit:cover;cursor:pointer"
+                        onclick="window.open('${H.esc(url)}','_blank')"
+                        onerror="this.parentElement.innerHTML='<div style=\\'text-align:center;padding:30px;font-size:32px\\'>🖼</div>'">
+                 </div>`
+              : `<div style="width:100%;height:80px;display:flex;align-items:center;justify-content:center;
+                             background:var(--surface3);border-radius:var(--r);margin-bottom:6px;font-size:36px">${fmtIco(f.tipo)}</div>`;
+            return `
+              <div style="width:160px;background:var(--surface2);border:1px solid var(--border);
+                          border-radius:var(--r2);padding:10px;display:flex;flex-direction:column">
+                ${thumb}
+                <div style="font-size:10px;color:var(--text);font-weight:600;
+                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis"
+                     title="${H.esc(f.nome)}">${H.esc(f.nome)}</div>
+                <div style="font-size:9px;color:var(--text3);margin-top:2px">${H.esc(f.tamanho||'')} · ${H.esc(f.enviado_por||'—')}</div>
+                <div style="display:flex;gap:4px;margin-top:6px">
+                  ${url ? `<a href="${H.esc(url)}" target="_blank" rel="noopener"
+                              style="flex:1;text-align:center;font-size:10px;padding:3px 0;
+                                     background:var(--surface3);border-radius:var(--r);
+                                     color:var(--text2);text-decoration:none">↗ Abrir</a>` : ''}
+                  ${canUpload ? `<button style="flex:0;font-size:10px;padding:3px 8px;background:var(--red);
+                                                color:#fff;border:none;border-radius:var(--r);cursor:pointer"
+                                          onclick="Medicoes._deleteEvidenciaDetalhe(${f.id},${medicaoId},this)">🗑</button>` : ''}
+                </div>
+              </div>`;
+          }).join('')}
+         </div>`
+      : `<div style="text-align:center;padding:30px;color:var(--text3)">
+           <div style="font-size:40px;margin-bottom:8px">📁</div>
+           <div>Nenhuma evidência anexada ainda</div>
+         </div>`;
+
+    const uploadBtn = canUpload ? `
+      <div style="margin-top:4px">
+        <input type="file" id="det-ev-input" multiple
+               accept="image/*,.pdf,.mp4,.mov,.avi,.webm,.doc,.docx"
+               style="display:none" onchange="Medicoes._uploadDetalhes(${medicaoId},this)">
+        <button class="btn btn-o btn-sm" onclick="document.getElementById('det-ev-input').click()">
+          ⬆ Adicionar evidência
+        </button>
+        <div id="det-ev-progress" style="font-size:11px;color:var(--text3);margin-top:4px;display:none"></div>
+      </div>` : `<div style="font-size:11px;color:var(--text3);margin-top:8px">
+        Upload desabilitado — medição já aprovada ou concluída</div>`;
+
+    return gallery + uploadBtn;
+  },
+
+  async _uploadDetalhes(medicaoId, input) {
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    const prog = H.el('det-ev-progress');
+    const btn  = input.previousElementSibling;
+    if (btn)  { btn.disabled = true; }
+    if (prog) { prog.style.display = ''; prog.style.color = 'var(--text3)'; prog.textContent = `⬆ Enviando ${files.length} arquivo(s)...`; }
+
+    try {
+      const inserted = await API.uploadEvidencias(medicaoId, files, (e) => {
+        if (prog && e.total) {
+          const pct = Math.round(e.loaded / e.total * 100);
+          prog.textContent = `⬆ Enviando... ${pct}%`;
+        }
+      });
+      if (prog) { prog.style.color = 'var(--green)'; prog.textContent = `✓ ${inserted.length} arquivo(s) enviado(s)`; }
+      UI.toast(`✓ ${inserted.length} evidência(s) enviada(s)`, 'success');
+      // Recarrega o detalhe para mostrar os novos arquivos
+      setTimeout(() => Medicoes.openDetalhe(medicaoId), 800);
+    } catch(e) {
+      if (prog) { prog.style.color = 'var(--red)'; prog.textContent = `Erro: ${e.message}`; }
+      UI.toast('Erro no upload: ' + e.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+      input.value = '';
+    }
+  },
+
+  async _deleteEvidenciaDetalhe(evId, medicaoId, el) {
+    if (!confirm('Remover esta evidência?')) return;
+    try {
+      await API.deleteEvidencia(medicaoId, evId);
+      UI.toast('Evidência removida', 'info');
+      el.closest('div[style*="width:160px"]')?.remove();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
   },
 
   openAprovar(id) {
@@ -725,8 +1012,7 @@ const Medicoes = {
             <div class="ibox"><div class="ibox-text" style="font-size:12px;line-height:1.6">${m.descricao||'Sem descrição'}</div></div></div>
           </div>
           <div id="dt-evidencias" style="display:none">
-            ${evids.length ? evids.map(f=>`<div class="fitem"><span style="font-size:14px">${f.tipo==='img'?'🖼':f.tipo==='pdf'?'📄':'🎬'}</span><span class="fitem-name">${f.nome}</span><span class="fitem-sz">${f.tamanho}</span></div>`).join('') : '<div style="text-align:center;padding:30px;color:var(--text3)">Nenhuma evidência anexada</div>'}
-            <button class="btn btn-o btn-sm" style="margin-top:10px" onclick="UI.toast('Upload disponível via /api/medicoes/${id}/evidencias','info')">+ Adicionar evidência</button>
+            ${Medicoes._buildEvidenciasTab(evids, id, m.status)}
           </div>
           <div id="dt-historico" style="display:none">
             <div class="tl">${[...aprs].reverse().map(a => {
@@ -758,7 +1044,7 @@ const Medicoes = {
         });
       });
       const canA = H.canApprove(m.status, m);
-      const canEnviarAssin = ['Aprovado','Em Assinatura'].includes(m.status);
+      const canEnviarAssin = ['Aprovado','Em Assinatura'].includes(m.status) && Perm.has('enviarAssinatura');
       H.el('det-footer').innerHTML = `
         <button class="btn btn-o" onclick="UI.closeModal('modal-detalhe')">Fechar</button>
         ${canEnviarAssin ? `<button class="btn btn-a" style="background:var(--teal)" onclick="UI.closeModal('modal-detalhe');Medicoes.openEnviarAssinatura(${id})">✍ Enviar para Assinatura</button>` : ''}

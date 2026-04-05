@@ -228,39 +228,85 @@ async function testConnection(baseUrl, token) {
   return r;
 }
 
-// ── Fluxo completo: upload → signer → list → notify ─────────────────────────
-async function enviarParaAssinatura(cfg, { pdfBase64, docPath, signerEmail, signerPhone, signerName, auths, message }) {
+// ── Helper: vincula signatário + dispara notificação ─────────────────────────
+async function _vincularENotificar(baseUrl, token, { documentKey, signerKey, message, label }) {
+  const list = await addSignerToDoc(baseUrl, token, { documentKey, signerKey, message });
+
+  const requestSignatureKey = list.request_signature_key || list.key;
+  if (!requestSignatureKey) {
+    throw new Error(`[${label}] request_signature_key não retornado pelo ClickSign. Campos: ${Object.keys(list).join(', ')}`);
+  }
+
+  // O POST /api/v1/lists já dispara notificação automática.
+  // O POST /api/v1/notifications serve para REENVIO — erros 4xx são esperados nesse caso.
+  try {
+    await notifySigner(baseUrl, token, { requestSignatureKey });
+    console.log(`[ClickSign][${label}] Notificação explícita enviada com sucesso.`);
+  } catch (notifyErr) {
+    // 404 = rota não existe neste ambiente ou notificação já consumida (auto-sent pelo /lists)
+    // 422 = regra de negócio (já notificado recentemente) — ambos são aceitáveis
+    if ([404, 422].includes(notifyErr.statusCode)) {
+      console.warn(`[ClickSign][${label}] Notify retornou ${notifyErr.statusCode} — notificação automática já disparada pelo POST /lists. Fluxo continua.`);
+    } else {
+      console.error(`[ClickSign][${label}] Falha na notificação explícita:`, notifyErr.message);
+      throw notifyErr;
+    }
+  }
+
+  return { requestSignatureKey, linkVisualizacao: `${baseUrl}/sign/${requestSignatureKey}` };
+}
+
+// ── Fluxo completo: upload → signer(s) → list → notify ───────────────────────
+// signerEmail2 / signerName2 = segundo signatário opcional (ex: remetente/empresa)
+async function enviarParaAssinatura(cfg, {
+  pdfBase64, docPath,
+  signerEmail,  signerPhone,  signerName,  auths,
+  signerEmail2, signerName2,
+  message,
+}) {
   const { accessToken, baseUrl } = cfg;
   if (!accessToken) throw new Error('Access Token do ClickSign não configurado');
 
-  const doc    = await uploadDocument(baseUrl, accessToken, { path: docPath, pdfBase64 });
-  console.log('[ClickSign] doc keys:', Object.keys(doc));
+  const ambienteLabel = baseUrl.includes('sandbox') ? 'SANDBOX (emails NÃO são enviados de verdade)' : 'PRODUÇÃO';
+  console.log(`[ClickSign] Ambiente: ${ambienteLabel} | URL: ${baseUrl}`);
 
-  const signer = await createSigner(baseUrl, accessToken, { email: signerEmail, phone: signerPhone, name: signerName, auths });
-  console.log('[ClickSign] signer keys:', Object.keys(signer));
+  // 1. Upload do documento PDF
+  const doc = await uploadDocument(baseUrl, accessToken, { path: docPath, pdfBase64 });
+  console.log(`[ClickSign] Documento criado. key=${doc.key} | status=${doc.status}`);
 
-  // addSignerToDoc retorna o objeto list do ClickSign:
-  // { request_signature_key, document_key, signer_key, ... }
-  const list   = await addSignerToDoc(baseUrl, accessToken, { documentKey: doc.key, signerKey: signer.key, message });
+  // 2. Signatário principal (fornecedor)
+  const signer = await createSigner(baseUrl, accessToken, {
+    email: signerEmail, phone: signerPhone, name: signerName, auths,
+  });
+  console.log(`[ClickSign] Signatário 1 (fornecedor) criado/reutilizado. key=${signer.key} | email=${signerEmail}`);
 
-  // ClickSign usa `request_signature_key` (não `key`) para identificar a solicitação de assinatura
-  const requestSignatureKey = list.request_signature_key || list.key;
-  if (!requestSignatureKey) {
-    throw new Error(`[addSigner] request_signature_key não retornado pela ClickSign. Campos recebidos: ${Object.keys(list).join(', ')}`);
-  }
+  const { requestSignatureKey, linkVisualizacao } = await _vincularENotificar(
+    baseUrl, accessToken,
+    { documentKey: doc.key, signerKey: signer.key, message, label: 'signer1' }
+  );
 
-  // Notificação: o ClickSign já envia automaticamente quando o signatário é vinculado ao
-  // documento (POST /api/v1/lists). A chamada a /notifications serve apenas para reenvio.
-  // Se retornar 404, significa que a notificação automática já foi disparada — não é erro.
-  try {
-    await notifySigner(baseUrl, accessToken, { requestSignatureKey });
-    console.log('[ClickSign] Notificação enviada com sucesso.');
-  } catch (notifyErr) {
-    if (notifyErr.statusCode === 404) {
-      console.warn('[ClickSign][notify] 404 — notificação automática já foi enviada pelo ClickSign ao vincular o signatário. Fluxo continua normalmente.');
-    } else {
-      // Para outros erros (ex: 422, 500), lançar o erro normalmente
-      throw notifyErr;
+  // 3. Segundo signatário opcional (remetente / empresa)
+  let signer2Key = null;
+  let rsk2       = null;
+  if (signerEmail2 && signerEmail2 !== signerEmail) {
+    try {
+      const signer2 = await createSigner(baseUrl, accessToken, {
+        email: signerEmail2,
+        name:  signerName2 || 'Responsável Empresa',
+        auths: ['email'],   // remetente sempre por email
+      });
+      console.log(`[ClickSign] Signatário 2 (remetente) criado/reutilizado. key=${signer2.key} | email=${signerEmail2}`);
+
+      const r2 = await _vincularENotificar(
+        baseUrl, accessToken,
+        { documentKey: doc.key, signerKey: signer2.key, message, label: 'signer2' }
+      );
+      signer2Key = signer2.key;
+      rsk2       = r2.requestSignatureKey;
+      console.log(`[ClickSign] Segundo signatário vinculado e notificado. RSK=${rsk2}`);
+    } catch (err2) {
+      // Não aborta o fluxo principal por falha no segundo signatário — apenas loga
+      console.error('[ClickSign] Falha ao adicionar segundo signatário (remetente):', err2.message);
     }
   }
 
@@ -268,7 +314,9 @@ async function enviarParaAssinatura(cfg, { pdfBase64, docPath, signerEmail, sign
     documentKey:          doc.key,
     signerKey:            signer.key,
     requestSignatureKey,
-    linkVisualizacao:     `${baseUrl}/sign/${requestSignatureKey}`,
+    linkVisualizacao,
+    signer2Key,
+    requestSignatureKey2: rsk2,
   };
 }
 

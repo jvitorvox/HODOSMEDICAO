@@ -8,6 +8,8 @@ const jwt     = require('jsonwebtoken');
 const bcrypt  = require('bcrypt');
 const db      = require('../db');
 const { ldapAuth } = require('../helpers/ldap');
+const auth  = require('../middleware/auth');
+const audit = require('../middleware/audit');
 
 // Modo de autenticação (público, sem token)
 router.get('/mode', async (req, res) => {
@@ -85,7 +87,40 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET || 'dev-secret',
       { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
-    res.json({ token, user: { id: user.id, login: user.login, nome: user.nome, perfil: user.perfil } });
+    // Injeta user em req temporariamente para o audit poder extrair os dados
+    req.user = { id: user.id, login: user.login, nome: user.nome };
+    await audit(req, 'login', 'usuario', user.id, `Login de "${user.login}"`);
+    res.json({ token, user: { id: user.id, login: user.login, nome: user.nome, perfil: user.perfil, grupos: user.grupos_ad || [] } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
+// ── Trocar própria senha (autenticação local) ──────────────────────
+router.put('/senha', auth, async (req, res) => {
+  try {
+    const { senha_atual, nova_senha } = req.body;
+    if (!senha_atual || !nova_senha)
+      return res.status(400).json({ error: 'Senha atual e nova senha são obrigatórias' });
+    if (nova_senha.length < 6)
+      return res.status(400).json({ error: 'A nova senha deve ter ao menos 6 caracteres' });
+
+    // Usuários LDAP não têm senha_hash — não podem trocar por aqui
+    const r = await db.query('SELECT senha_hash FROM usuarios WHERE id=$1', [req.user.id]);
+    const user = r.rows[0];
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (!user.senha_hash)
+      return res.status(400).json({ error: 'Sua conta usa autenticação via Active Directory. A senha deve ser alterada pelo AD.' });
+
+    if (!await bcrypt.compare(senha_atual, user.senha_hash))
+      return res.status(401).json({ error: 'Senha atual incorreta' });
+
+    const novoHash = await bcrypt.hash(nova_senha, 12);
+    await db.query('UPDATE usuarios SET senha_hash=$1 WHERE id=$2', [novoHash, req.user.id]);
+    await audit(req, 'trocar_senha', 'usuario', req.user.id,
+      `Usuário "${req.user.login}" alterou a própria senha`);
+    res.json({ ok: true });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Erro interno' });

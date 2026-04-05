@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — API Backend v3.0
+ * Construtivo AI — API Backend v3.0
  * Entry point: configura middleware, monta routers e inicia o servidor.
  */
 require('dotenv').config();
@@ -52,6 +52,8 @@ app.use('/api/alcadas',     require('./routes/alcadas'));
 app.use('/api/config',       require('./routes/config'));
 app.use('/api/dashboard',    require('./routes/dashboard'));
 app.use('/api/cronogramas',  require('./routes/cronogramas'));
+app.use('/api/usuarios',     require('./routes/usuarios'));
+app.use('/api/audit',        require('./routes/audit'));
 
 // ── Tratamento global de erros ───────────────────────────────────
 app.use((err, req, res, _next) => {
@@ -77,6 +79,30 @@ async function runMigrations() {
     `ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) NOT NULL DEFAULT 'Normal'
      CHECK (tipo IN ('Normal','Adiantamento','Avanco_Fisico'))`,
     `CREATE INDEX IF NOT EXISTS idx_medicoes_tipo ON medicoes(tipo)`,
+    // v3.2 — custo planejado importado do MS Project (campo Cost do XML)
+    `ALTER TABLE atividades_cronograma ADD COLUMN IF NOT EXISTS custo_planejado NUMERIC(15,2)`,
+    // v3.3 — tabela de auditoria
+    `CREATE TABLE IF NOT EXISTS audit_logs (
+       id            BIGSERIAL PRIMARY KEY,
+       usuario_id    INTEGER,
+       usuario_login VARCHAR(100) NOT NULL DEFAULT '',
+       usuario_nome  VARCHAR(200) NOT NULL DEFAULT '',
+       acao          VARCHAR(80)  NOT NULL,
+       entidade      VARCHAR(60)  NOT NULL,
+       entidade_id   INTEGER,
+       descricao     TEXT,
+       detalhes      JSONB,
+       ip            VARCHAR(50),
+       criado_em     TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_criado_em  ON audit_logs(criado_em DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_entidade   ON audit_logs(entidade)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_usuario_id ON audit_logs(usuario_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_acao       ON audit_logs(acao)`,
+    // v3.4 — colunas de storage nas evidências (provider, url_storage, enviado_por)
+    `ALTER TABLE evidencias ADD COLUMN IF NOT EXISTS provider      VARCHAR(20)   DEFAULT 'local'`,
+    `ALTER TABLE evidencias ADD COLUMN IF NOT EXISTS url_storage   VARCHAR(1000)`,
+    `ALTER TABLE evidencias ADD COLUMN IF NOT EXISTS enviado_por   VARCHAR(100)`,
   ];
   for (const sql of migrations) {
     try {
@@ -91,12 +117,12 @@ async function runMigrations() {
 // ── Inicialização ────────────────────────────────────────────────
 runMigrations().then(() => {
   app.listen(PORT, () => {
-    console.log(`HAMOA OBRAS API v3.0 rodando na porta ${PORT}`);
+    console.log(`Construtivo AI API v3.0 rodando na porta ${PORT}`);
   });
 }).catch(err => {
   console.error('[Migration] Erro crítico:', err);
   app.listen(PORT, () => {
-    console.log(`HAMOA OBRAS API v3.0 rodando na porta ${PORT} (sem migrations)`);
+    console.log(`Construtivo AI API v3.0 rodando na porta ${PORT} (sem migrations)`);
   });
 });
 
