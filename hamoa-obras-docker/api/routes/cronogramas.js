@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Rotas de Cronograma
+ * CONSTRUTIVO OBRAS — Rotas de Cronograma
  *
  * POST  /api/cronogramas/importar        Upload e parse de .mpp ou .xml MS Project
  * GET   /api/cronogramas[?obra_id=]      Lista cronogramas (+ número de atividades)

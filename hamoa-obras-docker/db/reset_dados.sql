@@ -1,10 +1,10 @@
 -- ══════════════════════════════════════════════════════════════════
--- HAMOA OBRAS — Reset de Dados para Testes
+-- CONSTRUTIVO OBRAS — Reset de Dados para Testes
 -- Limpa: medições, contratos, obras, fornecedores, empresas, cronogramas
 -- Preserva: usuarios, configuracoes, alcadas
 --
 -- PowerShell:
---   docker exec hamoa-obras-db psql -U hamoa -d hamoa_obras -f /reset_dados.sql
+--   docker exec construtivo-obras-db psql -U construtivo -d construtivo_obras -f /reset_dados.sql
 -- (copie este arquivo para o container antes com docker cp)
 --
 -- Ou execute comando a comando no terminal abaixo.

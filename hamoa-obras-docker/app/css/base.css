@@ -5,8 +5,8 @@ body{font-family:var(--font-b);background:var(--bg);color:var(--text);display:fl
 /* ── TOPBAR ── */
 #topbar{height:50px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 18px;gap:14px;flex-shrink:0;z-index:200}
 .t-logo{font-family:var(--font-d);font-size:22px;letter-spacing:2px;cursor:pointer;display:flex;align-items:baseline;gap:0;line-height:1}
-.t-logo .jmd{color:var(--accent);font-size:18px;letter-spacing:2px}
-.t-logo .hamoa{color:var(--text3);font-size:18px;letter-spacing:2px;margin-left:4px}
+.t-logo .logo-primary{color:var(--accent);font-size:18px;letter-spacing:2px}
+.t-logo .logo-secondary{color:var(--text3);font-size:18px;letter-spacing:2px;margin-left:4px}
 .t-logo .obras{display:none}
 .t-sep{width:1px;height:26px;background:var(--border)}
 .t-nav{display:flex;gap:2px;flex:1;overflow-x:auto}

@@ -1,20 +1,20 @@
-# 🏗 HAMOA OBRAS — Guia de Deploy com Docker Compose
+# 🏗 CONSTRUTIVO OBRAS — Guia de Deploy com Docker Compose
 
 ## Estrutura de arquivos
 
 ```
-hamoa-obras/
+construtivo-obras/
 ├── docker-compose.yml       # Orquestração dos containers
 ├── .env.example             # Modelo de variáveis de ambiente
 ├── .env                     # Suas variáveis (NÃO versionar no Git!)
 ├── .gitignore
 │
 ├── app/                     # Frontend
-│   └── index.html           # → cole aqui o arquivo hamoa-obras.html
+│   └── index.html           # → cole aqui o arquivo construtivo-obras.html
 │
 ├── nginx/
 │   ├── nginx.conf           # Configuração global do Nginx
-│   └── default.conf         # Virtual host HAMOA OBRAS
+│   └── default.conf         # Virtual host CONSTRUTIVO OBRAS
 │
 ├── api/                     # Backend Node.js
 │   ├── Dockerfile
@@ -26,8 +26,8 @@ hamoa-obras/
 │   └── seed.sql             # Dados iniciais
 │
 └── ssl/                     # Certificados SSL (produção)
-    ├── hamoa.crt
-    └── hamoa.key
+    ├── construtivo.crt
+    └── construtivo.key
 ```
 
 ---
@@ -46,12 +46,12 @@ docker compose version    # >= 2.x
 
 ```bash
 # Criar estrutura de diretórios
-mkdir -p hamoa-obras/{app,nginx,api,db,ssl}
-cd hamoa-obras
+mkdir -p construtivo-obras/{app,nginx,api,db,ssl}
+cd construtivo-obras
 
 # Copiar todos os arquivos deste pacote para os diretórios corretos
-# Copiar o hamoa-obras.html para app/index.html
-cp /caminho/para/hamoa-obras.html app/index.html
+# Copiar o construtivo-obras.html para app/index.html
+cp /caminho/para/construtivo-obras.html app/index.html
 ```
 
 ### 3. Configurar variáveis de ambiente
@@ -105,26 +105,26 @@ docker compose down
 docker compose down -v
 
 # Reiniciar apenas um serviço
-docker compose restart hamoa-api
+docker compose restart construtivo-api
 
 # Ver logs de um serviço específico
-docker compose logs -f hamoa-api
-docker compose logs -f hamoa-db
+docker compose logs -f construtivo-api
+docker compose logs -f construtivo-db
 
 # Entrar no container do banco
-docker compose exec hamoa-db psql -U hamoa -d hamoa_obras
+docker compose exec construtivo-db psql -U construtivo -d construtivo_obras
 
 # Entrar no container da API
-docker compose exec hamoa-api sh
+docker compose exec construtivo-api sh
 
 # Rebuild após mudanças no código da API
-docker compose build hamoa-api
-docker compose up -d hamoa-api
+docker compose build construtivo-api
+docker compose up -d construtivo-api
 
 # Subir com o Adminer (gerenciador visual do banco)
 docker compose --profile tools up -d
 # Acesse: http://localhost:8080
-# Sistema: PostgreSQL | Servidor: hamoa-db | Usuário: hamoa
+# Sistema: PostgreSQL | Servidor: construtivo-db | Usuário: construtivo
 ```
 
 ---
@@ -138,7 +138,7 @@ Após o deploy, acesse **Configurações → Autenticação LDAP/AD** e preencha
 | Servidor | `dc01.suaempresa.local` |
 | Domínio | `SUAEMPRESA` |
 | Base DN | `DC=suaempresa,DC=local` |
-| Usuário de Serviço | `svc-hamoa@suaempresa.local` |
+| Usuário de Serviço | `svc-construtivo@suaempresa.local` |
 
 Ou configure direto no `.env`:
 
@@ -147,7 +147,7 @@ LDAP_ENABLED=true
 LDAP_URL=ldap://dc01.suaempresa.local:389
 LDAP_BASE_DN=DC=suaempresa,DC=local
 LDAP_DOMAIN=SUAEMPRESA
-LDAP_BIND_DN=svc-hamoa@suaempresa.local
+LDAP_BIND_DN=svc-construtivo@suaempresa.local
 LDAP_BIND_PASS=senha-do-servico
 ```
 
@@ -160,8 +160,8 @@ LDAP_BIND_PASS=senha-do-servico
 ```bash
 # Gerar certificado autoassinado (desenvolvimento)
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-  -keyout ssl/hamoa.key -out ssl/hamoa.crt \
-  -subj "/CN=hamoa.suaempresa.com.br"
+  -keyout ssl/construtivo.key -out ssl/construtivo.crt \
+  -subj "/CN=construtivo.suaempresa.com.br"
 ```
 
 ### Opção B — Let's Encrypt com Certbot
@@ -172,11 +172,11 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 #   image: certbot/certbot
 #   volumes:
 #     - ./ssl:/etc/letsencrypt
-#   command: certonly --webroot -w /var/www/certbot -d hamoa.suaempresa.com.br
+#   command: certonly --webroot -w /var/www/certbot -d construtivo.suaempresa.com.br
 
-certbot certonly --standalone -d hamoa.suaempresa.com.br
-cp /etc/letsencrypt/live/hamoa.suaempresa.com.br/fullchain.pem ssl/hamoa.crt
-cp /etc/letsencrypt/live/hamoa.suaempresa.com.br/privkey.pem ssl/hamoa.key
+certbot certonly --standalone -d construtivo.suaempresa.com.br
+cp /etc/letsencrypt/live/construtivo.suaempresa.com.br/fullchain.pem ssl/construtivo.crt
+cp /etc/letsencrypt/live/construtivo.suaempresa.com.br/privkey.pem ssl/construtivo.key
 ```
 
 Depois descomente as linhas SSL no `nginx/default.conf`.
@@ -187,13 +187,13 @@ Depois descomente as linhas SSL no `nginx/default.conf`.
 
 ```bash
 # Backup manual
-docker compose exec hamoa-db pg_dump -U hamoa hamoa_obras > backup_$(date +%Y%m%d).sql
+docker compose exec construtivo-db pg_dump -U construtivo construtivo_obras > backup_$(date +%Y%m%d).sql
 
 # Restaurar backup
-cat backup_20250326.sql | docker compose exec -T hamoa-db psql -U hamoa -d hamoa_obras
+cat backup_20250326.sql | docker compose exec -T construtivo-db psql -U construtivo -d construtivo_obras
 
 # Backup automático com cron (adicionar no crontab do host)
-0 2 * * * docker compose -f /opt/hamoa-obras/docker-compose.yml exec -T hamoa-db pg_dump -U hamoa hamoa_obras > /backups/hamoa_$(date +\%Y\%m\%d).sql
+0 2 * * * docker compose -f /opt/construtivo-obras/docker-compose.yml exec -T construtivo-db pg_dump -U construtivo construtivo_obras > /backups/construtivo_$(date +\%Y\%m\%d).sql
 ```
 
 ---
@@ -208,7 +208,7 @@ docker stats
 docker compose ps
 
 # Inspecionar um container
-docker inspect hamoa-obras-api
+docker inspect construtivo-obras-api
 ```
 
 ---
@@ -218,7 +218,7 @@ docker inspect hamoa-obras-api
 | Problema | Solução |
 |----------|---------|
 | Porta 80 ocupada | Mude em `docker-compose.yml`: `"8090:80"` |
-| API não conecta no banco | Verifique se `hamoa-db` está healthy: `docker compose ps` |
+| API não conecta no banco | Verifique se `construtivo-db` está healthy: `docker compose ps` |
 | Login não funciona | Verifique `DB_PASS` no `.env` e aguarde o banco inicializar |
 | LDAP não conecta | Confirme que o container consegue resolver o hostname do DC |
 
@@ -237,4 +237,4 @@ docker inspect hamoa-obras-api
 
 ---
 
-**HAMOA OBRAS v3.0** · Docker Compose · © 2025
+**CONSTRUTIVO OBRAS v3.0** · Docker Compose · © 2025

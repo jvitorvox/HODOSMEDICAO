@@ -1,5 +1,5 @@
 -- ── Migração: tipo de medição (Adiantamento / Avanço Físico) ─────────────────
--- Executar: docker exec -i hamoa-obras-db psql -U hamoa -d hamoa_obras < db/migrate_medicao_tipo.sql
+-- Executar: docker exec -i construtivo-obras-db psql -U construtivo -d construtivo_obras < db/migrate_medicao_tipo.sql
 
 ALTER TABLE medicoes
   ADD COLUMN IF NOT EXISTS tipo VARCHAR(20) NOT NULL DEFAULT 'Normal'

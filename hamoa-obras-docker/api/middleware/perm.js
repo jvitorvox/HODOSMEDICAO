@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Middleware de Permissões por Grupo AD
+ * CONSTRUTIVO OBRAS — Middleware de Permissões por Grupo AD
  *
  * As permissões são configuradas em configuracoes.valor (chave='permissoes'):
  *   { "NomeGrupo": { "criarMedicao": true, "aprovarN1": false, ... } }

@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Rota do Dashboard
+ * CONSTRUTIVO OBRAS — Rota do Dashboard
  * GET /api/dashboard
  * Retorna estatísticas gerais, carteira de contratos e progresso por contrato.
  * Apenas contratos com ao menos uma medição lançada aparecem no painel.

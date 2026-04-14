@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Helpers LDAP
+ * CONSTRUTIVO OBRAS — Helpers LDAP
  * Autenticação via Active Directory usando ldapjs.
  */
 const ldapjs = require('ldapjs');

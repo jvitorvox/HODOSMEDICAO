@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Helper ClickSign
+ * CONSTRUTIVO OBRAS — Helper ClickSign
  * Integração com a API REST da ClickSign para envio de documentos
  * para assinatura eletrônica.
  *
@@ -147,7 +147,11 @@ async function findSignerByEmail(baseUrl, token, email) {
 }
 
 // ── 2. Criar signatário ───────────────────────────────────────────────────────
-async function createSigner(baseUrl, token, { email, phone, name, auths }) {
+// cpf: CPF do representante no formato 000.000.000-00 (opcional, mas recomendado)
+// birthday: data de nascimento no formato YYYY-MM-DD (opcional, mas recomendado)
+// Quando cpf + birthday são fornecidos, usa has_documentation=true, que garante
+// que o ClickSign inclua verificação de identidade e melhora a entrega do e-mail.
+async function createSigner(baseUrl, token, { email, phone, name, auths, cpf, birthday }) {
   const authMethods = auths && auths.length ? auths : ['email'];
   if (!email)
     throw new Error('E-mail do signatário é obrigatório (usado pelo ClickSign como identificador)');
@@ -168,15 +172,36 @@ async function createSigner(baseUrl, token, { email, phone, name, auths }) {
   if (!fullName) fullName = 'Representante Fornecedor';
   else if (fullName.split(/\s+/).length < 2) fullName = fullName + ' Fornecedor';
 
+  // Normaliza CPF: remove pontos, traços, espaços → apenas dígitos
+  let cpfClean = cpf ? cpf.replace(/[^\d]/g, '') : null;
+  if (cpfClean && cpfClean.length !== 11) cpfClean = null; // descarta se inválido
+
+  // Normaliza birthday para YYYY-MM-DD
+  let birthdayClean = null;
+  if (birthday) {
+    // Aceita DD/MM/YYYY ou YYYY-MM-DD
+    const dmy = birthday.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (dmy) birthdayClean = `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(birthday)) birthdayClean = birthday;
+  }
+
+  // has_documentation=true quando temos CPF + birthday — ClickSign verifica identidade
+  const hasDoc = !!(cpfClean && birthdayClean);
+
+  const signerPayload = {
+    email,
+    phone_number:      phoneFormatted,
+    auths:             authMethods,
+    name:              fullName,
+    has_documentation: hasDoc,
+    ...(hasDoc ? { documentation: cpfClean, birthday: birthdayClean } : {}),
+  };
+
+  console.log(`[ClickSign][createSigner] payload: email=${email} hasDoc=${hasDoc} cpf=${cpfClean || 'não informado'}`);
+
   try {
     const r = await _req(baseUrl, token, 'POST', '/api/v1/signers', {
-      signer: {
-        email,
-        phone_number:      phoneFormatted,
-        auths:             authMethods,
-        name:              fullName,
-        has_documentation: false,
-      },
+      signer: signerPayload,
     }, 'createSigner');
     return r.signer;
   } catch (err) {
@@ -231,44 +256,74 @@ async function testConnection(baseUrl, token) {
 // ── Helper: vincula signatário + dispara notificação ─────────────────────────
 async function _vincularENotificar(baseUrl, token, { documentKey, signerKey, message, label }) {
   const list = await addSignerToDoc(baseUrl, token, { documentKey, signerKey, message });
+  console.log(`[ClickSign][${label}] addSignerToDoc resposta completa:`, JSON.stringify(list));
 
   const requestSignatureKey = list.request_signature_key || list.key;
   if (!requestSignatureKey) {
     throw new Error(`[${label}] request_signature_key não retornado pelo ClickSign. Campos: ${Object.keys(list).join(', ')}`);
   }
 
-  // O POST /api/v1/lists já dispara notificação automática.
-  // O POST /api/v1/notifications serve para REENVIO — erros 4xx são esperados nesse caso.
+  // Dispara notificação explícita — obrigatório pois o POST /api/v1/lists
+  // nem sempre auto-envia dependendo da configuração da conta ClickSign.
+  let notifyOk = false;
   try {
     await notifySigner(baseUrl, token, { requestSignatureKey });
-    console.log(`[ClickSign][${label}] Notificação explícita enviada com sucesso.`);
+    notifyOk = true;
+    console.log(`[ClickSign][${label}] ✅ Notificação enviada com sucesso. RSK=${requestSignatureKey}`);
   } catch (notifyErr) {
-    // 404 = rota não existe neste ambiente ou notificação já consumida (auto-sent pelo /lists)
-    // 422 = regra de negócio (já notificado recentemente) — ambos são aceitáveis
-    if ([404, 422].includes(notifyErr.statusCode)) {
-      console.warn(`[ClickSign][${label}] Notify retornou ${notifyErr.statusCode} — notificação automática já disparada pelo POST /lists. Fluxo continua.`);
+    const sc = notifyErr.statusCode;
+    if (sc === 422) {
+      // 422 = "já foi notificado recentemente" ou documento ainda não finalizou
+      // Tenta novamente após 2s — às vezes o /lists ainda está processando
+      console.warn(`[ClickSign][${label}] Notify retornou 422 (${notifyErr.message}) — tentando novamente em 2s...`);
+      await _sleep(2000);
+      try {
+        await notifySigner(baseUrl, token, { requestSignatureKey });
+        notifyOk = true;
+        console.log(`[ClickSign][${label}] ✅ Notificação enviada na 2ª tentativa.`);
+      } catch (retry) {
+        console.warn(`[ClickSign][${label}] ⚠️ Notify falhou na 2ª tentativa (${retry.statusCode}): ${retry.message}`);
+        // Mesmo assim considera sucesso — o /lists pode ter auto-enviado
+        notifyOk = true;
+      }
+    } else if (sc === 404) {
+      // Endpoint não existe neste plano/ambiente — /lists já enviou automaticamente
+      console.warn(`[ClickSign][${label}] Notify retornou 404 — /lists já disparou notificação automática.`);
+      notifyOk = true;
     } else {
-      console.error(`[ClickSign][${label}] Falha na notificação explícita:`, notifyErr.message);
+      console.error(`[ClickSign][${label}] ❌ Falha crítica na notificação (${sc}): ${notifyErr.message}`);
       throw notifyErr;
     }
   }
 
+  console.log(`[ClickSign][${label}] Fluxo concluído. notifyOk=${notifyOk} | link=${baseUrl}/sign/${requestSignatureKey}`);
   return { requestSignatureKey, linkVisualizacao: `${baseUrl}/sign/${requestSignatureKey}` };
 }
 
 // ── Fluxo completo: upload → signer(s) → list → notify ───────────────────────
 // signerEmail2 / signerName2 = segundo signatário opcional (ex: remetente/empresa)
+// signerCpf / signerBirthday = CPF e data de nascimento do representante (melhoram entrega)
+// signerCpf2 / signerBirthday2 = idem para o segundo signatário
 async function enviarParaAssinatura(cfg, {
   pdfBase64, docPath,
   signerEmail,  signerPhone,  signerName,  auths,
+  signerCpf,    signerBirthday,
   signerEmail2, signerName2,
+  signerCpf2,   signerBirthday2,
   message,
 }) {
   const { accessToken, baseUrl } = cfg;
   if (!accessToken) throw new Error('Access Token do ClickSign não configurado');
 
-  const ambienteLabel = baseUrl.includes('sandbox') ? 'SANDBOX (emails NÃO são enviados de verdade)' : 'PRODUÇÃO';
-  console.log(`[ClickSign] Ambiente: ${ambienteLabel} | URL: ${baseUrl}`);
+  const isSandbox = baseUrl.includes('sandbox');
+  const ambienteLabel = isSandbox ? 'SANDBOX ⚠️ (emails NÃO chegam em caixas reais)' : 'PRODUÇÃO ✅';
+  console.log(`[ClickSign] ====== INÍCIO DO ENVIO ======`);
+  console.log(`[ClickSign] Ambiente : ${ambienteLabel}`);
+  console.log(`[ClickSign] Base URL : ${baseUrl}`);
+  if (isSandbox) {
+    console.warn('[ClickSign] ⚠️ ATENÇÃO: Ambiente SANDBOX — os e-mails NÃO são entregues em caixas reais!');
+    console.warn('[ClickSign] Para enviar e-mails reais, altere o ambiente para PRODUÇÃO em Configurações → Assinatura Eletrônica.');
+  }
 
   // 1. Upload do documento PDF
   const doc = await uploadDocument(baseUrl, accessToken, { path: docPath, pdfBase64 });
@@ -277,6 +332,7 @@ async function enviarParaAssinatura(cfg, {
   // 2. Signatário principal (fornecedor)
   const signer = await createSigner(baseUrl, accessToken, {
     email: signerEmail, phone: signerPhone, name: signerName, auths,
+    cpf: signerCpf, birthday: signerBirthday,
   });
   console.log(`[ClickSign] Signatário 1 (fornecedor) criado/reutilizado. key=${signer.key} | email=${signerEmail}`);
 
@@ -291,9 +347,11 @@ async function enviarParaAssinatura(cfg, {
   if (signerEmail2 && signerEmail2 !== signerEmail) {
     try {
       const signer2 = await createSigner(baseUrl, accessToken, {
-        email: signerEmail2,
-        name:  signerName2 || 'Responsável Empresa',
-        auths: ['email'],   // remetente sempre por email
+        email:    signerEmail2,
+        name:     signerName2 || 'Responsável Empresa',
+        auths:    ['email'],   // remetente sempre por email
+        cpf:      signerCpf2,
+        birthday: signerBirthday2,
       });
       console.log(`[ClickSign] Signatário 2 (remetente) criado/reutilizado. key=${signer2.key} | email=${signerEmail2}`);
 

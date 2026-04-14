@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Rotas de Fornecedores
+ * CONSTRUTIVO OBRAS — Rotas de Fornecedores
  * GET    /api/fornecedores
  * POST   /api/fornecedores
  * PUT    /api/fornecedores/:id
@@ -22,13 +22,16 @@ router.get('/', auth, async (req, res) => {
 
 router.post('/', auth, perm('cadastros'), async (req, res) => {
   const { razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
-          endereco, representante, cargo_representante } = req.body;
+          endereco, representante, cargo_representante,
+          cpf_representante, data_nasc_representante } = req.body;
   const r = await db.query(
     `INSERT INTO fornecedores
-       (razao_social,nome_fantasia,cnpj,tel,email,email_nf,email_assin,endereco,representante,cargo_representante)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+       (razao_social,nome_fantasia,cnpj,tel,email,email_nf,email_assin,endereco,
+        representante,cargo_representante,cpf_representante,data_nasc_representante)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
     [razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
-     endereco||null, representante||null, cargo_representante||null]
+     endereco||null, representante||null, cargo_representante||null,
+     cpf_representante||null, data_nasc_representante||null]
   );
   const row = r.rows[0];
   await audit(req, 'criar', 'fornecedor', row.id, `Fornecedor "${row.razao_social}" criado`);
@@ -37,14 +40,17 @@ router.post('/', auth, perm('cadastros'), async (req, res) => {
 
 router.put('/:id', auth, perm('cadastros'), async (req, res) => {
   const { razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
-          endereco, representante, cargo_representante, ativo } = req.body;
+          endereco, representante, cargo_representante, ativo,
+          cpf_representante, data_nasc_representante } = req.body;
   const r = await db.query(
     `UPDATE fornecedores SET
        razao_social=$1,nome_fantasia=$2,cnpj=$3,tel=$4,email=$5,
-       email_nf=$6,email_assin=$7,endereco=$8,representante=$9,cargo_representante=$10,ativo=$11
-     WHERE id=$12 RETURNING *`,
+       email_nf=$6,email_assin=$7,endereco=$8,representante=$9,cargo_representante=$10,ativo=$11,
+       cpf_representante=$12,data_nasc_representante=$13
+     WHERE id=$14 RETURNING *`,
     [razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
-     endereco||null, representante||null, cargo_representante||null, ativo, req.params.id]
+     endereco||null, representante||null, cargo_representante||null, ativo,
+     cpf_representante||null, data_nasc_representante||null, req.params.id]
   );
   const row = r.rows[0];
   const status = row.ativo ? 'ativo' : 'inativo';
@@ -57,6 +63,44 @@ router.delete('/:id', auth, perm('cadastros'), async (req, res) => {
   await db.query('UPDATE fornecedores SET ativo=false WHERE id=$1', [req.params.id]);
   await audit(req, 'excluir', 'fornecedor', parseInt(req.params.id), `Fornecedor "${prev.rows[0]?.razao_social || req.params.id}" desativado`);
   res.status(204).end();
+});
+
+// ── Importação em massa (CSV) ────────────────────────────────────
+router.post('/bulk', auth, perm('cadastros'), async (req, res) => {
+  const registros = req.body;
+  if (!Array.isArray(registros) || registros.length === 0)
+    return res.status(400).json({ error: 'Envie um array de registros.' });
+
+  const resultados = [];
+  for (let i = 0; i < registros.length; i++) {
+    const { razao_social, nome_fantasia, cnpj, tel, email, email_nf, email_assin,
+            endereco, representante, cargo_representante, cpf_representante } = registros[i];
+    const linha = i + 2;
+    if (!razao_social || !cnpj) {
+      resultados.push({ linha, status: 'erro', motivo: 'razao_social e cnpj são obrigatórios' });
+      continue;
+    }
+    try {
+      const r = await db.query(
+        `INSERT INTO fornecedores
+           (razao_social,nome_fantasia,cnpj,tel,email,email_nf,email_assin,
+            endereco,representante,cargo_representante,cpf_representante)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+        [razao_social.trim(), nome_fantasia?.trim()||null, cnpj.trim(),
+         tel?.trim()||null, email?.trim()||null, email_nf?.trim()||null,
+         email_assin?.trim()||null, endereco?.trim()||null,
+         representante?.trim()||null, cargo_representante?.trim()||null,
+         cpf_representante?.trim()||null]
+      );
+      await audit(req, 'criar', 'fornecedor', r.rows[0].id, `Fornecedor "${razao_social}" importado em massa`);
+      resultados.push({ linha, status: 'ok', id: r.rows[0].id, razao_social });
+    } catch (e) {
+      resultados.push({ linha, status: 'erro', motivo: e.detail || e.message, razao_social });
+    }
+  }
+  const ok = resultados.filter(r => r.status === 'ok').length;
+  const erros = resultados.filter(r => r.status === 'erro').length;
+  res.json({ total: registros.length, importados: ok, erros, resultados });
 });
 
 // ── IA: interpretação de documento ──────────────────────────────

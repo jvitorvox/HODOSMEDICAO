@@ -17,7 +17,7 @@
 <div id="login-screen">
   <div class="login-wrap">
     <div class="login-card">
-      <div class="llogo"><span class="jmd">Construtivo</span> <span class="hamoa">AI</span></div>
+      <div class="llogo"><span class="logo-primary">Construtivo</span> <span class="logo-secondary">AI</span></div>
       <div class="lsub">Sistema de Gestão de Medições</div>
       <div class="lad" id="l-auth-mode">🔒 Autenticação corporativa</div>
       <div class="fg">
@@ -29,7 +29,7 @@
         <input class="fi" type="password" id="l-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')App.login()">
       </div>
       <button class="login-btn" onclick="App.login()">ENTRAR</button>
-      <div class="lfooter">Construtivo AI v3.0 · © JMD Urbanismo</div>
+      <div class="lfooter">Construtivo AI v3.0 · © Construtivo</div>
     </div>
   </div>
 </div>
@@ -38,7 +38,7 @@
 <div id="app" style="display:none;flex-direction:column;height:100%">
   <div id="topbar">
     <button id="menu-toggle" onclick="App.toggleNav()" aria-label="Menu">☰</button>
-    <div class="t-logo" onclick="App.navigate('dashboard');App.closeNav()"><span class="jmd">Construtivo</span><span class="hamoa">AI</span></div>
+    <div class="t-logo" onclick="App.navigate('dashboard');App.closeNav()"><span class="logo-primary">Construtivo</span><span class="logo-secondary">AI</span></div>
     <div class="t-sep"></div>
     <nav class="t-nav" id="t-nav">
       <div class="ni active" data-page="dashboard">📊 Dashboard</div>
@@ -199,7 +199,10 @@
           </div>
         </div>
 
-        <!-- ③ Árvore WBS — toma todo o espaço restante -->
+        <!-- ③ LBM — inicializado pelo JS quando metodologia='lbm' -->
+        <div id="cron-lbm-wrap" class="lbm-wrap" style="display:none"></div>
+
+        <!-- ④ Árvore WBS — toma todo o espaço restante -->
         <div id="cron-wbs-wrap">
 
           <!-- Toolbar da WBS -->
@@ -416,6 +419,30 @@
         <div class="fg"><label class="fl">Localização</label><input class="fi" id="obra-local" placeholder="Cidade, UF"></div>
         <div class="fg"><label class="fl">Gestor Responsável</label><input class="fi" id="obra-gestor" placeholder="Nome do gestor"></div>
       </div>
+      <!-- Metodologia de Planejamento -->
+      <div class="fg" style="margin-top:4px">
+        <label class="fl">Metodologia de Planejamento</label>
+        <div style="display:flex;gap:10px;margin-top:6px">
+          <label style="flex:1;display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--r);cursor:pointer;border:2px solid var(--border);background:var(--surface2);transition:all .15s" id="obra-met-gantt-card">
+            <input type="radio" name="obra-metodologia" value="gantt" checked
+                   onchange="Cadastros._onMetodologiaChange()"
+                   style="margin-top:2px;accent-color:var(--accent)">
+            <div>
+              <div style="font-weight:600;font-size:12px">📊 Gantt</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px">Cronograma tradicional por tarefas e tempo. Importa MS Project.</div>
+            </div>
+          </label>
+          <label style="flex:1;display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:var(--r);cursor:pointer;border:2px solid var(--border);background:var(--surface2);transition:all .15s" id="obra-met-lbm-card">
+            <input type="radio" name="obra-metodologia" value="lbm"
+                   onchange="Cadastros._onMetodologiaChange()"
+                   style="margin-top:2px;accent-color:var(--green)">
+            <div>
+              <div style="font-weight:600;font-size:12px">🏗 LBM</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:2px">Planejamento por localização. Ideal para obras repetitivas.</div>
+            </div>
+          </label>
+        </div>
+      </div>
     </div>
     <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-obra')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveObra()">Salvar</button></div>
   </div>
@@ -440,8 +467,11 @@
         <div class="fg"><label class="fl">CNPJ *</label><input class="fi" id="forn-cnpj" placeholder="00.000.000/0001-00"></div>
         <div class="fg"><label class="fl">Telefone</label><input class="fi" id="forn-tel" placeholder="(00) 00000-0000"></div>
         <div class="fg cs2"><label class="fl">Endereço</label><input class="fi" id="forn-endereco" placeholder="Rua, número, cidade, UF"></div>
-        <div class="fg"><label class="fl">Representante</label><input class="fi" id="forn-representante" placeholder="Nome do representante legal"></div>
+        <div class="fg"><label class="fl">Representante Legal</label><input class="fi" id="forn-representante" placeholder="Nome completo do representante"></div>
         <div class="fg"><label class="fl">Cargo</label><input class="fi" id="forn-cargo" placeholder="Ex: Diretor, Sócio-Administrador"></div>
+        <div class="fg"><label class="fl">CPF do Representante</label><input class="fi" id="forn-cpf-rep" placeholder="000.000.000-00" style="font-family:var(--font-m)"
+          oninput="this.value=this.value.replace(/[^\d]/g,'').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4').slice(0,14)">
+          <div class="hint">Necessário para assinatura eletrônica (D4Sign / ClickSign)</div></div>
         <div class="fg"><label class="fl">E-mail Contato</label><input class="fi" id="forn-email" placeholder="contato@empresa.com.br"></div>
         <div class="fg"><label class="fl">E-mail Nota Fiscal</label><input class="fi" id="forn-emailnf" placeholder="nf@empresa.com.br"></div>
         <div class="fg"><label class="fl">E-mail Assinatura</label><input class="fi" id="forn-emailassin" placeholder="Para envio do doc. de medição"></div>
@@ -449,6 +479,68 @@
       </div>
     </div>
     <div class="mf"><button class="btn btn-o" onclick="UI.closeModal('modal-fornecedor')">Cancelar</button><button class="btn btn-a" onclick="Cadastros.saveFornecedor()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- Modal: Importação em Massa (Empresas / Obras / Fornecedores) -->
+<div class="mo" id="modal-bulk-import" style="z-index:1100">
+  <div class="mc" style="max-width:680px;width:95%">
+    <div class="mh">
+      <div class="mh-title" id="bulk-title">📥 IMPORTAR EM MASSA</div>
+      <button class="mc-btn" onclick="UI.closeModal('modal-bulk-import')">✕</button>
+    </div>
+    <div class="mb" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+
+      <!-- Layout do CSV -->
+      <div style="background:var(--bg2,#f8f8f6);border:1px solid var(--border,#e0ddd5);border-radius:6px;padding:14px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--text2);margin-bottom:10px">LAYOUT DO ARQUIVO CSV</div>
+        <div id="bulk-layout-desc" style="font-size:12px;color:var(--text2);margin-bottom:10px"></div>
+        <div style="overflow-x:auto">
+          <table id="bulk-layout-table" style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead id="bulk-layout-thead" style="background:var(--bg3,#efede6)"></thead>
+            <tbody id="bulk-layout-tbody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+          <button class="btn btn-o btn-sm" onclick="Cadastros.bulkDownloadTemplate()" style="font-size:11px">⬇ Baixar modelo .csv</button>
+          <span style="font-size:11px;color:var(--text3)">Codificação UTF-8 · separador ponto-e-vírgula ( ; )</span>
+        </div>
+      </div>
+
+      <!-- Upload -->
+      <div>
+        <label class="fl" style="margin-bottom:6px">Selecionar arquivo CSV</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:7px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;font-size:12px">
+            📂 Escolher arquivo
+            <input type="file" id="bulk-file" accept=".csv,.txt" style="display:none" onchange="Cadastros.bulkOnFileChange(this)">
+          </label>
+          <span id="bulk-filename" style="font-size:12px;color:var(--text2)">Nenhum arquivo selecionado</span>
+        </div>
+      </div>
+
+      <!-- Preview -->
+      <div id="bulk-preview-wrap" style="display:none">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--text2);margin-bottom:8px">PRÉ-VISUALIZAÇÃO <span id="bulk-preview-count" style="font-weight:400;color:var(--text3)"></span></div>
+        <div style="overflow:auto;max-height:200px;border:1px solid var(--border);border-radius:4px">
+          <table id="bulk-preview-table" style="width:100%;border-collapse:collapse;font-size:11px">
+            <thead id="bulk-preview-thead" style="background:var(--bg3);position:sticky;top:0"></thead>
+            <tbody id="bulk-preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Resultado -->
+      <div id="bulk-result-wrap" style="display:none;border-radius:6px;overflow:hidden">
+        <div id="bulk-result-summary" style="padding:10px 14px;font-size:13px;font-weight:600"></div>
+        <div id="bulk-result-errors" style="max-height:160px;overflow:auto;font-size:11px;padding:0 14px 10px"></div>
+      </div>
+
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-bulk-import')">Fechar</button>
+      <button class="btn btn-a" id="bulk-import-btn" onclick="Cadastros.bulkImport()" disabled>⬆ Importar</button>
+    </div>
   </div>
 </div>
 
@@ -708,11 +800,11 @@
     </div>
     <div class="mb">
 
-      <!-- Status ClickSign -->
+      <!-- Status provedor de assinatura -->
       <div id="assin-status-plat" style="margin-bottom:14px"></div>
 
-      <!-- Canal de entrega -->
-      <div class="fsec" style="margin-bottom:14px">
+      <!-- Canal de entrega — só relevante para ClickSign (D4Sign entrega por email automaticamente) -->
+      <div id="assin-wrap-canal" class="fsec" style="margin-bottom:14px">
         <div class="fsec-title">CANAL DE ENTREGA</div>
         <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:8px">
           <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500">
@@ -728,37 +820,82 @@
             <span style="color:#25d366;font-size:15px">●</span> WhatsApp
           </label>
         </div>
-        <div class="hint" style="margin-top:6px">Selecione como o fornecedor receberá o link de assinatura via ClickSign.</div>
+        <div class="hint" style="margin-top:6px">Selecione como o fornecedor receberá o link de assinatura.</div>
       </div>
 
-      <!-- Campo E-mail — sempre obrigatório (ClickSign usa como identificador) -->
-      <div class="fg" style="margin-bottom:12px">
+      <!-- Dados do Signatário (Fornecedor) -->
+      <div class="fsec-title" style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:8px" id="assin-label-forn">DADOS DO FORNECEDOR / REPRESENTANTE</div>
+
+      <div class="fg" style="margin-bottom:8px">
         <label class="fl">E-mail do Fornecedor *</label>
         <input class="fi" id="assin-email-forn" type="email" placeholder="representante@fornecedor.com.br">
-        <div class="hint">Obrigatório — o ClickSign usa o e-mail como identificador do signatário. O link também pode ser enviado por WhatsApp se selecionado acima.</div>
+        <div class="hint">Obrigatório — o e-mail identifica o signatário no provedor de assinatura.</div>
       </div>
 
-      <!-- Campo WhatsApp — visível apenas se canal WhatsApp selecionado -->
-      <div id="assin-wrap-whatsapp" class="fg" style="display:none;margin-bottom:12px">
-        <label class="fl">Telefone / WhatsApp *</label>
-        <div style="display:flex;gap:8px">
-          <input class="fi" id="assin-tel-forn" placeholder="+55 11 9 9999-9999" style="font-family:var(--font-m)">
+      <!-- CPF + Nascimento — apenas ClickSign -->
+      <div id="assin-wrap-cpf-forn" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div class="fg">
+          <label class="fl">CPF do Representante</label>
+          <input class="fi" id="assin-cpf-forn" type="text" placeholder="000.000.000-00"
+                 style="font-family:var(--font-m)"
+                 oninput="this.value=this.value.replace(/[^\d]/g,'').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4').slice(0,14)">
         </div>
-        <div class="hint">Use o formato internacional: +55 11 9 9999-9999. O fornecedor receberá a mensagem via WhatsApp.</div>
+        <div class="fg">
+          <label class="fl">Data de Nascimento</label>
+          <input class="fi" id="assin-nasc-forn" type="date">
+        </div>
+      </div>
+      <div id="assin-hint-cpf-forn" class="hint" style="margin-bottom:12px;background:var(--accent3);border:1px solid var(--border2);border-radius:var(--r);padding:7px 10px;font-size:10px;color:var(--text2)">
+        💡 CPF e data de nascimento são recomendados para garantir a entrega do e-mail via ClickSign.<br>
+        Se já cadastrados no fornecedor, serão preenchidos automaticamente.
       </div>
 
-      <!-- E-mail remetente -->
-      <div class="fg" style="margin-bottom:14px">
-        <label class="fl">Seu e-mail (remetente, opcional)</label>
+      <!-- Telefone — WhatsApp para D4Sign e ClickSign -->
+      <div id="assin-wrap-tel" class="fg" style="display:none;margin-bottom:12px">
+        <label class="fl" id="assin-label-tel">WhatsApp do Fornecedor</label>
+        <input class="fi" id="assin-tel-forn" type="tel" placeholder="+55 11 9 9999-9999" style="font-family:var(--font-m)">
+        <div class="hint" id="assin-hint-tel">O link de assinatura será enviado via WhatsApp. Formato: +55 11 9 9999-9999</div>
+      </div>
+
+      <!-- Checkbox WhatsApp para D4Sign -->
+      <div id="assin-wrap-wpp-d4" style="display:none;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500">
+          <input type="checkbox" id="assin-canal-wpp-d4"
+            onchange="Medicoes._onWppD4Change()"
+            style="width:16px;height:16px;accent-color:var(--green);cursor:pointer">
+          <span style="color:#25d366;font-size:15px">●</span> Enviar link via WhatsApp
+        </label>
+        <div class="hint" style="margin-top:4px">Além do e-mail, o link de assinatura será enviado pelo WhatsApp do fornecedor.</div>
+      </div>
+
+      <!-- Segundo Signatário (Responsável da empresa, opcional) -->
+      <div class="fsec-title" style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin:12px 0 8px">RESPONSÁVEL DA EMPRESA (OPCIONAL)</div>
+
+      <div class="fg" style="margin-bottom:8px">
+        <label class="fl" id="assin-label-rem">Seu e-mail</label>
         <input class="fi" id="assin-email-rem" type="email" placeholder="seuemail@empresa.com.br">
-        <div class="hint">Caso informado, você receberá uma cópia da notificação enviada ao fornecedor.</div>
+        <div class="hint" id="assin-hint-rem">Caso informado, você será adicionado como Aprovador do documento.</div>
+      </div>
+
+      <!-- CPF + Nascimento do remetente — apenas ClickSign -->
+      <div id="assin-wrap-cpf-rem" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <div class="fg">
+          <label class="fl">Seu CPF</label>
+          <input class="fi" id="assin-cpf-rem" type="text" placeholder="000.000.000-00"
+                 style="font-family:var(--font-m)"
+                 oninput="this.value=this.value.replace(/[^\d]/g,'').replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4').slice(0,14)">
+        </div>
+        <div class="fg">
+          <label class="fl">Sua Data de Nascimento</label>
+          <input class="fi" id="assin-nasc-rem" type="date">
+        </div>
       </div>
 
       <!-- Prévia -->
       <div class="fg">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
           <label class="fl" style="margin:0">Prévia do documento</label>
-          <span style="font-size:10px;color:var(--text3)">O PDF será gerado automaticamente pelo ClickSign</span>
+          <span style="font-size:10px;color:var(--text3)">O PDF será gerado automaticamente pelo provedor de assinatura</span>
         </div>
         <textarea class="fi" id="assin-preview" rows="10" readonly
           style="font-family:var(--font-m);font-size:11px;line-height:1.5;resize:vertical;background:var(--surface2);color:var(--text2)"></textarea>
@@ -827,8 +964,21 @@
 <script src="js/medicoes.js"></script>
 <script src="js/cadastros.js"></script>
 <script src="js/alcadas.js"></script>
+<script src="js/lbm.js"></script>
 <script src="js/cronograma.js"></script>
 <script>
+// Expõe todos os módulos como globais após todos os scripts carregarem
+window.Perm       = Perm;
+window.Medicoes   = Medicoes;
+window.Cadastros  = Cadastros;
+window.Alcadas    = Alcadas;
+window.Configs    = Configs;
+window.Pages      = Pages;
+window.App        = App;
+window.UI         = UI;
+window.H          = H;
+window.Cronograma = Cronograma;
+window.LBM        = LBM;
 // Exibe nome do arquivo selecionado no import de cronograma
 document.getElementById('cron-imp-file')?.addEventListener('change', function() {
   const nm = document.getElementById('cron-imp-file-name');

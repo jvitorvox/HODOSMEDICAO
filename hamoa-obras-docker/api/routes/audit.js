@@ -1,6 +1,6 @@
 'use strict';
 /**
- * HAMOA OBRAS — Rota de Auditoria
+ * CONSTRUTIVO OBRAS — Rota de Auditoria
  * GET /api/audit  — lista logs com filtros e paginação
  */
 const router = require('express').Router();

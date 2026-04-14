@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Rotas de Empresas
+ * CONSTRUTIVO OBRAS — Rotas de Empresas
  * GET    /api/empresas
  * POST   /api/empresas
  * PUT    /api/empresas/:id
@@ -44,6 +44,36 @@ router.delete('/:id', auth, perm('cadastros'), async (req, res) => {
   const nome = prev.rows[0]?.razao_social || req.params.id;
   await audit(req, 'excluir', 'empresa', parseInt(req.params.id), `Empresa "${nome}" excluída`);
   res.status(204).end();
+});
+
+// ── Importação em massa (CSV) ────────────────────────────────────
+router.post('/bulk', auth, perm('cadastros'), async (req, res) => {
+  const registros = req.body; // array de objetos
+  if (!Array.isArray(registros) || registros.length === 0)
+    return res.status(400).json({ error: 'Envie um array de registros.' });
+
+  const resultados = [];
+  for (let i = 0; i < registros.length; i++) {
+    const { razao_social, nome_fantasia, cnpj } = registros[i];
+    const linha = i + 2; // linha no CSV (1=cabeçalho)
+    if (!razao_social || !cnpj) {
+      resultados.push({ linha, status: 'erro', motivo: 'razao_social e cnpj são obrigatórios' });
+      continue;
+    }
+    try {
+      const r = await db.query(
+        'INSERT INTO empresas(razao_social,nome_fantasia,cnpj) VALUES($1,$2,$3) RETURNING id',
+        [razao_social.trim(), nome_fantasia?.trim() || null, cnpj.trim()]
+      );
+      await audit(req, 'criar', 'empresa', r.rows[0].id, `Empresa "${razao_social}" importada em massa`);
+      resultados.push({ linha, status: 'ok', id: r.rows[0].id, razao_social });
+    } catch (e) {
+      resultados.push({ linha, status: 'erro', motivo: e.detail || e.message, razao_social });
+    }
+  }
+  const ok = resultados.filter(r => r.status === 'ok').length;
+  const erros = resultados.filter(r => r.status === 'erro').length;
+  res.json({ total: registros.length, importados: ok, erros, resultados });
 });
 
 module.exports = router;

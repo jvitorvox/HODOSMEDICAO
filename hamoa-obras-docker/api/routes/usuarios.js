@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Rota: /api/usuarios
+ * CONSTRUTIVO OBRAS — Rota: /api/usuarios
  * CRUD de usuários do sistema (cadastro local + associação de grupos AD).
  */
 'use strict';

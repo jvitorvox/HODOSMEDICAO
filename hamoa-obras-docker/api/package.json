@@ -1,7 +1,7 @@
 {
-  "name": "hamoa-obras-api",
+  "name": "construtivo-obras-api",
   "version": "3.0.0",
-  "description": "API Backend — HAMOA OBRAS Sistema de Gestão de Medições",
+  "description": "API Backend — CONSTRUTIVO OBRAS Sistema de Gestão de Medições",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -30,7 +30,8 @@
     "pdfkit": "^0.15.0",
     "@aws-sdk/client-s3": "^3.600.0",
     "@aws-sdk/s3-request-presigner": "^3.600.0",
-    "googleapis": "^140.0.0"
+    "googleapis": "^140.0.0",
+    "xlsx": "^0.18.5"
   },
   "engines": {
     "node": ">=20"

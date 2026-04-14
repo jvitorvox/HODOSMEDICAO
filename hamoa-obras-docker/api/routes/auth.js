@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Rotas de autenticação
+ * CONSTRUTIVO OBRAS — Rotas de autenticação
  * GET  /api/auth/mode   → modo de autenticação (local ou LDAP)
  * POST /api/auth/login  → login com retorno de JWT
  */

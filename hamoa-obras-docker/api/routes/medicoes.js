@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Rotas de Medições
+ * CONSTRUTIVO OBRAS — Rotas de Medições
  * GET    /api/medicoes[?empresa_id=&status=&periodo=]
  * GET    /api/medicoes/:id
  * POST   /api/medicoes
@@ -25,6 +25,113 @@ const multerStorage = multer.diskStorage({
 });
 const upload = multer({ storage: multerStorage, limits: { fileSize: 50 * 1024 * 1024 } });
 const storageHelper = require('../helpers/storage');
+
+// ══════════════════════════════════════════════════════════════
+// HELPER: Sincroniza progresso LBM quando uma medição é aprovada
+// ══════════════════════════════════════════════════════════════
+// Lógica: calcula o % físico acumulado do contrato (soma de todas
+// as medições aprovadas) e distribui pelos locais ordenados:
+//   - primeiros floor(pct% × total_locais) locais → "concluido"
+//   - próximo local (se pct < 100%)              → "em_andamento"
+//   - demais                                     → "nao_iniciado"
+async function _syncLBMFromMedicao(medicaoId, contratoId, obraId) {
+  try {
+    if (!contratoId || !obraId) return;
+
+    // 1. Calcula % físico acumulado do contrato
+    // COALESCE(tipo,'Normal') trata medições antigas que tinham tipo NULL
+    const pctRes = await db.query(`
+      SELECT COALESCE(MAX(pct_total), 0) AS pct_acumulado,
+             COUNT(*) FILTER (WHERE status IN ('Aprovado','Em Assinatura','Concluído')) AS total_aprovadas
+      FROM medicoes
+      WHERE contrato_id = $1
+        AND COALESCE(tipo,'Normal') IN ('Normal', 'Avanco_Fisico')
+        AND status IN ('Aprovado', 'Em Assinatura', 'Concluído')
+    `, [contratoId]);
+    const pct = Math.min(100, Math.max(0, parseFloat(pctRes.rows[0]?.pct_acumulado) || 0));
+    console.log(`[LBM Sync] contrato=${contratoId} obra=${obraId} — pct_acumulado=${pct}% (${pctRes.rows[0]?.total_aprovadas} medições aprovadas)`);
+    if (pct === 0) {
+      console.warn(`[LBM Sync] pct=0: medição pode ser Adiantamento ou ainda não aprovada. Abortando sync.`);
+      return;
+    }
+
+    // 2. Serviços LBM desta obra vinculados a este contrato (via junction table)
+    const servRes = await db.query(
+      `SELECT DISTINCT sc.servico_id AS id
+       FROM lbm_servico_contratos sc
+       JOIN lbm_servicos s ON s.id = sc.servico_id
+       WHERE s.obra_id=$1 AND sc.contrato_id=$2`,
+      [obraId, contratoId]
+    );
+    if (!servRes.rows.length) return; // sem serviços vinculados → nada a fazer
+
+    // 3. Locais da obra ordenados (plana, pela hierarquia depth-first)
+    const locaisRes = await db.query(`
+      WITH RECURSIVE hier AS (
+        SELECT id, parent_id, nome, ordem, 0 AS nivel,
+               LPAD(ordem::text, 5, '0') AS sort_path
+        FROM lbm_locais WHERE obra_id=$1 AND parent_id IS NULL
+        UNION ALL
+        SELECT l.id, l.parent_id, l.nome, l.ordem, h.nivel+1,
+               h.sort_path || '.' || LPAD(l.ordem::text, 5, '0')
+        FROM lbm_locais l JOIN hier h ON l.parent_id=h.id
+      )
+      SELECT id FROM hier ORDER BY sort_path
+    `, [obraId]);
+    const locais = locaisRes.rows;
+    const total  = locais.length;
+    if (!total) return;
+
+    const hoje = new Date().toISOString().slice(0, 10);
+
+    // 4. DELETE + INSERT por serviço com pct calculado pela média dos contratos do serviço
+    for (const serv of servRes.rows) {
+      // Busca todos os contratos do serviço para calcular pct médio
+      const allCRes = await db.query(
+        'SELECT contrato_id FROM lbm_servico_contratos WHERE servico_id=$1', [serv.id]
+      );
+      const allContratoIds = allCRes.rows.map(r => r.contrato_id);
+      const pctRows = await db.query(`
+        SELECT COALESCE(MAX(pct_total), 0) AS pct_acumulado
+        FROM medicoes
+        WHERE contrato_id = ANY($1)
+          AND COALESCE(tipo,'Normal') IN ('Normal','Avanco_Fisico')
+          AND status IN ('Aprovado','Em Assinatura','Concluído')
+        GROUP BY contrato_id
+      `, [allContratoIds]);
+      const pctServ = pctRows.rows.length
+        ? Math.min(100, pctRows.rows.reduce((a, r) => a + parseFloat(r.pct_acumulado), 0) / pctRows.rows.length)
+        : pct; // fallback para o pct do contrato atual se só tem 1
+
+      const nConcluidos = Math.floor((pctServ / 100) * total);
+      await db.query(`DELETE FROM lbm_progresso WHERE servico_id=$1`, [serv.id]);
+      for (let i = 0; i < total; i++) {
+        const localId = locais[i].id;
+        let status, iniReal, fimReal;
+
+        if (i < nConcluidos) {
+          status  = 'concluido';
+          fimReal = hoje;
+        } else if (i === nConcluidos && pctServ < 100) {
+          status  = 'em_andamento';
+          iniReal = hoje;
+        } else {
+          status  = 'nao_iniciado';
+        }
+
+        await db.query(`
+          INSERT INTO lbm_progresso
+            (servico_id, local_id, status, data_inicio_real, data_fim_real, medicao_id, atualizado_em)
+          VALUES ($1,$2,$3,$4,$5,$6,NOW())
+        `, [serv.id, localId, status, iniReal||null, fimReal||null, medicaoId]);
+      }
+    }
+    console.log(`[LBM Sync] medicao=${medicaoId} contrato=${contratoId} obra=${obraId} pct=${pct}% → ${nConcluidos}/${total} locais concluídos`);
+  } catch (e) {
+    // Não deixa falhar a aprovação por erro na sincronização LBM
+    console.error('[LBM Sync] Erro (não crítico):', e.message);
+  }
+}
 
 // ── Helper: valida saldo e salva itens de medição ─────────────────
 // tipo: 'Normal' | 'Adiantamento' | 'Avanco_Fisico'
@@ -564,6 +671,13 @@ router.post('/:id/aprovar', auth, async (req, res) => {
   await audit(req, 'aprovar', 'medicao', id,
     `Medição "${med.codigo}" aprovada nível ${nivel} — novo status: ${novoStatus}`,
     { nivel, comentario: comentario || null });
+
+  // Sincroniza progresso LBM quando atinge aprovação final (sem bloqueio da resposta)
+  const isFinalAprov = novoStatus === 'Aprovado' || novoStatus === 'Em Assinatura';
+  if (isFinalAprov && med.contrato_id && med.obra_id) {
+    _syncLBMFromMedicao(id, med.contrato_id, med.obra_id);   // fire-and-forget intencional
+  }
+
   res.json({ ok: true, novoStatus });
 });
 
@@ -595,19 +709,25 @@ router.post('/:id/reprovar', auth, async (req, res) => {
 router.post('/:id/enviar-assinatura', auth, perm('enviarAssinatura'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { email_fornecedor, tel_fornecedor, email_remetente, canais = ['email'] } = req.body;
+    const {
+      email_fornecedor, tel_fornecedor, email_remetente, canais = ['email'],
+      cpf_fornecedor, data_nasc_fornecedor,   // dados do representante do fornecedor
+      cpf_remetente,  data_nasc_remetente,    // dados do remetente (usuário logado)
+    } = req.body;
     const viaEmail    = canais.includes('email');
     const viaWhatsapp = canais.includes('whatsapp');
     if (!viaEmail && !viaWhatsapp)
       return res.status(400).json({ error: 'Selecione ao menos um canal de envio (email ou whatsapp)' });
     // E-mail sempre obrigatório — ClickSign usa como identificador único do signatário
-    if (!email_fornecedor) return res.status(400).json({ error: 'E-mail do fornecedor é obrigatório (o ClickSign exige e-mail como identificador do signatário)' });
+    if (!email_fornecedor) return res.status(400).json({ error: 'E-mail do fornecedor é obrigatório para identificar o signatário no provedor de assinatura.' });
     if (viaWhatsapp && !tel_fornecedor) return res.status(400).json({ error: 'Telefone do fornecedor é obrigatório para envio por WhatsApp' });
 
     // ── Busca dados da medição ───────────────────────────────────
     const r = await db.query(`
       SELECT m.*, e.razao_social AS empresa_nome, o.nome AS obra_nome,
              f.razao_social AS fornecedor_nome, f.representante AS fornecedor_rep,
+             f.cpf_representante AS fornecedor_cpf,
+             f.data_nasc_representante AS fornecedor_data_nasc,
              c.numero AS contrato_numero
       FROM medicoes m
       LEFT JOIN empresas     e ON e.id = m.empresa_id
@@ -765,7 +885,7 @@ router.post('/:id/enviar-assinatura', auth, perm('enviarAssinatura'), async (req
         const baseUrl  = cfgAssin.ambiente === 'producao'
           ? 'https://app.clicksign.com'
           : 'https://sandbox.clicksign.com';
-        const docPath  = `/HAMOA/medicao-${med.codigo}-${Date.now()}.pdf`;
+        const docPath  = `/CONSTRUTIVO/medicao-${med.codigo}-${Date.now()}.pdf`;
         const pdfB64   = pdfBuffer.toString('base64');
 
         // Define auths conforme canal selecionado
@@ -779,13 +899,18 @@ router.post('/:id/enviar-assinatura', auth, perm('enviarAssinatura'), async (req
             pdfBase64:    pdfB64,
             docPath,
             // Signatário 1 — fornecedor (quem deve assinar)
-            signerEmail:  email_fornecedor || undefined,
-            signerPhone:  tel_fornecedor   || undefined,
-            signerName:   med.fornecedor_rep || med.fornecedor_nome || 'Representante',
+            signerEmail:    email_fornecedor || undefined,
+            signerPhone:    tel_fornecedor   || undefined,
+            signerName:     med.fornecedor_rep || med.fornecedor_nome || 'Representante',
             auths,
+            // CPF e data de nascimento do fornecedor (do cadastro ou informado no modal)
+            signerCpf:      cpf_fornecedor      || med.fornecedor_cpf      || undefined,
+            signerBirthday: data_nasc_fornecedor|| (med.fornecedor_data_nasc ? med.fornecedor_data_nasc.toISOString?.().slice(0,10) : undefined) || undefined,
             // Signatário 2 — remetente/empresa (recebe cópia da notificação)
-            signerEmail2: email_remetente  || undefined,
-            signerName2:  req.user.nome    || 'Responsável Empresa',
+            signerEmail2:    email_remetente  || undefined,
+            signerName2:     req.user.nome    || 'Responsável Empresa',
+            signerCpf2:      cpf_remetente    || undefined,
+            signerBirthday2: data_nasc_remetente || undefined,
             message:      `Prezado(a), por favor assine a Autorização de Emissão de Nota Fiscal referente à medição ${med.codigo} da obra ${med.obra_nome}. Valor: R$ ${fmt(med.valor_medicao)}.`,
           }
         );
@@ -799,6 +924,98 @@ router.post('/:id/enviar-assinatura', auth, perm('enviarAssinatura'), async (req
         console.error('[ClickSign] ERRO COMPLETO:', csErr.message);
         console.error('[ClickSign] Stack:', csErr.stack);
         return res.status(502).json({ error: 'Falha ao enviar para ClickSign: ' + csErr.message });
+      }
+    }
+
+    // ── Integração D4Sign (se configurado) ─────────────────────
+    let d4signDocUuid = null;
+    if (cfgAssin.provedor === 'D4Sign' && cfgAssin.d4ApiKey) {
+      try {
+        const PDFDocument = require('pdfkit');
+        const d4sign      = require('../helpers/d4sign');
+
+        // Gera PDF em memória (mesmo layout do ClickSign)
+        const pdfBuffer = await new Promise((resolve, reject) => {
+          const doc  = new PDFDocument({ margin: 50, size: 'A4', info: { Title: `Autorização NF — ${med.codigo}` } });
+          const bufs = [];
+          doc.on('data', c => bufs.push(c));
+          doc.on('end',  () => resolve(Buffer.concat(bufs)));
+          doc.on('error', reject);
+
+          doc.font('Helvetica-Bold').fontSize(13).text('AUTORIZAÇÃO DE EMISSÃO DE NOTA FISCAL', { align: 'center' });
+          doc.moveDown(0.3);
+          doc.font('Helvetica').fontSize(9).text('='.repeat(80), { align: 'center' });
+          doc.moveDown(0.8);
+
+          const campos = [
+            ['Empresa',        med.empresa_nome    || '—'],
+            ['Obra',           med.obra_nome        || '—'],
+            ['Fornecedor',     med.fornecedor_nome  || '—'],
+            ['Contrato',       med.contrato_numero  || '—'],
+            ['Código Medição', med.codigo],
+            ['Período',        periodoLabel(med.periodo)],
+          ];
+          doc.font('Helvetica').fontSize(10);
+          campos.forEach(([k, v]) => {
+            doc.font('Helvetica-Bold').text(`${k}: `, { continued: true });
+            doc.font('Helvetica').text(v);
+          });
+
+          if (itens.length) {
+            doc.moveDown(0.8);
+            doc.font('Helvetica-Bold').fontSize(10).text('ITENS MEDIDOS NESTE PERÍODO');
+            doc.font('Helvetica').fontSize(9).text('-'.repeat(80));
+            itens.forEach((it, i) => {
+              doc.moveDown(0.3);
+              doc.font('Helvetica-Bold').text(`${i+1}. ${it.descricao}`, { indent: 10 });
+              doc.font('Helvetica').text(
+                `Unidade: ${it.unidade}  |  Qtd Mês: ${fmtQtd(it.qtd_mes, it.unidade)}  |  Acumulado: ${fmtQtd(it.qtd_acumulada, it.unidade)}  |  Valor Item: R$ ${fmt(it.valor_item)}`,
+                { indent: 20 }
+              );
+            });
+          }
+
+          doc.moveDown(0.8);
+          doc.font('Helvetica-Bold').fontSize(11).text(`Valor desta medição: R$ ${fmt(med.valor_medicao)}`);
+          doc.font('Helvetica').fontSize(10).text(`Valor acumulado    : R$ ${fmt(med.valor_acumulado)}`);
+          doc.moveDown(0.5);
+          if (med.descricao) {
+            doc.font('Helvetica-Bold').text('Observações:');
+            doc.font('Helvetica').text(med.descricao);
+            doc.moveDown(0.5);
+          }
+          doc.font('Helvetica').fontSize(9).text('='.repeat(80));
+          doc.font('Helvetica-Bold').fontSize(9).text('IMPORTANTE: ', { continued: true });
+          doc.font('Helvetica').text(
+            `A Nota Fiscal deverá ser emitida no valor de R$ ${fmt(med.valor_medicao)} ` +
+            `e incluir obrigatoriamente o código ${med.codigo} no campo "Observações / Dados Adicionais" da NF.`
+          );
+          doc.moveDown(1);
+          doc.font('Helvetica').fontSize(9)
+            .text(`Autorizado por: ${req.user.nome}   |   Data: ${new Date().toLocaleDateString('pt-BR')}`, { align: 'right' });
+          doc.end();
+        });
+
+        const filename = `medicao-${med.codigo}-${Date.now()}.pdf`;
+        const result   = await d4sign.enviarParaAssinatura(cfgAssin, {
+          pdfBuffer,
+          filename,
+          signerEmail:      email_fornecedor,
+          signerName:       med.fornecedor_rep || med.fornecedor_nome || 'Representante',
+          signerWhatsapp:   tel_fornecedor     || undefined,
+          signerEmail2:     email_remetente    || undefined,
+          signerName2:      req.user.nome      || 'Responsável Empresa',
+          message: `Prezado(a), por favor assine a Autorização de Emissão de Nota Fiscal referente à medição ${med.codigo} da obra ${med.obra_nome}. Valor: R$ ${fmt(med.valor_medicao)}.`,
+        });
+
+        d4signDocUuid = result.docUuid;
+        novoStatus    = 'Em Assinatura';
+        console.log(`[enviar-assinatura] D4Sign | doc=${d4signDocUuid} | forn=${email_fornecedor} | rem=${email_remetente||'—'}`);
+
+      } catch (d4Err) {
+        console.error('[D4Sign] ERRO COMPLETO:', d4Err.message);
+        console.error('[D4Sign] Stack:', d4Err.stack);
+        return res.status(502).json({ error: 'Falha ao enviar para D4Sign: ' + d4Err.message });
       }
     }
 
@@ -816,7 +1033,8 @@ router.post('/:id/enviar-assinatura', auth, perm('enviarAssinatura'), async (req
        ` — Fornecedor: ${email_fornecedor}` +
        (tel_fornecedor ? ` / WhatsApp: ${tel_fornecedor}` : '') +
        (email_remetente ? ` — Cópia/Remetente: ${email_remetente}` : '') +
-       (clicksignKey ? ` | ClickSign doc: ${clicksignKey}` : '')]
+       (clicksignKey    ? ` | ClickSign doc: ${clicksignKey}` : '') +
+       (d4signDocUuid   ? ` | D4Sign doc: ${d4signDocUuid}` : '')]
     );
 
     await audit(req, 'enviar_assinatura', 'medicao', id,

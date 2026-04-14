@@ -23,7 +23,7 @@ const Alcadas = {
       <div class="hint">Pressione Enter para adicionar grupo</div>`;
     return `
     <div class="fgrid">
-      <div class="fg cs2"><label class="fl">Nome da Configuração *</label><input class="fi" id="alc-nome" value="${a?.nome||''}" placeholder="Ex: Padrão HAMOA Ltda"></div>
+      <div class="fg cs2"><label class="fl">Nome da Configuração *</label><input class="fi" id="alc-nome" value="${a?.nome||''}" placeholder="Ex: Padrão Construtivo Ltda"></div>
       <div class="fg"><label class="fl">Empresa *</label>
         <select class="fi fsel" id="alc-empresa" onchange="Alcadas._loadObras()">
           <option value="">Selecione...</option>${emps.map(e=>`<option value="${e.id}" ${a?.empresa_id===e.id?'selected':''}>${e.nome_fantasia||e.razao_social}</option>`).join('')}
@@ -126,7 +126,7 @@ const Configs = {
     </div></div>
     <div class="fsec"><div class="fsec-title">CONTA DE SERVIÇO</div>
     <div class="fgrid">
-      <div class="fg"><label class="fl">Usuário de Serviço *</label><input class="fi" id="cfg-ldap-svcuser" value="${c.usuarioServico||''}" placeholder="svc-hamoa@empresa.local"></div>
+      <div class="fg"><label class="fl">Usuário de Serviço *</label><input class="fi" id="cfg-ldap-svcuser" value="${c.usuarioServico||''}" placeholder="svc-construtivo@empresa.local"></div>
       <div class="fg"><label class="fl">Senha do Serviço</label><input class="fi" type="password" id="cfg-ldap-svcpass" value="" placeholder="••••••••"></div>
     </div></div>
     <div class="fsec"><div class="fsec-title">MAPEAMENTO DE ATRIBUTOS</div>
@@ -236,7 +236,7 @@ const Configs = {
         </div>
         <div class="fg cs2">
           <label class="fl">Pasta dos documentos no ClickSign</label>
-          <input class="fi" id="cfg-assin-pasta" value="${H.esc(c.pasta||'/HAMOA/')}" placeholder="/HAMOA/">
+          <input class="fi" id="cfg-assin-pasta" value="${H.esc(c.pasta||'/CONSTRUTIVO/')}" placeholder="/CONSTRUTIVO/">
           <div class="hint">Pasta onde os documentos serão organizados na sua conta ClickSign</div>
         </div>
       </div></div>
@@ -322,7 +322,7 @@ const Configs = {
       if (!token) { UI.toast('Informe o Access Token do ClickSign','error'); return; }
       data.accessToken = token;
       data.ambiente    = document.querySelector('input[name="cfg-assin-amb"]:checked')?.value || 'sandbox';
-      data.pasta       = H.el('cfg-assin-pasta')?.value.trim() || '/HAMOA/';
+      data.pasta       = H.el('cfg-assin-pasta')?.value.trim() || '/CONSTRUTIVO/';
     } else if (prov === 'D4Sign') {
       data.d4Token   = H.el('cfg-assin-d4token')?.value.trim();
       data.d4ApiKey  = H.el('cfg-assin-d4apikey')?.value.trim();
@@ -493,7 +493,7 @@ const Configs = {
     <div style="margin-bottom:18px"><div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">PARÂMETROS GERAIS</div></div>
     <div class="fsec"><div class="fsec-title">IDENTIFICAÇÃO</div>
     <div class="fgrid">
-      <div class="fg"><label class="fl">Nome da Empresa/Sistema</label><input class="fi" id="cfg-g-nome" value="${c.nomeEmpresa||'JMD Hamoa Urbanismo'}"></div>
+      <div class="fg"><label class="fl">Nome da Empresa/Sistema</label><input class="fi" id="cfg-g-nome" value="${c.nomeEmpresa||'Construtivo'}"></div>
       <div class="fg"><label class="fl">Máscara do Código de Medição</label><input class="fi" id="cfg-g-mascara" value="${c.codigoMedicaoMascara||'MED-{AAMM}-{SEQ}'}"></div>
     </div></div>
     <div class="fsec"><div class="fsec-title">REGRAS DE NEGÓCIO</div>
@@ -528,7 +528,7 @@ const Configs = {
       const blob = new Blob([JSON.stringify(meds,null,2)],{type:'application/json'});
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href=url; a.download=`hamoa-medicoes-${new Date().toISOString().slice(0,10)}.json`;
+      a.href=url; a.download=`construtivo-medicoes-${new Date().toISOString().slice(0,10)}.json`;
       a.click(); URL.revokeObjectURL(url);
       UI.toast('Exportado com sucesso','success');
     } catch(e){UI.toast('Erro: '+e.message,'error');}

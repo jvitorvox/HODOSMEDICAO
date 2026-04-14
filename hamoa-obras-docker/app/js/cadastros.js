@@ -19,11 +19,23 @@ const Cadastros = {
   },
   async deleteEmpresa(id) { if(!confirm('Excluir empresa?'))return; try { await API.deleteEmpresa(id); UI.toast('Empresa excluída'); await Pages._cadEmpresas(); } catch(e){UI.toast('Erro: '+e.message,'error');} },
 
+  _onMetodologiaChange() {
+    const val = document.querySelector('input[name="obra-metodologia"]:checked')?.value || 'gantt';
+    const ganttCard = H.el('obra-met-gantt-card');
+    const lbmCard   = H.el('obra-met-lbm-card');
+    if (ganttCard) ganttCard.style.borderColor = val === 'gantt' ? 'var(--accent)' : 'var(--border)';
+    if (ganttCard) ganttCard.style.background  = val === 'gantt' ? 'var(--accent3)' : 'var(--surface2)';
+    if (lbmCard)   lbmCard.style.borderColor   = val === 'lbm'   ? 'var(--green)'  : 'var(--border)';
+    if (lbmCard)   lbmCard.style.background    = val === 'lbm'   ? 'rgba(34,197,94,.08)' : 'var(--surface2)';
+  },
   async newObra() {
     State.editingId=null;
     const emps=await API.empresas(); State.cache.empresas=emps;
     H.el('obra-empresa').innerHTML='<option value="">Selecione...</option>'+emps.map(e=>`<option value="${e.id}">${e.nome_fantasia||e.razao_social}</option>`).join('');
     ['obra-codigo','obra-nome','obra-local','obra-gestor'].forEach(id=>H.el(id).value='');
+    // Reset metodologia para gantt
+    const radGantt = document.querySelector('input[name="obra-metodologia"][value="gantt"]');
+    if (radGantt) { radGantt.checked = true; this._onMetodologiaChange(); }
     H.el('obra-status').value='Em andamento'; H.el('obra-title').textContent='🏗 NOVA OBRA'; UI.openModal('modal-obra');
   },
   async editObra(id) {
@@ -33,13 +45,19 @@ const Cadastros = {
     H.el('obra-empresa').innerHTML='<option value="">Selecione...</option>'+emps.map(e=>`<option value="${e.id}" ${e.id===o.empresa_id?'selected':''}>${e.nome_fantasia||e.razao_social}</option>`).join('');
     H.el('obra-codigo').value=o.codigo||''; H.el('obra-nome').value=o.nome||'';
     H.el('obra-local').value=o.localizacao||''; H.el('obra-gestor').value=o.gestor||'';
-    H.el('obra-status').value=o.status||'Em andamento'; H.el('obra-title').textContent='✏ EDITAR OBRA'; UI.openModal('modal-obra');
+    H.el('obra-status').value=o.status||'Em andamento';
+    // Metodologia
+    const met = o.metodologia || 'gantt';
+    const radMet = document.querySelector(`input[name="obra-metodologia"][value="${met}"]`);
+    if (radMet) { radMet.checked = true; this._onMetodologiaChange(); }
+    H.el('obra-title').textContent='✏ EDITAR OBRA'; UI.openModal('modal-obra');
   },
   async saveObra() {
     const empresa_id=parseInt(H.el('obra-empresa').value); const codigo=H.el('obra-codigo').value.trim();
     const nome=H.el('obra-nome').value.trim();
     if(!empresa_id||!codigo||!nome){UI.toast('Empresa, código e nome são obrigatórios','error');return;}
-    const data={empresa_id,codigo,nome,localizacao:H.el('obra-local').value.trim(),gestor:H.el('obra-gestor').value.trim(),status:H.el('obra-status').value};
+    const metodologia = document.querySelector('input[name="obra-metodologia"]:checked')?.value || 'gantt';
+    const data={empresa_id,codigo,nome,localizacao:H.el('obra-local').value.trim(),gestor:H.el('obra-gestor').value.trim(),status:H.el('obra-status').value,metodologia};
     try {
       if(State.editingId) await API.updateObra(State.editingId, data);
       else await API.createObra(data);
@@ -50,7 +68,7 @@ const Cadastros = {
 
   async newFornecedor() {
     State.editingId=null;
-    ['forn-razao','forn-fantasia','forn-cnpj','forn-tel','forn-email','forn-emailnf','forn-emailassin','forn-endereco','forn-representante','forn-cargo'].forEach(id=>{ const el=H.el(id); if(el) el.value=''; });
+    ['forn-razao','forn-fantasia','forn-cnpj','forn-tel','forn-email','forn-emailnf','forn-emailassin','forn-endereco','forn-representante','forn-cargo','forn-cpf-rep'].forEach(id=>{ const el=H.el(id); if(el) el.value=''; });
     H.el('forn-ativo').value='1';
     H.el('forn-title').textContent='🤝 NOVO FORNECEDOR';
     // Limpa painel IA
@@ -72,6 +90,7 @@ const Cadastros = {
     H.el('forn-representante').value=f.representante||'';
     H.el('forn-cargo').value=f.cargo_representante||'';
     H.el('forn-ativo').value=f.ativo?'1':'0';
+    const cpfRepEl=H.el('forn-cpf-rep'); if(cpfRepEl) cpfRepEl.value=f.cpf_representante||'';
     H.el('forn-title').textContent='✏ EDITAR FORNECEDOR';
     const s=H.el('forn-ia-status'); if(s){s.style.display='none'; s.innerHTML='';}
     UI.openModal('modal-fornecedor');
@@ -89,9 +108,10 @@ const Cadastros = {
       email_nf:            H.el('forn-emailnf').value.trim(),
       email_assin:         H.el('forn-emailassin').value.trim(),
       endereco:            H.el('forn-endereco').value.trim(),
-      representante:       H.el('forn-representante').value.trim(),
-      cargo_representante: H.el('forn-cargo').value.trim(),
-      ativo:               parseInt(H.el('forn-ativo').value)===1,
+      representante:          H.el('forn-representante').value.trim(),
+      cargo_representante:    H.el('forn-cargo').value.trim(),
+      cpf_representante:      H.el('forn-cpf-rep')?.value.trim()  || '',
+      ativo:                  parseInt(H.el('forn-ativo').value)===1,
     };
     try {
       if(State.editingId) await API.updateFornecedor(State.editingId, data);
@@ -571,6 +591,187 @@ const Cadastros = {
     document.getElementById('cont-ia-status').innerHTML += `<div style="font-size:11px;color:var(--green);margin-top:6px">✅ ${itens.length} itens aplicados à planilha. Revise antes de salvar.</div>`;
     document.getElementById('cont-itens-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     UI.toast(`${itens.length} itens importados pela IA`, 'success');
+  },
+
+  // ══════════════════════════════════════
+  // IMPORTAÇÃO EM MASSA (CSV)
+  // ══════════════════════════════════════
+  _bulkEntity: null, // 'empresas' | 'obras' | 'fornecedores'
+  _bulkRows:   [],
+
+  _bulkConfig: {
+    empresas: {
+      title: '📥 IMPORTAR EMPRESAS EM MASSA',
+      endpoint: '/api/empresas/bulk',
+      desc: 'Cada linha representa uma empresa. Campos obrigatórios: <strong>razao_social</strong> e <strong>cnpj</strong>.',
+      cols: [
+        { key: 'razao_social',  label: 'razao_social',  req: true,  ex: 'CONSTRUTORA EXEMPLO LTDA' },
+        { key: 'nome_fantasia', label: 'nome_fantasia', req: false, ex: 'CONSTRUTORA EXEMPLO' },
+        { key: 'cnpj',         label: 'cnpj',          req: true,  ex: '00.000.000/0001-00' },
+      ],
+    },
+    obras: {
+      title: '📥 IMPORTAR OBRAS EM MASSA',
+      endpoint: '/api/obras/bulk',
+      desc: 'Cada linha representa uma obra. Use o CNPJ da empresa já cadastrada. Campos obrigatórios: <strong>empresa_cnpj</strong>, <strong>codigo</strong> e <strong>nome</strong>.',
+      cols: [
+        { key: 'empresa_cnpj', label: 'empresa_cnpj', req: true,  ex: '00.000.000/0001-00' },
+        { key: 'codigo',       label: 'codigo',       req: true,  ex: 'OBR-001' },
+        { key: 'nome',         label: 'nome',         req: true,  ex: 'Edifício Residencial Alpha' },
+        { key: 'localizacao',  label: 'localizacao',  req: false, ex: 'São Paulo, SP' },
+        { key: 'gestor',       label: 'gestor',       req: false, ex: 'João Silva' },
+        { key: 'status',       label: 'status',       req: false, ex: 'Em andamento' },
+      ],
+    },
+    fornecedores: {
+      title: '📥 IMPORTAR FORNECEDORES EM MASSA',
+      endpoint: '/api/fornecedores/bulk',
+      desc: 'Cada linha representa um fornecedor. Campos obrigatórios: <strong>razao_social</strong> e <strong>cnpj</strong>.',
+      cols: [
+        { key: 'razao_social',       label: 'razao_social',       req: true,  ex: 'FURA SOLO SERVIÇOS LTDA' },
+        { key: 'nome_fantasia',      label: 'nome_fantasia',      req: false, ex: 'FURA SOLO' },
+        { key: 'cnpj',               label: 'cnpj',               req: true,  ex: '00.000.000/0001-00' },
+        { key: 'tel',                label: 'tel',                req: false, ex: '(65) 99999-0000' },
+        { key: 'email',              label: 'email',              req: false, ex: 'contato@furasolo.com.br' },
+        { key: 'email_nf',           label: 'email_nf',           req: false, ex: 'nf@furasolo.com.br' },
+        { key: 'email_assin',        label: 'email_assin',        req: false, ex: 'assinatura@furasolo.com.br' },
+        { key: 'endereco',           label: 'endereco',           req: false, ex: 'Rua das Pedras, 100, Sorriso, MT' },
+        { key: 'representante',      label: 'representante',      req: false, ex: 'João da Silva' },
+        { key: 'cargo_representante',label: 'cargo_representante',req: false, ex: 'Administrador' },
+        { key: 'cpf_representante',  label: 'cpf_representante',  req: false, ex: '000.000.000-00' },
+      ],
+    },
+  },
+
+  openBulkImport(entity) {
+    this._bulkEntity = entity;
+    this._bulkRows   = [];
+    const cfg = this._bulkConfig[entity];
+    H.el('bulk-title').textContent = cfg.title;
+    H.el('bulk-layout-desc').innerHTML = cfg.desc;
+    H.el('bulk-filename').textContent = 'Nenhum arquivo selecionado';
+    H.el('bulk-import-btn').disabled = true;
+    H.el('bulk-preview-wrap').style.display = 'none';
+    H.el('bulk-result-wrap').style.display = 'none';
+    const fileEl = H.el('bulk-file'); if (fileEl) fileEl.value = '';
+
+    // Monta tabela de layout
+    const thead = H.el('bulk-layout-thead');
+    const tbody = H.el('bulk-layout-tbody');
+    thead.innerHTML = `<tr>
+      <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">Coluna</th>
+      <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">Obrig.?</th>
+      <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">Exemplo</th>
+    </tr>`;
+    tbody.innerHTML = cfg.cols.map(c => `<tr>
+      <td style="padding:4px 8px;font-family:var(--font-m,monospace);color:var(--accent)">${c.label}</td>
+      <td style="padding:4px 8px;color:${c.req ? 'var(--green)' : 'var(--text3)'}; font-weight:${c.req ? '700' : '400'}">${c.req ? 'Sim' : 'Não'}</td>
+      <td style="padding:4px 8px;color:var(--text2)">${c.ex}</td>
+    </tr>`).join('');
+
+    UI.openModal('modal-bulk-import');
+  },
+
+  bulkDownloadTemplate() {
+    const cfg = this._bulkConfig[this._bulkEntity];
+    if (!cfg) return;
+    const header = cfg.cols.map(c => c.label).join(';');
+    const example = cfg.cols.map(c => c.ex).join(';');
+    const blob = new Blob(['\uFEFF' + header + '\n' + example + '\n'], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `modelo_${this._bulkEntity}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  bulkOnFileChange(input) {
+    const file = input.files?.[0];
+    if (!file) return;
+    H.el('bulk-filename').textContent = file.name;
+    H.el('bulk-result-wrap').style.display = 'none';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const lines = text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(l => l.trim());
+        if (lines.length < 2) { UI.toast('Arquivo sem dados (mínimo 1 linha de cabeçalho + 1 de dados)', 'error'); return; }
+        const cfg = this._bulkConfig[this._bulkEntity];
+        const sep = lines[0].includes(';') ? ';' : ',';
+        const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g,''));
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const vals = lines[i].split(sep).map(v => v.trim().replace(/^"|"$/g,''));
+          const obj = {};
+          headers.forEach((h, idx) => { obj[h] = vals[idx] || ''; });
+          // Mapeia apenas colunas conhecidas
+          const mapped = {};
+          cfg.cols.forEach(c => { mapped[c.key] = obj[c.key] || obj[c.label] || ''; });
+          rows.push(mapped);
+        }
+        this._bulkRows = rows;
+        // Preview
+        const previewCols = cfg.cols.slice(0, 5); // até 5 colunas no preview
+        const thead = H.el('bulk-preview-thead');
+        const tbody = H.el('bulk-preview-tbody');
+        thead.innerHTML = '<tr>' + previewCols.map(c => `<th style="padding:4px 8px;text-align:left;white-space:nowrap">${c.label}</th>`).join('') + (cfg.cols.length > 5 ? '<th style="padding:4px 8px;color:var(--text3)">…</th>' : '') + '</tr>';
+        tbody.innerHTML = rows.slice(0, 10).map(r =>
+          '<tr>' + previewCols.map(c => `<td style="padding:3px 8px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${H.esc(r[c.key] || '')}</td>`).join('') + (cfg.cols.length > 5 ? '<td></td>' : '') + '</tr>'
+        ).join('');
+        H.el('bulk-preview-count').textContent = `— ${rows.length} registro(s)` + (rows.length > 10 ? ' (mostrando 10)' : '');
+        H.el('bulk-preview-wrap').style.display = '';
+        H.el('bulk-import-btn').disabled = false;
+      } catch(err) {
+        UI.toast('Erro ao ler arquivo: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  },
+
+  async bulkImport() {
+    if (!this._bulkRows.length) return;
+    const cfg = this._bulkConfig[this._bulkEntity];
+    const btn = H.el('bulk-import-btn');
+    btn.disabled = true; btn.textContent = '⏳ Importando…';
+    H.el('bulk-result-wrap').style.display = 'none';
+    try {
+      const res = await fetch(cfg.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + State.token },
+        body: JSON.stringify(this._bulkRows),
+      });
+      const data = await res.json();
+      const wrap = H.el('bulk-result-wrap');
+      const sumEl = H.el('bulk-result-summary');
+      const errEl = H.el('bulk-result-errors');
+      wrap.style.display = '';
+      if (data.erros === 0) {
+        wrap.style.background = 'rgba(34,197,94,.1)';
+        sumEl.style.color = 'var(--green)';
+        sumEl.textContent = `✅ ${data.importados} de ${data.total} registro(s) importados com sucesso!`;
+        errEl.innerHTML = '';
+      } else {
+        wrap.style.background = data.importados > 0 ? 'rgba(245,158,11,.1)' : 'rgba(239,68,68,.1)';
+        sumEl.style.color = data.importados > 0 ? 'var(--orange,#f59e0b)' : 'var(--red,#ef4444)';
+        sumEl.textContent = `⚠️ ${data.importados} importados · ${data.erros} com erro`;
+        errEl.innerHTML = data.resultados.filter(r => r.status === 'erro').map(r =>
+          `<div style="padding:3px 0;color:var(--text2)">Linha ${r.linha}: <b>${H.esc(r.razao_social || r.codigo || '')}</b> — ${H.esc(r.motivo)}</div>`
+        ).join('');
+      }
+      if (data.importados > 0) {
+        UI.toast(`${data.importados} registro(s) importado(s)!`, 'success');
+        // Recarrega lista correspondente
+        if (this._bulkEntity === 'empresas')     await Pages._cadEmpresas();
+        if (this._bulkEntity === 'obras')        await Pages._cadObras();
+        if (this._bulkEntity === 'fornecedores') await Pages._cadFornecedores();
+        this._bulkRows = [];
+        H.el('bulk-import-btn').disabled = true;
+      }
+    } catch(e) {
+      UI.toast('Erro na importação: ' + e.message, 'error');
+    } finally {
+      btn.textContent = '⬆ Importar';
+      if (!this._bulkRows.length) btn.disabled = true;
+    }
   },
 };
 

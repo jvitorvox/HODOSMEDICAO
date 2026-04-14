@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Helper de Armazenamento de Evidências
+ * CONSTRUTIVO OBRAS — Helper de Armazenamento de Evidências
  * Suporta: local | AWS S3 | Google Drive (Service Account)
  *
  * O provider ativo é lido da tabela configuracoes (chave: 'storage').
@@ -89,12 +89,13 @@ async function _uploadS3(s3cfg, localPath, originalName, mimeType) {
 
   await client.send(cmd);
 
-  // URL de acesso: base configurada, ou URL padrão do S3
-  const url_storage = s3cfg.url_base
-    ? `${s3cfg.url_base.replace(/\/$/, '')}/${key}`
-    : s3cfg.acl_publico
-      ? `https://${s3cfg.bucket}.s3.${s3cfg.region || 'sa-east-1'}.amazonaws.com/${key}`
-      : null; // bucket privado — URL assinada gerada on-demand
+  // URL de acesso: só guarda URL fixa se bucket for público (acl_publico=true)
+  // Bucket privado → url_storage=null → getViewUrl() gera URL assinada on-demand
+  const url_storage = s3cfg.acl_publico
+    ? (s3cfg.url_base
+        ? `${s3cfg.url_base.replace(/\/$/, '')}/${key}`
+        : `https://${s3cfg.bucket}.s3.${s3cfg.region || 'sa-east-1'}.amazonaws.com/${key}`)
+    : null;
 
   return { provider: 's3', caminho: key, url_storage };
 }
@@ -216,12 +217,86 @@ async function deleteFile(evidencia) {
 
 // ─── Testa conexão com S3 ──────────────────────────────────────────────────
 async function testS3(s3cfg) {
-  const { S3Client, HeadBucketCommand } = require('@aws-sdk/client-s3');
+  // Validação básica antes de chamar a AWS
+  if (!s3cfg.bucket)          throw new Error('Informe o nome do bucket.');
+  if (!s3cfg.accessKeyId)     throw new Error('Informe o Access Key ID.');
+  if (!s3cfg.secretAccessKey) throw new Error('Informe o Secret Access Key.');
+  if (!s3cfg.accessKeyId.startsWith('AKIA') && !s3cfg.accessKeyId.startsWith('ASIA'))
+    throw new Error(`Access Key ID inválido — deve começar com "AKIA" ou "ASIA". Valor recebido: "${s3cfg.accessKeyId.slice(0,8)}..."`);
+
+  let S3Client, HeadBucketCommand;
+  try {
+    ({ S3Client, HeadBucketCommand } = require('@aws-sdk/client-s3'));
+  } catch {
+    throw new Error('Pacote @aws-sdk/client-s3 não instalado. Reconstrua o container: docker compose up -d --build construtivo-api');
+  }
+
   const client = new S3Client({
     region:      s3cfg.region || 'sa-east-1',
     credentials: { accessKeyId: s3cfg.accessKeyId, secretAccessKey: s3cfg.secretAccessKey },
   });
-  await client.send(new HeadBucketCommand({ Bucket: s3cfg.bucket }));
+
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: s3cfg.bucket }));
+  } catch (err) {
+    // Log completo para depuração no servidor
+    console.error('[testS3] Erro bruto:', JSON.stringify({
+      name:        err.name,
+      message:     err.message,
+      Code:        err.Code,
+      code:        err.code,
+      statusCode:  err.$metadata?.httpStatusCode,
+      requestId:   err.$metadata?.requestId,
+      cfId:        err.$metadata?.cfId,
+    }, null, 2));
+
+    // HTTP status code é o método mais confiável no SDK v3
+    const httpStatus = err.$metadata?.httpStatusCode;
+    const errName    = err.name || '';
+    const errMsg     = err.message || '';
+    const errCode    = err.Code || err.code || '';
+
+    // Sem acesso à rede
+    if (errMsg.includes('ENOTFOUND') || errMsg.includes('getaddrinfo') || errMsg.includes('ECONNREFUSED'))
+      throw new Error('Sem acesso à internet ou DNS não resolve o endpoint da AWS. Verifique a conexão do servidor.');
+
+    // 301 — bucket em outra região
+    if (httpStatus === 301 || errName === 'PermanentRedirect' || errCode === 'PermanentRedirect')
+      throw new Error(`Bucket "${s3cfg.bucket}" está em outra região. Corrija o campo "Região" na configuração.`);
+
+    // 400 — credenciais inválidas / mal-formadas
+    if (httpStatus === 400 ||
+        errName === 'InvalidClientTokenId' || errCode === 'InvalidClientTokenId' ||
+        errName === 'AuthFailure'          || errCode === 'AuthFailure')
+      throw new Error('Access Key ID inválido ou não reconhecido pela AWS. Verifique a chave no IAM (deve começar com AKIA).');
+
+    // 403 — credencial certa mas sem permissão (ou Secret errada)
+    if (httpStatus === 403 ||
+        errName === 'Forbidden'            || errCode === 'Forbidden' ||
+        errName === 'SignatureDoesNotMatch'|| errCode === 'SignatureDoesNotMatch' ||
+        errName === 'InvalidAccessKeyId'   || errCode === 'InvalidAccessKeyId')
+      throw new Error(
+        `Acesso negado (403). Causas comuns:\n` +
+        `• Secret Access Key incorreta (verifique se não tem espaços)\n` +
+        `• Usuário IAM sem permissão s3:HeadBucket / s3:PutObject no bucket "${s3cfg.bucket}"\n` +
+        `• Bucket pertence a outra conta AWS`
+      );
+
+    // 404 — bucket não existe nessa região
+    if (httpStatus === 404 ||
+        errName === 'NoSuchBucket' || errCode === 'NoSuchBucket' ||
+        errName === 'NotFound'     || errCode === 'NotFound')
+      throw new Error(`Bucket "${s3cfg.bucket}" não encontrado na região "${s3cfg.region || 'sa-east-1'}". Verifique o nome e a região.`);
+
+    // Fallback com todos os detalhes disponíveis
+    const detail = [
+      httpStatus  ? `HTTP ${httpStatus}` : null,
+      errName     ? `name: ${errName}`   : null,
+      errCode     ? `code: ${errCode}`   : null,
+      errMsg      ? errMsg               : null,
+    ].filter(Boolean).join(' | ');
+    throw new Error(`Erro AWS: ${detail || 'sem detalhes — veja os logs do container com: docker compose logs construtivo-api'}`);
+  }
 }
 
 // ─── Parse e validação da Service Account Key ─────────────────────────────

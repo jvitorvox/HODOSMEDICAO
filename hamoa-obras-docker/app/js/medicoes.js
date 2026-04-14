@@ -126,15 +126,37 @@ const Medicoes = {
     </div>
     <div class="fsec">
       <div class="fsec-title">EVIDÊNCIAS (imagens, PDFs, vídeos)</div>
-      <input type="file" id="mf-file-input" multiple accept="image/*,.pdf,.mp4,.mov,.avi,.webm,.doc,.docx,.xls,.xlsx"
+      <!-- Inputs ocultos para cada modo de captura -->
+      <input type="file" id="mf-file-foto"  accept="image/*" capture="environment"
              style="display:none" onchange="Medicoes._onFileSelect(this)">
-      <div class="upz" onclick="document.getElementById('mf-file-input').click()"
-           ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
-           ondragleave="this.style.borderColor=''"
-           ondrop="event.preventDefault();this.style.borderColor='';Medicoes._onFileDrop(event.dataTransfer.files)">
-        <div class="upz-ico">📎</div>
-        <div class="upz-txt">Clique para selecionar ou arraste arquivos</div>
-        <div class="upz-sub">JPG, PNG, PDF, DOCX, MP4 · Máx. 50MB por arquivo · Os arquivos são enviados após salvar a medição</div>
+      <input type="file" id="mf-file-video" accept="video/*" capture="environment"
+             style="display:none" onchange="Medicoes._onFileSelect(this)">
+      <input type="file" id="mf-file-docs"  multiple accept="image/*,.pdf,.mp4,.mov,.avi,.webm,.doc,.docx,.xls,.xlsx"
+             style="display:none" onchange="Medicoes._onFileSelect(this)">
+      <!-- Três botões de captura -->
+      <div class="upz-btns">
+        <div class="upz-btn" onclick="document.getElementById('mf-file-foto').click()">
+          <span class="upz-btn-ico">📷</span>
+          <span class="upz-btn-lbl">Tirar Foto</span>
+          <span class="upz-btn-sub">Abre a câmera</span>
+        </div>
+        <div class="upz-btn" onclick="document.getElementById('mf-file-video').click()">
+          <span class="upz-btn-ico">🎬</span>
+          <span class="upz-btn-lbl">Gravar Vídeo</span>
+          <span class="upz-btn-sub">Câmera de vídeo</span>
+        </div>
+        <div class="upz-btn" onclick="document.getElementById('mf-file-docs').click()">
+          <span class="upz-btn-ico">📎</span>
+          <span class="upz-btn-lbl">Selecionar Arquivo</span>
+          <span class="upz-btn-sub">Galeria / dispositivo</span>
+        </div>
+      </div>
+      <!-- Zona de drag-drop para desktop -->
+      <div class="upz-drop" id="mf-dropzone"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="event.preventDefault();this.classList.remove('drag-over');Medicoes._onFileDrop(event.dataTransfer.files)">
+        🗂 Ou arraste arquivos aqui
       </div>
       <div class="flist" id="mf-files">
         ${(m?.evidencias||[]).map(f=>`
@@ -773,13 +795,32 @@ const Medicoes = {
          </div>`;
 
     const uploadBtn = canUpload ? `
-      <div style="margin-top:4px">
-        <input type="file" id="det-ev-input" multiple
-               accept="image/*,.pdf,.mp4,.mov,.avi,.webm,.doc,.docx"
+      <div style="margin-top:12px">
+        <!-- Inputs ocultos para cada modo de captura -->
+        <input type="file" id="det-ev-foto"  accept="image/*" capture="environment"
                style="display:none" onchange="Medicoes._uploadDetalhes(${medicaoId},this)">
-        <button class="btn btn-o btn-sm" onclick="document.getElementById('det-ev-input').click()">
-          ⬆ Adicionar evidência
-        </button>
+        <input type="file" id="det-ev-video" accept="video/*" capture="environment"
+               style="display:none" onchange="Medicoes._uploadDetalhes(${medicaoId},this)">
+        <input type="file" id="det-ev-docs"  multiple accept="image/*,.pdf,.mp4,.mov,.avi,.webm,.doc,.docx"
+               style="display:none" onchange="Medicoes._uploadDetalhes(${medicaoId},this)">
+        <!-- Três botões de captura -->
+        <div class="upz-btns">
+          <div class="upz-btn" onclick="document.getElementById('det-ev-foto').click()">
+            <span class="upz-btn-ico">📷</span>
+            <span class="upz-btn-lbl">Tirar Foto</span>
+            <span class="upz-btn-sub">Abre a câmera</span>
+          </div>
+          <div class="upz-btn" onclick="document.getElementById('det-ev-video').click()">
+            <span class="upz-btn-ico">🎬</span>
+            <span class="upz-btn-lbl">Gravar Vídeo</span>
+            <span class="upz-btn-sub">Câmera de vídeo</span>
+          </div>
+          <div class="upz-btn" onclick="document.getElementById('det-ev-docs').click()">
+            <span class="upz-btn-ico">📎</span>
+            <span class="upz-btn-lbl">Selecionar Arquivo</span>
+            <span class="upz-btn-sub">Galeria / dispositivo</span>
+          </div>
+        </div>
         <div id="det-ev-progress" style="font-size:11px;color:var(--text3);margin-top:4px;display:none"></div>
       </div>` : `<div style="font-size:11px;color:var(--text3);margin-top:8px">
         Upload desabilitado — medição já aprovada ou concluída</div>`;
@@ -791,8 +832,8 @@ const Medicoes = {
     const files = Array.from(input.files || []);
     if (!files.length) return;
     const prog = H.el('det-ev-progress');
-    const btn  = input.previousElementSibling;
-    if (btn)  { btn.disabled = true; }
+    // Desabilita todos os botões de captura durante o upload
+    document.querySelectorAll('.upz-btn').forEach(b => b.style.pointerEvents = 'none');
     if (prog) { prog.style.display = ''; prog.style.color = 'var(--text3)'; prog.textContent = `⬆ Enviando ${files.length} arquivo(s)...`; }
 
     try {
@@ -810,7 +851,7 @@ const Medicoes = {
       if (prog) { prog.style.color = 'var(--red)'; prog.textContent = `Erro: ${e.message}`; }
       UI.toast('Erro no upload: ' + e.message, 'error');
     } finally {
-      if (btn) btn.disabled = false;
+      document.querySelectorAll('.upz-btn').forEach(b => b.style.pointerEvents = '');
       input.value = '';
     }
   },
@@ -1060,11 +1101,21 @@ const Medicoes = {
       if(!['Aprovado','Em Assinatura'].includes(m.status)) { UI.toast('Medição não está aprovada','error'); return; }
       State.currentActionMedicaoId = id;
 
-      // Pré-preenche dados do fornecedor
+      // Pré-preenche dados do fornecedor (incluindo CPF e data de nascimento do cadastro)
       H.el('assin-codigo').textContent   = m.codigo;
       H.el('assin-email-forn').value     = m.fornecedor_email_assin || m.fornecedor_email || '';
       H.el('assin-tel-forn').value       = m.fornecedor_tel || '';
       H.el('assin-email-rem').value      = '';
+      // CPF e data de nascimento — pré-preenchidos do cadastro do fornecedor
+      const cpfFornEl  = H.el('assin-cpf-forn');
+      const nascFornEl = H.el('assin-nasc-forn');
+      const cpfRemEl   = H.el('assin-cpf-rem');
+      const nascRemEl  = H.el('assin-nasc-rem');
+      if (cpfFornEl)  cpfFornEl.value  = m.fornecedor_cpf || '';
+      if (nascFornEl) nascFornEl.value = m.fornecedor_data_nasc
+        ? m.fornecedor_data_nasc.slice(0,10) : '';
+      if (cpfRemEl)  cpfRemEl.value  = '';
+      if (nascRemEl) nascRemEl.value = '';
 
       // Reseta canais para padrão (e-mail ativo, whatsapp inativo)
       const chkEmail = H.el('assin-canal-email');
@@ -1073,30 +1124,73 @@ const Medicoes = {
       if (chkWpp)   chkWpp.checked   = false;
       this._onCanalChange();
 
-      // Verifica configuração do ClickSign e exibe status
+      // Verifica configuração do provedor de assinatura e exibe status
       const platEl = H.el('assin-status-plat');
       if (platEl) {
         try {
           const cfg = await API.config('assinatura');
           const c   = cfg?.valor || {};
-          if (c.provedor === 'ClickSign' && c.accessToken && c.ativo) {
-            const env = c.ambiente === 'producao' ? 'Produção' : 'Sandbox';
+          const prov = c.provedor || 'ClickSign';
+
+          // Detecta se o provedor está devidamente credenciado
+          const temCredencial = prov === 'ClickSign'  ? !!c.accessToken
+                              : prov === 'D4Sign'     ? !!c.d4Token
+                              : prov === 'DocuSign'   ? !!c.apiKey
+                              : prov === 'Autentique' ? !!c.apiKey
+                              : !!c.apiKey;
+
+          if (temCredencial && c.ativo) {
+            const extra = prov === 'ClickSign' ? ` (${c.ambiente === 'producao' ? 'Produção' : 'Sandbox'})` : '';
             platEl.innerHTML = `<div class="ibox success" style="padding:8px 12px;display:flex;align-items:center;gap:8px">
               <span style="font-size:18px">✅</span>
-              <div><div style="font-size:12px;font-weight:600;color:var(--green)">ClickSign configurado (${env})</div>
-              <div style="font-size:11px;color:var(--text3)">O documento será gerado em PDF e enviado automaticamente via ClickSign.</div></div>
+              <div><div style="font-size:12px;font-weight:600;color:var(--green)">${prov} configurado${extra}</div>
+              <div style="font-size:11px;color:var(--text3)">O documento será gerado em PDF e enviado automaticamente via ${prov}.</div></div>
             </div>`;
-          } else if (c.provedor === 'ClickSign' && c.accessToken && !c.ativo) {
+          } else if (temCredencial && !c.ativo) {
             platEl.innerHTML = `<div class="ibox warn" style="padding:8px 12px">
-              <div style="font-size:12px;font-weight:600">⚠️ ClickSign configurado mas inativo</div>
+              <div style="font-size:12px;font-weight:600">⚠️ ${prov} configurado mas inativo</div>
               <div style="font-size:11px;color:var(--text3)">Ative a integração em Configurações → Assinatura Eletrônica para envio automático.</div>
             </div>`;
           } else {
             platEl.innerHTML = `<div class="ibox warn" style="padding:8px 12px">
-              <div style="font-size:12px;font-weight:600">⚠️ ClickSign não configurado</div>
+              <div style="font-size:12px;font-weight:600">⚠️ ${prov} não configurado</div>
               <div style="font-size:11px;color:var(--text3)">Configure em Configurações → Assinatura Eletrônica. O envio registrará o documento mas não disparará o link de assinatura.</div>
             </div>`;
           }
+
+          // ── Adapta o formulário conforme o provedor ─────────────────────
+          const isD4 = prov === 'D4Sign';
+          // CPF e nascimento são campos exclusivos do ClickSign
+          const cpfForn = document.getElementById('assin-wrap-cpf-forn');
+          const cpfRem  = document.getElementById('assin-wrap-cpf-rem');
+          const hintCpf = document.getElementById('assin-hint-cpf-forn');
+          if (cpfForn) cpfForn.style.display = isD4 ? 'none' : '';
+          if (cpfRem)  cpfRem.style.display  = isD4 ? 'none' : '';
+          if (hintCpf) hintCpf.style.display = isD4 ? 'none' : '';
+
+          // Canal de entrega (WhatsApp) — apenas ClickSign
+          // Para D4Sign, o envio de email é automático; telefone = SMS auth opcional
+          const wrapCanal = document.getElementById('assin-wrap-canal');
+          if (wrapCanal) wrapCanal.style.display = isD4 ? 'none' : '';
+
+          // Para D4Sign: mostrar checkbox WhatsApp (oculto por padrão; campo de tel aparece ao marcar)
+          const wrapWppD4 = document.getElementById('assin-wrap-wpp-d4');
+          const chkWppD4  = document.getElementById('assin-canal-wpp-d4');
+          const wrapTel   = document.getElementById('assin-wrap-tel');
+          if (isD4) {
+            if (wrapWppD4) wrapWppD4.style.display = '';
+            if (chkWppD4)  chkWppD4.checked = false;
+            if (wrapTel)   wrapTel.style.display = 'none'; // só aparece se checkbox marcado
+          } else {
+            if (wrapWppD4) wrapWppD4.style.display = 'none';
+          }
+
+          // Hint do segundo signatário
+          const hintRem = document.getElementById('assin-hint-rem');
+          if (hintRem) hintRem.textContent = isD4
+            ? 'Se informado, será adicionado como Aprovador do documento na D4Sign.'
+            : 'Caso informado, você receberá uma cópia da notificação.';
+
         } catch(_) {
           platEl.innerHTML = '';
         }
@@ -1138,12 +1232,26 @@ ${'='.repeat(56)}`;
     } catch(e) { UI.toast('Erro ao carregar medição: ' + e.message, 'error'); }
   },
 
+  _onWppD4Change() {
+    const checked = document.getElementById('assin-canal-wpp-d4')?.checked;
+    const wrapTel = document.getElementById('assin-wrap-tel');
+    if (wrapTel) wrapTel.style.display = checked ? '' : 'none';
+    if (!checked && document.getElementById('assin-tel-forn'))
+      document.getElementById('assin-tel-forn').value = '';
+  },
+
   _onCanalChange() {
     const email = H.el('assin-canal-email')?.checked;
     const wpp   = H.el('assin-canal-whatsapp')?.checked;
-    // E-mail nunca é ocultado — ClickSign exige como identificador do signatário
-    const wWpp  = H.el('assin-wrap-whatsapp');
-    if (wWpp) wWpp.style.display = wpp ? '' : 'none';
+    // E-mail nunca é ocultado — provedor de assinatura exige como identificador do signatário
+    // Para ClickSign: mostra WhatsApp quando checkbox marcado
+    // Para D4Sign: campo de telefone já está sempre visível (SMS auth)
+    const wTel = H.el('assin-wrap-tel');
+    const canalVisivelParaClickSign = H.el('assin-wrap-canal');
+    if (canalVisivelParaClickSign && canalVisivelParaClickSign.style.display !== 'none') {
+      // Modo ClickSign — mostrar tel apenas se WhatsApp marcado
+      if (wTel) wTel.style.display = wpp ? '' : 'none';
+    }
     // Atualiza label do botão
     const btn = H.el('assin-btn-enviar');
     if (btn) {
@@ -1155,32 +1263,48 @@ ${'='.repeat(56)}`;
 
   async confirmarEnvioAssinatura() {
     const id               = State.currentActionMedicaoId;
-    const canalEmail       = H.el('assin-canal-email')?.checked;
-    const canalWhatsapp    = H.el('assin-canal-whatsapp')?.checked;
-    // E-mail sempre lido — obrigatório pelo ClickSign como identificador do signatário
-    const email_fornecedor = H.el('assin-email-forn')?.value.trim() || '';
-    const tel_fornecedor   = canalWhatsapp ? H.el('assin-tel-forn')?.value.trim()  : '';
-    const email_remetente  = H.el('assin-email-rem')?.value.trim();
+    // ClickSign usa checkboxes de canal; D4Sign o painel de canal fica oculto
+    const wrapCanal        = document.getElementById('assin-wrap-canal');
+    const isD4SignForm     = wrapCanal && wrapCanal.style.display === 'none';
+    const canalEmail       = H.el('assin-canal-email')?.checked ?? true;
+    const canalWhatsapp    = H.el('assin-canal-whatsapp')?.checked ?? false;
+    const wppD4Marcado     = H.el('assin-canal-wpp-d4')?.checked ?? false;
+
+    const email_fornecedor    = H.el('assin-email-forn')?.value.trim() || '';
+    // Telefone: ClickSign = campo do WhatsApp canal; D4Sign = checkbox WhatsApp separado
+    const tel_fornecedor      = isD4SignForm
+      ? (wppD4Marcado ? H.el('assin-tel-forn')?.value.trim() || '' : '')
+      : (canalWhatsapp ? H.el('assin-tel-forn')?.value.trim() || '' : '');
+    const email_remetente     = H.el('assin-email-rem')?.value.trim();
+    const cpf_fornecedor      = H.el('assin-cpf-forn')?.value.trim() || '';
+    const data_nasc_fornecedor= H.el('assin-nasc-forn')?.value || '';
+    const cpf_remetente       = H.el('assin-cpf-rem')?.value.trim() || '';
+    const data_nasc_remetente = H.el('assin-nasc-rem')?.value || '';
 
     // Validação
-    if (!canalEmail && !canalWhatsapp) { UI.toast('Selecione ao menos um canal de envio','error'); return; }
-    if (!email_fornecedor) { UI.toast('Informe o e-mail do fornecedor (obrigatório para o ClickSign)','error'); return; }
-    if (canalWhatsapp && !tel_fornecedor) { UI.toast('Informe o telefone / WhatsApp do fornecedor','error'); return; }
+    if (!isD4SignForm && !canalEmail && !canalWhatsapp) { UI.toast('Selecione ao menos um canal de envio','error'); return; }
+    if (!email_fornecedor) { UI.toast('Informe o e-mail do fornecedor (obrigatório para envio de assinatura)','error'); return; }
+    if (!isD4SignForm && canalWhatsapp && !tel_fornecedor) { UI.toast('Informe o telefone / WhatsApp do fornecedor','error'); return; }
+    if (isD4SignForm && wppD4Marcado && !tel_fornecedor)   { UI.toast('Informe o WhatsApp do fornecedor','error'); return; }
 
     const btn = H.el('assin-btn-enviar');
     btn.disabled = true;
     btn.textContent = '⏳ Enviando...';
 
     try {
-      const canais = [];
-      if (canalEmail)    canais.push('email');
-      if (canalWhatsapp) canais.push('whatsapp');
+      const canais = isD4SignForm ? ['email'] : [];
+      if (!isD4SignForm && canalEmail)    canais.push('email');
+      if (!isD4SignForm && canalWhatsapp) canais.push('whatsapp');
 
       const r = await API.enviarAssinatura(id, {
         email_fornecedor,
         tel_fornecedor,
         email_remetente,
         canais,
+        cpf_fornecedor:       cpf_fornecedor       || undefined,
+        data_nasc_fornecedor: data_nasc_fornecedor || undefined,
+        cpf_remetente:        cpf_remetente        || undefined,
+        data_nasc_remetente:  data_nasc_remetente  || undefined,
       });
 
       UI.closeModal('modal-assinatura-envio');

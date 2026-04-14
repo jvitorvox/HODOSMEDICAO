@@ -1,7 +1,7 @@
 -- ══════════════════════════════════════════════════════════════
--- HAMOA OBRAS — Migração: Módulo de Cronograma de Obra
+-- CONSTRUTIVO OBRAS — Migração: Módulo de Cronograma de Obra
 -- Execute manualmente no banco após o deploy:
---   docker exec -i hamoa-obras-db psql -U hamoa -d hamoa_obras < db/migrate_cronograma.sql
+--   docker exec -i construtivo-obras-db psql -U construtivo -d construtivo_obras < db/migrate_cronograma.sql
 -- ══════════════════════════════════════════════════════════════
 
 -- ── Cronogramas (cabeçalho de cada importação) ────────────────

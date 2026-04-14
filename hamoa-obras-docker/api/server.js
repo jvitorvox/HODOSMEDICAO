@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 
 // ── Redis (conexão opcional — não bloqueia inicialização) ────────
 const redisClient = redis.createClient({
-  url: `redis://:${process.env.REDIS_PASS||'hamoa-redis@2025'}@${process.env.REDIS_HOST||'hamoa-redis'}:6379`,
+  url: `redis://:${process.env.REDIS_PASS||'construtivo-redis@2025'}@${process.env.REDIS_HOST||'construtivo-redis'}:6379`,
 });
 redisClient.connect().catch(err => console.warn('[Redis] Não conectado:', err.message));
 
@@ -36,7 +36,7 @@ app.use('/api/',     rateLimit({ windowMs: 60*1000,    max: 300 }));
 
 // ── Health check ─────────────────────────────────────────────────
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'hamoa-obras-api', version: '3.0.0', ts: new Date() });
+  res.json({ status: 'ok', service: 'construtivo-obras-api', version: '3.0.0', ts: new Date() });
 });
 
 // ── Rotas ────────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ app.use('/api/dashboard',    require('./routes/dashboard'));
 app.use('/api/cronogramas',  require('./routes/cronogramas'));
 app.use('/api/usuarios',     require('./routes/usuarios'));
 app.use('/api/audit',        require('./routes/audit'));
+app.use('/api/lbm',          require('./routes/lbm'));
 
 // ── Tratamento global de erros ───────────────────────────────────
 app.use((err, req, res, _next) => {
@@ -103,6 +104,77 @@ async function runMigrations() {
     `ALTER TABLE evidencias ADD COLUMN IF NOT EXISTS provider      VARCHAR(20)   DEFAULT 'local'`,
     `ALTER TABLE evidencias ADD COLUMN IF NOT EXISTS url_storage   VARCHAR(1000)`,
     `ALTER TABLE evidencias ADD COLUMN IF NOT EXISTS enviado_por   VARCHAR(100)`,
+    // v3.5 — limpa url_storage de evidências S3 salvas com URL pública inválida
+    // (bucket privado gravou URL direta em vez de null → agora signed URL é gerada on-demand)
+    `UPDATE evidencias SET url_storage = NULL
+     WHERE provider = 's3'
+       AND url_storage LIKE '%amazonaws.com%'
+       AND url_storage NOT LIKE '%X-Amz-Signature%'`,
+    // v3.6 — CPF e data de nascimento do representante legal do fornecedor
+    `ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS cpf_representante      VARCHAR(20)`,
+    `ALTER TABLE fornecedores ADD COLUMN IF NOT EXISTS data_nasc_representante DATE`,
+    // v3.7 — LBM (Location Based Management)
+    // Metodologia por obra: 'gantt' (padrão) ou 'lbm'
+    `ALTER TABLE obras ADD COLUMN IF NOT EXISTS metodologia VARCHAR(10) DEFAULT 'gantt'`,
+    // Locais físicos da obra (hierárquicos: bloco → pavimento → unidade)
+    `CREATE TABLE IF NOT EXISTS lbm_locais (
+       id         SERIAL PRIMARY KEY,
+       obra_id    INTEGER NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
+       parent_id  INTEGER REFERENCES lbm_locais(id) ON DELETE CASCADE,
+       nome       VARCHAR(200) NOT NULL,
+       tipo       VARCHAR(50)  DEFAULT 'local',
+       ordem      INTEGER      NOT NULL DEFAULT 0,
+       criado_em  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_lbm_locais_obra ON lbm_locais(obra_id)`,
+    // Serviços LBM: cada serviço tem um fornecedor/contrato e um ritmo de avanço
+    `CREATE TABLE IF NOT EXISTS lbm_servicos (
+       id               SERIAL PRIMARY KEY,
+       obra_id          INTEGER NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
+       nome             VARCHAR(200) NOT NULL,
+       unidade          VARCHAR(30)  DEFAULT 'un',
+       cor              VARCHAR(7)   DEFAULT '#3B82F6',
+       fornecedor_id    INTEGER REFERENCES fornecedores(id),
+       contrato_id      INTEGER REFERENCES contratos(id),
+       ritmo_previsto   NUMERIC(8,2),
+       ritmo_unidade    VARCHAR(50)  DEFAULT 'local/dia',
+       duracao_por_local INTEGER     DEFAULT 1,
+       ordem            INTEGER      NOT NULL DEFAULT 0,
+       criado_em        TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_lbm_servicos_obra ON lbm_servicos(obra_id)`,
+    // Progresso real por combinação Local × Serviço
+    `CREATE TABLE IF NOT EXISTS lbm_progresso (
+       id                SERIAL PRIMARY KEY,
+       servico_id        INTEGER NOT NULL REFERENCES lbm_servicos(id)  ON DELETE CASCADE,
+       local_id          INTEGER NOT NULL REFERENCES lbm_locais(id)    ON DELETE CASCADE,
+       status            VARCHAR(20) NOT NULL DEFAULT 'nao_iniciado',
+       data_inicio_plan  DATE,
+       data_fim_plan     DATE,
+       data_inicio_real  DATE,
+       data_fim_real     DATE,
+       medicao_id        INTEGER REFERENCES medicoes(id),
+       observacao        TEXT,
+       atualizado_em     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+       UNIQUE(servico_id, local_id)
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_lbm_progresso_servico ON lbm_progresso(servico_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_lbm_progresso_local   ON lbm_progresso(local_id)`,
+    // v3.7.1 — garante UNIQUE constraint em lbm_progresso para bancos já existentes
+    `ALTER TABLE lbm_progresso ADD CONSTRAINT IF NOT EXISTS lbm_progresso_servico_local_uq UNIQUE(servico_id, local_id)`,
+    // v3.7.2 — múltiplos contratos por serviço LBM
+    `CREATE TABLE IF NOT EXISTS lbm_servico_contratos (
+       id          SERIAL PRIMARY KEY,
+       servico_id  INTEGER NOT NULL REFERENCES lbm_servicos(id) ON DELETE CASCADE,
+       contrato_id INTEGER NOT NULL REFERENCES contratos(id) ON DELETE CASCADE,
+       UNIQUE(servico_id, contrato_id)
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_lbm_sc_servico  ON lbm_servico_contratos(servico_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_lbm_sc_contrato ON lbm_servico_contratos(contrato_id)`,
+    // Migra contrato_id existente em lbm_servicos → lbm_servico_contratos
+    `INSERT INTO lbm_servico_contratos(servico_id, contrato_id)
+     SELECT id, contrato_id FROM lbm_servicos WHERE contrato_id IS NOT NULL
+     ON CONFLICT DO NOTHING`,
   ];
   for (const sql of migrations) {
     try {

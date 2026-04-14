@@ -6,8 +6,8 @@
 // API MODULE (substitui IndexedDB)
 // ══════════════════════════════════════
 const API = (() => {
-  function _getToken() { return sessionStorage.getItem('hamoa_token'); }
-  function _setToken(t) { if(t) sessionStorage.setItem('hamoa_token', t); else sessionStorage.removeItem('hamoa_token'); }
+  function _getToken() { return sessionStorage.getItem('construtivo_token'); }
+  function _setToken(t) { if(t) sessionStorage.setItem('construtivo_token', t); else sessionStorage.removeItem('construtivo_token'); }
 
   // Upload multipart — usa sessionStorage igual ao req() normal
   // extraFields: objeto opcional com campos adicionais a incluir no FormData
@@ -206,5 +206,31 @@ const API = (() => {
     saveStorage:      (d)   => req('PUT',  '/api/config/storage', d),
     testS3:           (d)   => req('POST', '/api/config/storage/test-s3',     d),
     testGDrive:       (d)   => req('POST', '/api/config/storage/test-gdrive', d),
+
+    // ── LBM (Location Based Management) ──────────────────────────
+    lbmLocais:         (obraId)       => req('GET',    `/api/lbm/${obraId}/locais`),
+    lbmLocaisFlat:     (obraId)       => req('GET',    `/api/lbm/${obraId}/locais/flat`),
+    lbmCreateLocal:    (obraId, d)    => req('POST',   `/api/lbm/${obraId}/locais`, d),
+    lbmUpdateLocal:    (obraId, id, d)=> req('PUT',    `/api/lbm/${obraId}/locais/${id}`, d),
+    lbmDeleteLocal:    (obraId, id)   => req('DELETE', `/api/lbm/${obraId}/locais/${id}`),
+    lbmReordenarLocais:(obraId, itens)=> req('POST',   `/api/lbm/${obraId}/locais/reordenar`, { itens }),
+
+    lbmServicos:        (obraId)       => req('GET',    `/api/lbm/${obraId}/servicos`),
+    lbmCreateServico:   (obraId, d)    => req('POST',   `/api/lbm/${obraId}/servicos`, d),
+    lbmUpdateServico:   (obraId, id, d)=> req('PUT',    `/api/lbm/${obraId}/servicos/${id}`, d),
+    lbmDeleteServico:   (obraId, id)   => req('DELETE', `/api/lbm/${obraId}/servicos/${id}`),
+    lbmReordenarServicos:(obraId, itens)=>req('POST',   `/api/lbm/${obraId}/servicos/reordenar`, { itens }),
+
+    lbmProgresso:       (obraId)       => req('GET',    `/api/lbm/${obraId}/progresso`),
+    lbmSaveProgresso:   (obraId, d)    => req('POST',   `/api/lbm/${obraId}/progresso`, d),
+    lbmBatchProgresso:  (obraId, cels) => req('POST',   `/api/lbm/${obraId}/progresso/batch`, { celulas: cels }),
+    lbmDashboard:       (obraId)       => req('GET',    `/api/lbm/${obraId}/dashboard`),
+    lbmCalcularPlano:   (obraId, d)    => req('POST',   `/api/lbm/${obraId}/calcular-plano`, d),
+    // IA
+    lbmImportarIA:      (obraId, file) => _uploadIA(`/api/lbm/${obraId}/importar-ia`, file),
+    lbmImportarIAConfirmar: (obraId, d) => req('POST', `/api/lbm/${obraId}/importar-ia/confirmar`, d),
+    // Sync com medições
+    lbmDiagnostico:     (obraId)       => req('GET',  `/api/lbm/${obraId}/sincronizar-medicoes`),
+    lbmSincronizar:     (obraId)       => req('POST', `/api/lbm/${obraId}/sincronizar-medicoes`),
   };
 })();

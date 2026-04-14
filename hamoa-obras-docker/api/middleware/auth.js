@@ -1,5 +1,5 @@
 /**
- * HAMOA OBRAS — Middleware de autenticação JWT
+ * CONSTRUTIVO OBRAS — Middleware de autenticação JWT
  */
 const jwt = require('jsonwebtoken');
 

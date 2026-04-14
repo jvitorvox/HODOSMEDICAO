@@ -295,11 +295,11 @@ const Pages = {
 
   _comQuem(m) {
     const map = {
-      'Aguardando N1': { nome:'Gestor de Obra', cargo:'Aprovação N1', email:'gestores@hamoa.com.br' },
-      'Aguardando N2': { nome:'Planejamento', cargo:'Aprovação N2', email:'planejamento@hamoa.com.br' },
-      'Aguardando N3': { nome:'Diretoria de Obras', cargo:'Aprovação N3', email:'diretoria@hamoa.com.br' },
+      'Aguardando N1': { nome:'Gestor de Obra', cargo:'Aprovação N1', email:'gestores@construtivo.com.br' },
+      'Aguardando N2': { nome:'Planejamento', cargo:'Aprovação N2', email:'planejamento@construtivo.com.br' },
+      'Aguardando N3': { nome:'Diretoria de Obras', cargo:'Aprovação N3', email:'diretoria@construtivo.com.br' },
       'Em Assinatura': { nome:'Assinatura Eletrônica', cargo:'Aguardando fornecedor', email:'' },
-      'Aprovado':      { nome:'Financeiro/Contábil', cargo:'Emissão de NF', email:'financeiro@hamoa.com.br' },
+      'Aprovado':      { nome:'Financeiro/Contábil', cargo:'Emissão de NF', email:'financeiro@construtivo.com.br' },
       'Reprovado':     { nome:m.criado_por||'—', cargo:'Retornado ao lançador', email:'' },
       'Concluído':     { nome:'—', cargo:'Processo concluído', email:'' },
     };
@@ -318,7 +318,7 @@ const Pages = {
       const data = await API.empresas(); State.cache.empresas = data;
       H.el('cad-content').innerHTML = `
         <div class="tc">
-          <div class="tb-bar"><span class="tb-bar-title">EMPRESAS</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-a btn-sm" onclick="Cadastros.newEmpresa()">+ Empresa</button>':''}</div>
+          <div class="tb-bar"><span class="tb-bar-title">EMPRESAS</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-o btn-sm" onclick="Cadastros.openBulkImport(\'empresas\')" style="margin-right:6px">📥 Importar CSV</button><button class="btn btn-a btn-sm" onclick="Cadastros.newEmpresa()">+ Empresa</button>':''}</div>
           <table><thead><tr><th>Razão Social</th><th>Nome Fantasia</th><th>CNPJ</th><th>Status</th>${Perm.has('cadastros')?'<th>Ações</th>':''}</tr></thead>
           <tbody>${data.length ? data.map(e => `<tr>
             <td class="tp">${e.razao_social}</td><td>${e.nome_fantasia||'—'}</td>
@@ -335,7 +335,7 @@ const Pages = {
       const [data, emps] = await Promise.all([ API.obras(), API.empresas() ]); State.cache.obras = data; State.cache.empresas = emps;
       H.el('cad-content').innerHTML = `
         <div class="tc">
-          <div class="tb-bar"><span class="tb-bar-title">OBRAS</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-a btn-sm" onclick="Cadastros.newObra()">+ Obra</button>':''}</div>
+          <div class="tb-bar"><span class="tb-bar-title">OBRAS</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-o btn-sm" onclick="Cadastros.openBulkImport(\'obras\')" style="margin-right:6px">📥 Importar CSV</button><button class="btn btn-a btn-sm" onclick="Cadastros.newObra()">+ Obra</button>':''}</div>
           <table><thead><tr><th>Código</th><th>Empresa</th><th>Nome da Obra</th><th>Localização</th><th>Gestor</th><th>Status</th>${Perm.has('cadastros')?'<th>Ações</th>':''}</tr></thead>
           <tbody>${data.length ? data.map(o => {
             const emp = emps.find(e=>e.id===o.empresa_id);
@@ -356,7 +356,7 @@ const Pages = {
       const data = await API.fornecedores(); State.cache.fornecedores = data;
       H.el('cad-content').innerHTML = `
         <div class="tc">
-          <div class="tb-bar"><span class="tb-bar-title">FORNECEDORES</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-a btn-sm" onclick="Cadastros.newFornecedor()">+ Fornecedor</button>':''}</div>
+          <div class="tb-bar"><span class="tb-bar-title">FORNECEDORES</span><div style="flex:1"></div>${Perm.has('cadastros')?'<button class="btn btn-o btn-sm" onclick="Cadastros.openBulkImport(\'fornecedores\')" style="margin-right:6px">📥 Importar CSV</button><button class="btn btn-a btn-sm" onclick="Cadastros.newFornecedor()">+ Fornecedor</button>':''}</div>
           <table><thead><tr><th>Razão Social</th><th>CNPJ</th><th>E-mail Contato</th><th>E-mail NF</th><th>Status</th>${Perm.has('cadastros')?'<th>Ações</th>':''}</tr></thead>
           <tbody>${data.length ? data.map(f => `<tr>
             <td class="tp">${f.razao_social}<br><span style="font-size:10px;color:var(--text3)">${f.nome_fantasia||''}</span></td>

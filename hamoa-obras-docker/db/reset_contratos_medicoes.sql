@@ -1,11 +1,11 @@
 -- ══════════════════════════════════════════════════════════════════
--- HAMOA OBRAS — Reset de Contratos e Medições
+-- CONSTRUTIVO OBRAS — Reset de Contratos e Medições
 -- Limpa APENAS: medições e contratos (mantém obras, fornecedores, empresas)
 -- Preserva: usuarios, configuracoes, alcadas, obras, fornecedores, empresas
 --
 -- PowerShell (copie o arquivo e execute):
---   docker cp db/reset_contratos_medicoes.sql hamoa-obras-db:/tmp/
---   docker exec hamoa-obras-db psql -U hamoa -d hamoa_obras -f /tmp/reset_contratos_medicoes.sql
+--   docker cp db/reset_contratos_medicoes.sql construtivo-obras-db:/tmp/
+--   docker exec construtivo-obras-db psql -U construtivo -d construtivo_obras -f /tmp/reset_contratos_medicoes.sql
 -- ══════════════════════════════════════════════════════════════════
 
 BEGIN;

@@ -1,10 +1,10 @@
 -- ══════════════════════════════════════════════════════════════
--- HAMOA OBRAS — Migração v3.2
+-- CONSTRUTIVO OBRAS — Migração v3.2
 -- Adiciona campos de dados cadastrais estendidos no fornecedores:
 --   endereco, representante, cargo_representante
 --
 -- Execute UMA VEZ no banco de dados existente:
---   docker exec hamoa-obras-db psql -U hamoa -d hamoa_obras -f /docker-entrypoint-initdb.d/migrate_v3_2.sql
+--   docker exec construtivo-obras-db psql -U construtivo -d construtivo_obras -f /docker-entrypoint-initdb.d/migrate_v3_2.sql
 -- ══════════════════════════════════════════════════════════════
 
 BEGIN;

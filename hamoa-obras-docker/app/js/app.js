@@ -169,17 +169,8 @@ document.addEventListener('keydown', e => {
   if(e.key==='Escape') document.querySelectorAll('.mo.open').forEach(m=>m.classList.remove('open'));
 });
 
-// Global function wrappers for onclick attributes
-window.Perm       = Perm;
-window.Medicoes   = Medicoes;
-window.Cadastros  = Cadastros;
-window.Alcadas    = Alcadas;
-window.Configs    = Configs;
-window.Pages      = Pages;
-window.App        = App;
-window.UI         = UI;
-window.H          = H;
-window.Cronograma = Cronograma;
+// Global function wrappers — movidos para o inline script no fim do index.html
+// para garantir que todos os módulos já carregaram antes de expô-los como window.X
 
 // ══════════════════════════════════════
 // INIT

@@ -1,10 +1,10 @@
 -- ══════════════════════════════════════════════════════════════
--- HAMOA OBRAS — Migração v3.1
+-- CONSTRUTIVO OBRAS — Migração v3.1
 -- Adiciona planilha orçamentária de contratos (contrato_itens)
 -- e rastreamento de itens de medição por item do contrato.
 --
 -- Execute UMA VEZ no banco de dados existente:
---   docker exec hamoa-obras-db psql -U hamoa -d hamoa_obras -f /docker-entrypoint-initdb.d/migrate_v3_1.sql
+--   docker exec construtivo-obras-db psql -U construtivo -d construtivo_obras -f /docker-entrypoint-initdb.d/migrate_v3_1.sql
 -- ══════════════════════════════════════════════════════════════
 
 BEGIN;

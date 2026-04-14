@@ -10,6 +10,7 @@ const Cronograma = (() => {
   let _currentCronId  = null;
   let _atividades     = [];
   let _cronogramas    = [];
+  let _obras          = [];          // cache de obras (para detectar metodologia)
   let _collapsed      = new Set();   // IDs das atividades resumo recolhidas
   let _searchTerm     = '';
   let _childMap       = {};          // id → [childId, ...]
@@ -1049,16 +1050,16 @@ const Cronograma = (() => {
     _updateActionButtons(null);
 
     // Carrega obras e preenche ambos os selects (página + modal)
-    const obras = await API.obras().catch(() => []);
+    _obras = await API.obras().catch(() => []);
     const opHtml = '<option value="">Selecione a obra…</option>' +
-      obras.map(o => `<option value="${o.id}">${H.esc(o.nome)}</option>`).join('');
+      _obras.map(o => `<option value="${o.id}">${H.esc(o.nome)}</option>`).join('');
 
     const obraEl = H.el('cron-obra');
     if (obraEl) obraEl.innerHTML = opHtml;
 
     const impSel = H.el('cron-imp-obra');
     if (impSel) impSel.innerHTML = '<option value="">Selecione a obra...</option>' +
-      obras.map(o => `<option value="${o.id}">${H.esc(o.nome)}</option>`).join('');
+      _obras.map(o => `<option value="${o.id}">${H.esc(o.nome)}</option>`).join('');
 
     // Reset select de cronogramas
     const sel = H.el('cron-sel');
@@ -1078,12 +1079,32 @@ const Cronograma = (() => {
     _updateActionButtons(null);
     _updateInfoPill(null);
 
+    // Detecta se esta obra usa LBM
+    const obra = _obras.find(o => o.id === obraId);
+    const isLBM = obra?.metodologia === 'lbm';
+
+    // Controles Gantt (select de cronograma + botões)
+    const ganttControls = ['cron-sel', 'cron-btn-import'];
+    ganttControls.forEach(id => {
+      const el = H.el(id);
+      if (el) el.style.display = isLBM ? 'none' : '';
+    });
+
     const sel = H.el('cron-sel');
     if (!obraId) {
       if (sel) { sel.innerHTML = '<option value="">— selecione a obra primeiro —</option>'; sel.disabled = false; }
+      if (typeof LBM !== 'undefined') LBM.destroy();
       return;
     }
-    await _loadCronogramas(obraId);
+
+    if (isLBM) {
+      // Destrói estado Gantt e inicializa LBM
+      if (typeof LBM !== 'undefined') await LBM.init(obraId);
+    } else {
+      // Destrói LBM (se estava ativo) e carrega cronogramas Gantt
+      if (typeof LBM !== 'undefined') LBM.destroy();
+      await _loadCronogramas(obraId);
+    }
   }
 
   // ══════════════════════════════════════════════════════════════

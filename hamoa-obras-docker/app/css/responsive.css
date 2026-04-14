@@ -4,7 +4,7 @@
 
   /* Topbar */
   #topbar{padding:0 12px;gap:8px;height:52px}
-  .t-logo .hamoa{font-size:14px}
+  .t-logo .logo-secondary{font-size:14px}
   .t-sep{display:none}
   .t-right .btn{display:none}
 
@@ -80,7 +80,7 @@
 @media (max-width:480px){
   .stats{grid-template-columns:1fr}
   .ig{grid-template-columns:1fr}
-  .llogo .jmd,.llogo .hamoa{font-size:26px}
+  .llogo .logo-primary,.llogo .logo-secondary{font-size:26px}
   .login-card{padding:28px 18px}
   .tkcard{grid-template-columns:1fr}
   .mf .btn{font-size:11px;padding:8px 10px}
