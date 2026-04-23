@@ -96,11 +96,20 @@ function _req(apiKey, cryptKey, method, path, body) {
 }
 
 // ── Wrapper HTTP (form-urlencoded) — usado em createhttps ─────────────────────
+// IMPORTANTE: D4Sign exige tokenAPI e cryptKey TANTO na URL quanto no corpo
+// do formulário para o endpoint /createhttps. Sem isso retorna text/html vazio.
 function _reqForm(apiKey, cryptKey, method, path, fields) {
   return new Promise((resolve, reject) => {
     const url    = _buildUrl(apiKey, cryptKey, path);
     const parsed = new URL(url);
-    const bodyStr = Object.entries(fields)
+
+    // Inclui tokenAPI e cryptKey no corpo do form (além da URL)
+    const allFields = {
+      tokenAPI:  apiKey,
+      cryptKey:  cryptKey || '',
+      ...fields,
+    };
+    const bodyStr = Object.entries(allFields)
       .filter(([, v]) => v !== undefined && v !== null)
       .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
       .join('&');
@@ -127,8 +136,24 @@ function _reqForm(apiKey, cryptKey, method, path, fields) {
         try { parsed2 = JSON.parse(raw); } catch { parsed2 = { raw }; }
         console.log(`[D4Sign][form] ${method} ${path} → HTTP ${res.statusCode} | body: ${JSON.stringify(parsed2).slice(0, 500)}`);
         if (res.statusCode >= 400) {
-          const msg = parsed2?.message || parsed2?.raw || `HTTP ${res.statusCode}`;
-          return reject(new Error(`D4Sign: ${msg}`));
+          const msg = parsed2?.message || parsed2?.error || parsed2?.raw || `HTTP ${res.statusCode}`;
+          const isRateLimit = typeof msg === 'string' && /tempo limite|rate.?limit|atingiu/i.test(msg);
+          const err = new Error(isRateLimit
+            ? `D4Sign: API key atingiu o limite de requisições. Aguarde 1–2 horas e tente novamente.`
+            : `D4Sign: ${msg}`);
+          err.statusCode = res.statusCode;
+          err.body = parsed2;
+          return reject(err);
+        }
+        // D4Sign pode retornar HTTP 200 com status:false indicando erro
+        if (parsed2 && typeof parsed2 === 'object' && parsed2.status === false) {
+          const msg = parsed2.error || parsed2.message || JSON.stringify(parsed2).slice(0, 200);
+          const isRateLimit = typeof msg === 'string' && /tempo limite|rate.?limit|atingiu/i.test(msg);
+          const err = new Error(isRateLimit
+            ? `D4Sign: API key atingiu o limite de requisições. Aguarde 1–2 horas e tente novamente.`
+            : `D4Sign: ${msg}`);
+          err.body = parsed2;
+          return reject(err);
         }
         resolve(parsed2);
       });
@@ -207,109 +232,187 @@ async function uploadDocument(apiKey, cryptKey, safeUuid, pdfBuffer, filename) {
   return uuid; // UUID do documento
 }
 
-// ── 1b. Aguardar documento ser processado pela D4Sign ────────────────────────
-// D4Sign processa o upload assincronamente; aguardamos um delay fixo antes de
-// adicionar signatários para evitar o erro "Aguardando processamento".
-// Não usamos polling para não exceder o rate limit da API key.
-async function waitDocumentReady(docUuid, delayMs = 6000) {
-  console.log(`[D4Sign] Aguardando ${delayMs}ms para processamento do doc ${docUuid}...`);
-  await new Promise(res => setTimeout(res, delayMs));
-  console.log(`[D4Sign] Delay concluído. Prosseguindo com signatários.`);
+// ── 1b. Aguardar documento ser processado pela D4Sign (polling) ──────────────
+// D4Sign processa o upload assincronamente. Este helper faz polling do status
+// do documento a cada 5 segundos até ficar pronto (statusId=2 = "Processado /
+// Aguardando signatários"). Timeout de 90 segundos para PDFs grandes.
+//
+// Mapeamento de statusId D4Sign:
+//   1 = Aguardando processamento
+//   2 = Aguardando signatários  ← estado correto para addSignatories
+//   3 = Aguardando assinaturas
+//   4 = Concluído
+//   5 = Arquivado
+async function waitDocumentReady(apiKey, cryptKey, docUuid, { pollIntervalMs = 5000, timeoutMs = 90000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+
+  while (Date.now() < deadline) {
+    attempt++;
+    // Primeiro tentativa: aguarda um delay inicial mínimo de 5s
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+
+    let statusId, rawBody;
+    try {
+      const r = await _req(apiKey, cryptKey, 'GET', `/documents/${docUuid}`, null);
+      const doc = Array.isArray(r) ? r[0] : r;
+      statusId = doc?.statusId ?? doc?.status_id ?? doc?.['statusId'] ?? doc?.status ?? doc?.statusName;
+      rawBody  = JSON.stringify(r).slice(0, 300);
+    } catch (e) {
+      console.warn(`[D4Sign] Polling tentativa ${attempt}: erro ao checar status — ${e.message}. Tentando novamente...`);
+      continue;
+    }
+
+    console.log(`[D4Sign] Polling tentativa ${attempt}: doc=${docUuid} statusId=${statusId} | body=${rawBody}`);
+
+    // statusId=2 ("Aguardando Signatários") ou string equivalente
+    const prontoNum  = [2, '2'].includes(statusId);
+    const prontoStr  = typeof statusId === 'string' &&
+                       /aguardando.signat|waiting.sign|processed/i.test(statusId);
+
+    if (prontoNum || prontoStr) {
+      console.log(`[D4Sign] Documento ${docUuid} está pronto para receber signatários (tentativa ${attempt}).`);
+      return;
+    }
+
+    // statusId=1 ("Processando") = continua aguardando
+    const processando = [1, '1'].includes(statusId) ||
+      (typeof statusId === 'string' && /process|aguardando.process/i.test(statusId));
+    if (!processando && statusId !== undefined && statusId !== null) {
+      // Status inesperado — mas tentamos continuar mesmo assim
+      console.warn(`[D4Sign] Status inesperado "${statusId}" — tentando adicionar signatários mesmo assim.`);
+      return;
+    }
+  }
+
+  // Timeout esgotado — tenta continuar mesmo assim (melhor do que travar o fluxo)
+  console.warn(`[D4Sign] Timeout de ${timeoutMs}ms aguardando processamento do doc ${docUuid}. Continuando...`);
 }
 
-// ── 2. Verificar estado do documento antes de adicionar signatários ──────────
-async function checkDocumentReady(apiKey, cryptKey, docUuid) {
-  const r = await _req(apiKey, cryptKey, 'GET', `/documents/${docUuid}`, null);
-  // D4Sign pode retornar objeto único ou array — normaliza
-  const doc = Array.isArray(r) ? r[0] : r;
-  // O campo statusId pode variar entre versões da API
-  const statusId = doc?.statusId ?? doc?.status_id ?? doc?.['statusId'] ?? doc?.status;
-  console.log(`[D4Sign] checkDocumentReady doc=${docUuid} statusId=${statusId} | fullBody=`, JSON.stringify(r).slice(0, 600));
-  return { statusId, body: r, doc };
+// ── 2. Verificar signatários já adicionados ao documento ────────────────────
+// Endpoint correto conforme SDK oficial: GET /documents/{uuid}/list
+async function getSignatories(apiKey, cryptKey, docUuid) {
+  try {
+    const r = await _req(apiKey, cryptKey, 'GET', `/documents/${docUuid}/list`, null);
+    const list = Array.isArray(r) ? r : (r?.signers || r?.data || []);
+    console.log(`[D4Sign] getSignatories doc=${docUuid}: ${list.length} signatário(s).`);
+    return list;
+  } catch (e) {
+    console.warn(`[D4Sign] getSignatories falhou: ${e.message}`);
+    return [];
+  }
 }
 
 // ── 3. Adicionar signatários ──────────────────────────────────────────────────
-// act: "1"=Assinar, "2"=Aprovar, "3"=Reconhecer firma, "4"=Assinar como parte, "5"=Acusar recebimento
-// A D4Sign espera JSON no endpoint createhttps
+// Endpoint correto: POST /documents/{uuid}/createlist
+// Body: signers=<JSON-array> (form-urlencoded, todos de uma vez)
+// Ref: https://github.com/d4sign/d4sign-php (SDK oficial)
+//
+// act: "1"=Assinar, "2"=Aprovar, "3"=Reconhecer firma, "4"=Assinar como parte
+// signatories = [{ email, act?, name?, cpf?, birthday?, whatsappNumber? }]
 async function addSignatories(apiKey, cryptKey, docUuid, signatories) {
-  // signatories = [{ email, act?, whatsappNumber? }]
-  const results = [];
-  for (const s of signatories) {
-    // whatsapp_number: D4Sign espera apenas dígitos, ex: 5511999999999
-    const wppRaw = s.whatsappNumber || '';
-    const wppDigits = wppRaw.replace(/\D/g, ''); // remove tudo exceto dígitos
-    // Garante código de país 55 se o número for brasileiro (10 ou 11 dígitos sem código)
-    let wppFinal = '';
-    if (wppDigits) {
-      wppFinal = wppDigits.startsWith('55') ? wppDigits : `55${wppDigits}`;
-    }
+  // Monta o array de signers no formato D4Sign
+  const signers = signatories.map(s => {
+    const wppRaw    = s.whatsappNumber || '';
+    const wppDigits = wppRaw.replace(/\D/g, '');
+    const wppFinal  = wppDigits
+      ? (wppDigits.startsWith('55') ? wppDigits : `55${wppDigits}`)
+      : '';
 
-    // Payload mínimo — sem campos opcionais que podem causar rejeição silenciosa
-    const payload = {
-      email:   s.email,
-      act:     String(s.act || '1'),
-      foreign: '0',
-      certificadoicpbr: '0',
+    const signer = {
+      email:                 s.email,
+      act:                   String(s.act || '1'),
+      foreign:               '0',
+      certificadoicpbr:      '0',
       assinatura_presencial: '0',
+      embed_methodauth:      'email',  // método de autenticação padrão
     };
-    if (wppFinal) {
-      payload.whatsapp_number = wppFinal;
-    }
-    console.log(`[D4Sign] addSignatory doc=${docUuid} payload=`, JSON.stringify(payload));
+    if (s.name)    signer.display_name    = s.name;
+    if (wppFinal)  signer.embed_smsnumber = wppFinal;
 
-    // Tenta com JSON primeiro; se retornar corpo vazio, tenta form-urlencoded
-    let r;
-    let usedForm = false;
-    r = await _req(apiKey, cryptKey, 'POST', `/documents/${docUuid}/createhttps`, payload);
-    const rawBody1 = JSON.stringify(r);
-    const isEmptyJson = rawBody1 === '{"raw":""}' || rawBody1 === 'null' || rawBody1 === '{}';
+    return signer;
+  });
 
-    if (isEmptyJson) {
-      console.warn(`[D4Sign] JSON retornou corpo vazio — tentando form-urlencoded...`);
-      r = await _reqForm(apiKey, cryptKey, 'POST', `/documents/${docUuid}/createhttps`, payload);
-      usedForm = true;
-    }
+  console.log(`[D4Sign] createlist doc=${docUuid} signers=`, JSON.stringify(signers));
 
-    const rawBody = JSON.stringify(r);
-    console.log(`[D4Sign] addSignatory resposta (${usedForm ? 'form' : 'json'}) para ${s.email}: ${rawBody.slice(0, 400)}`);
+  // Envia todos os signatários de uma vez via POST /createlist
+  const r = await _reqForm(apiKey, cryptKey, 'POST', `/documents/${docUuid}/createlist`, {
+    signers: JSON.stringify(signers),
+  });
 
-    // Verifica se há erro explícito na resposta
-    const sigUuid = r?.['uuid-signatory'] || r?.['key-signatory'] || r?.uuid || r?.key;
-    const respMsg = r?.message || '';
+  const rawBody = JSON.stringify(r);
+  console.log(`[D4Sign] createlist resposta: ${rawBody.slice(0, 500)}`);
 
-    if (!sigUuid) {
-      const isEmptyBody = rawBody === '{"raw":""}' || rawBody === 'null' || rawBody === '{}' || !rawBody;
-      const isDuplicate = typeof respMsg === 'string' &&
-        /já.*signat|signat.*já|already|duplicat/i.test(respMsg);
-      const isExplicitError = typeof respMsg === 'string' && respMsg.length > 0 && !isDuplicate;
-
-      if (isDuplicate) {
-        console.warn(`[D4Sign] Signatário ${s.email} já estava cadastrado — continuando.`);
-      } else if (isEmptyBody) {
-        // Corpo vazio: D4Sign pode retornar assim em certos planos/configurações.
-        // Continuamos — sendToSign vai validar se os signatários existem.
-        console.warn(`[D4Sign] Resposta vazia para ${s.email} — continuando; sendToSign validará.`);
-      } else if (isExplicitError) {
-        throw new Error(`D4Sign createhttps: "${s.email}" — ${respMsg.slice(0, 200)}`);
-      }
-    } else {
-      console.log(`[D4Sign] Signatário ${s.email} adicionado — uuid-signatory=${sigUuid}`);
-    }
-
-    results.push(r);
+  // Verifica se houve erro explícito na resposta
+  const respMsg = r?.message || r?.msg || '';
+  const isError = typeof respMsg === 'string' && respMsg.length > 0 &&
+    /erro|error|inválid|invalid|falha|failed|not found/i.test(respMsg);
+  if (isError) {
+    throw new Error(`D4Sign createlist: ${respMsg.slice(0, 200)}`);
   }
-  return results;
+
+  // Registra informações adicionais (nome, CPF) para cada signatário que retornou uuid
+  // A resposta pode ser um array ou objeto com array
+  const responseList = Array.isArray(r) ? r : (r?.signers || r?.data || []);
+  for (const s of signatories) {
+    if (!s.name && !s.cpf && !s.birthday) continue;
+    // Tenta encontrar o uuid-signatory correspondente na resposta
+    const sigEntry = responseList.find(x =>
+      x?.email === s.email || x?.['uuid-signatory'] || x?.key
+    );
+    const sigUuid = sigEntry?.['uuid-signatory'] || sigEntry?.['key-signatory'] || sigEntry?.key;
+    if (sigUuid) {
+      try {
+        const infoPayload = { key_signer: sigUuid, email: s.email };
+        if (s.name)     infoPayload.display_name  = s.name;
+        if (s.cpf)      infoPayload.documentation = s.cpf.replace(/\D/g, '');
+        if (s.birthday) infoPayload.birthday       = _fmtBirthday(s.birthday);
+        console.log(`[D4Sign] addinfo signatário ${s.email}:`, JSON.stringify(infoPayload));
+        const infoRes = await _reqForm(apiKey, cryptKey, 'POST',
+          `/documents/${docUuid}/addinfo`, infoPayload);
+        console.log(`[D4Sign] addinfo resposta:`, JSON.stringify(infoRes).slice(0, 300));
+      } catch (infoErr) {
+        console.warn(`[D4Sign] Aviso addinfo ${s.email}: ${infoErr.message}`);
+      }
+    }
+  }
+
+  return r;
+}
+
+// Formata data para DD/MM/YYYY (aceita YYYY-MM-DD ou Date)
+function _fmtBirthday(d) {
+  if (!d) return '';
+  if (typeof d === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(d)) return d; // já formatado
+  const dt = typeof d === 'string' ? new Date(d + 'T12:00:00') : new Date(d);
+  if (isNaN(dt)) return String(d);
+  return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`;
+}
+
+// ── 3b. Registrar webhook no documento D4Sign ────────────────────────────────
+// D4Sign chama esta URL quando todos assinam (evento "finished")
+async function registerWebhook(apiKey, cryptKey, docUuid, webhookUrl) {
+  if (!webhookUrl) return;
+  try {
+    const r = await _reqForm(apiKey, cryptKey, 'POST', `/documents/${docUuid}/webhooks`, {
+      url: webhookUrl,
+    });
+    console.log(`[D4Sign] Webhook registrado: ${webhookUrl} → ${JSON.stringify(r).slice(0, 200)}`);
+  } catch (e) {
+    console.warn(`[D4Sign] Aviso ao registrar webhook: ${e.message}`);
+  }
 }
 
 // ── 4. Enviar para assinatura ─────────────────────────────────────────────────
 async function sendToSign(apiKey, cryptKey, docUuid, message) {
+  // Endpoint conforme SDK oficial: /sendtosigner (com 'r')
   const payload = {
-    message:  message || 'Por favor, assine o documento de Autorização de Emissão de Nota Fiscal.',
-    workflow: '0',  // 0 = todos assinam em paralelo
+    message:    message || 'Por favor, assine o documento de Autorização de Emissão de Nota Fiscal.',
+    workflow:   '0',  // 0 = todos assinam em paralelo
     skip_email: '0',
   };
   console.log(`[D4Sign] Enviando doc ${docUuid} para assinatura...`);
-  const r = await _req(apiKey, cryptKey, 'POST', `/documents/${docUuid}/sendtosign`, payload);
+  const r = await _reqForm(apiKey, cryptKey, 'POST', `/documents/${docUuid}/sendtosigner`, payload);
   console.log(`[D4Sign] sendToSign resposta:`, JSON.stringify(r).slice(0, 300));
 
   // A D4Sign retorna HTTP 200 com corpo vazio para operações POST bem-sucedidas.
@@ -344,8 +447,11 @@ async function enviarParaAssinatura(cfg, {
   signerEmail, signerName, signerWhatsapp,
   signerEmail2, signerName2,
   message,
+  webhookUrl,   // URL que o D4Sign chamará ao concluir todas as assinaturas
 }) {
   const { d4ApiKey, d4Token: safeUuid, d4CryptKey } = cfg;
+  // Usa webhookUrl da cfg se não passado explicitamente
+  const wUrl = webhookUrl || cfg.webhookUrl || null;
   if (!d4ApiKey)    throw new Error('API Key do D4Sign não configurada (d4ApiKey)');
   if (!safeUuid)    throw new Error('UUID do cofre D4Sign não configurado (d4Token)');
   if (!signerEmail) throw new Error('E-mail do signatário é obrigatório');
@@ -353,22 +459,40 @@ async function enviarParaAssinatura(cfg, {
   // 1. Upload
   const docUuid = await uploadDocument(d4ApiKey, d4CryptKey, safeUuid, pdfBuffer, filename);
 
-  // 1b. Aguarda processamento do documento (delay fixo — sem polling para não consumir rate limit)
-  console.log(`[D4Sign] Aguardando 8s para processamento do doc ${docUuid}...`);
-  await new Promise(res => setTimeout(res, 8000));
+  // 1b. Polling: aguarda o documento ficar pronto para receber signatários
+  // (D4Sign processa o PDF assincronamente — pode levar de 5s a 60s dependendo do tamanho)
+  await waitDocumentReady(d4ApiKey, d4CryptKey, docUuid, { pollIntervalMs: 5000, timeoutMs: 90000 });
 
   // 2. Signatários
   const sigs = [{
     email:          signerEmail,
     act:            '1',
+    name:           signerName     || undefined,
     whatsappNumber: signerWhatsapp || undefined,
   }];
   if (signerEmail2 && signerEmail2 !== signerEmail) {
-    sigs.push({ email: signerEmail2, act: '2' }); // act 2 = Aprovar
+    sigs.push({ email: signerEmail2, act: '1', name: signerName2 || undefined }); // act 1 = Assinar (mais compatível)
   }
   await addSignatories(d4ApiKey, d4CryptKey, docUuid, sigs);
 
-  // 3. Enviar
+  // 2b. Verificação informativa — não fatal.
+  // O endpoint GET /signataries retorna text/html vazio em alguns planos D4Sign.
+  // A validação definitiva é feita pelo sendToSign: se não houver signatários,
+  // D4Sign rejeita com "Nenhum signatário cadastrado".
+  await new Promise(r => setTimeout(r, 3000));
+  const sigList = await getSignatories(d4ApiKey, d4CryptKey, docUuid);
+  if (sigList.length === 0) {
+    console.warn(`[D4Sign] Verificação via GET /signataries retornou 0 signatários — pode ser limitação da API. Prosseguindo para sendToSign...`);
+  } else {
+    console.log(`[D4Sign] ✅ ${sigList.length} signatário(s) confirmado(s) via GET /signataries.`);
+  }
+
+  // 2c. Registra webhook no documento para receber evento de conclusão
+  if (wUrl) {
+    await registerWebhook(d4ApiKey, d4CryptKey, docUuid, wUrl);
+  }
+
+  // 3. Enviar — D4Sign valida internamente se há signatários cadastrados
   await sendToSign(d4ApiKey, d4CryptKey, docUuid, message);
 
   const linkVisualizacao = `https://secure.d4sign.com.br/desk/viewblob/${docUuid}`;
@@ -376,4 +500,4 @@ async function enviarParaAssinatura(cfg, {
   return { docUuid, linkVisualizacao };
 }
 
-module.exports = { uploadDocument, addSignatories, sendToSign, testConnection, enviarParaAssinatura };
+module.exports = { uploadDocument, addSignatories, sendToSign, registerWebhook, testConnection, enviarParaAssinatura };

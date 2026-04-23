@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal do Fornecedor — CONSTRUTIVO OBRAS</title>
+<style>
+  :root {
+    --azul: #1e3a5f;
+    --azul-md: #2563eb;
+    --azul-lt: #eff6ff;
+    --verde: #16a34a;
+    --verde-lt: #f0fdf4;
+    --amarelo: #d97706;
+    --amarelo-lt: #fffbeb;
+    --vermelho: #dc2626;
+    --vermelho-lt: #fef2f2;
+    --cinza: #64748b;
+    --borda: #e2e8f0;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --txt: #1e293b;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--txt); min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    background: var(--azul); color: #fff;
+    padding: 0 24px; height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+  }
+  .header-logo { font-size: 15px; font-weight: 700; letter-spacing: .5px; }
+  .header-sub  { font-size: 11px; opacity: .7; margin-top: 2px; }
+  .header-user { font-size: 13px; opacity: .9; display: flex; align-items: center; gap: 10px; }
+  .btn-sair { background: rgba(255,255,255,.15); border: none; color: #fff; padding: 6px 14px;
+              border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .btn-sair:hover { background: rgba(255,255,255,.25); }
+
+  /* ── Layout ── */
+  main { max-width: 960px; margin: 0 auto; padding: 28px 20px; }
+
+  /* ── Telas ── */
+  .tela { display: none; }
+  .tela.ativa { display: block; }
+
+  /* ── Login ── */
+  .login-box {
+    max-width: 420px; margin: 80px auto;
+    background: var(--card); border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.08);
+    overflow: hidden;
+  }
+  .login-header { background: var(--azul); padding: 28px 32px; text-align: center; }
+  .login-header h1 { color: #fff; font-size: 20px; }
+  .login-header p  { color: #93c5fd; font-size: 12px; margin-top: 4px; }
+  .login-body { padding: 32px; }
+  .login-body p { font-size: 14px; color: var(--cinza); margin-bottom: 20px; line-height: 1.6; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .form-group input {
+    width: 100%; padding: 10px 14px; border: 1px solid var(--borda);
+    border-radius: var(--radius); font-size: 14px; outline: none; transition: border .2s;
+  }
+  .form-group input:focus { border-color: var(--azul-md); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+  .btn-primary {
+    width: 100%; background: var(--azul); color: #fff;
+    border: none; padding: 12px; border-radius: var(--radius);
+    font-size: 15px; font-weight: 600; cursor: pointer; transition: background .2s;
+  }
+  .btn-primary:hover { background: #163152; }
+  .btn-primary:disabled { background: #94a3b8; cursor: default; }
+  .msg-sucesso { background: var(--verde-lt); border: 1px solid #bbf7d0; color: var(--verde);
+                 padding: 14px 18px; border-radius: var(--radius); font-size: 14px;
+                 margin-top: 16px; display: none; }
+  .msg-erro    { background: var(--vermelho-lt); border: 1px solid #fecaca; color: var(--vermelho);
+                 padding: 12px 16px; border-radius: var(--radius); font-size: 13px;
+                 margin-top: 12px; display: none; }
+
+  /* ── Cards de medição ── */
+  .page-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .page-sub   { font-size: 13px; color: var(--cinza); margin-bottom: 24px; }
+  .med-grid { display: grid; gap: 16px; }
+  .med-card {
+    background: var(--card); border: 1px solid var(--borda); border-radius: 10px;
+    padding: 18px 20px; cursor: pointer; transition: box-shadow .2s, border-color .2s;
+  }
+  .med-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); border-color: var(--azul-md); }
+  .med-card-top   { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .med-card-titulo { font-weight: 700; font-size: 15px; }
+  .med-card-sub    { font-size: 12px; color: var(--cinza); margin-top: 2px; }
+  .med-card-info   { display: flex; gap: 20px; margin-top: 12px; flex-wrap: wrap; }
+  .med-info-item   { font-size: 12px; }
+  .med-info-label  { color: var(--cinza); display: block; }
+  .med-info-val    { font-weight: 600; font-size: 14px; }
+
+  /* ── Status badges ── */
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; white-space: nowrap;
+  }
+  .badge-rascunho   { background: #f1f5f9; color: #64748b; }
+  .badge-aguardando { background: var(--amarelo-lt); color: var(--amarelo); }
+  .badge-aprovado   { background: var(--verde-lt); color: var(--verde); }
+  .badge-assinatura { background: #eff6ff; color: #2563eb; }
+  .badge-assinado   { background: #f0f9ff; color: #0284c7; }
+  .badge-reprovado  { background: var(--vermelho-lt); color: var(--vermelho); }
+  .badge-pago       { background: #dcfce7; color: #15803d; font-weight: 700; }
+
+  /* ── Detalhe ── */
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--azul-md); cursor: pointer;
+    margin-bottom: 20px; background: none; border: none;
+  }
+  .back-btn:hover { text-decoration: underline; }
+  .detail-header { background: var(--card); border: 1px solid var(--borda); border-radius: 10px; padding: 20px 24px; margin-bottom: 20px; }
+  .detail-title  { font-size: 18px; font-weight: 700; }
+  .detail-meta   { display: flex; gap: 24px; margin-top: 12px; flex-wrap: wrap; }
+  .detail-meta-item label { font-size: 11px; color: var(--cinza); display: block; }
+  .detail-meta-item span  { font-weight: 600; font-size: 13px; }
+  .section-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--azul); border-bottom: 2px solid var(--azul-lt); padding-bottom: 6px; }
+  .section-card  { background: var(--card); border: 1px solid var(--borda); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .historico-item { padding: 10px 0; border-bottom: 1px solid var(--borda); }
+  .historico-item:last-child { border-bottom: none; }
+  .hist-nivel  { font-size: 11px; color: var(--cinza); }
+  .hist-acao   { font-weight: 600; font-size: 13px; }
+  .hist-data   { font-size: 11px; color: var(--cinza); }
+  .hist-coment { font-size: 12px; color: #475569; margin-top: 3px; font-style: italic; }
+  .itens-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .itens-table th { background: #f8fafc; padding: 8px 10px; text-align: left; font-size: 11px; color: var(--cinza); font-weight: 600; border-bottom: 1px solid var(--borda); }
+  .itens-table td { padding: 8px 10px; border-bottom: 1px solid var(--borda); }
+  .itens-table tr:last-child td { border-bottom: none; }
+  .valor-destaque { font-size: 20px; font-weight: 700; color: var(--azul); }
+
+  /* ── Upload NF ── */
+  .nf-upload-area {
+    border: 2px dashed var(--borda); border-radius: var(--radius);
+    padding: 24px; text-align: center; cursor: pointer;
+    transition: border-color .2s; margin-bottom: 16px;
+  }
+  .nf-upload-area:hover, .nf-upload-area.drag { border-color: var(--azul-md); background: var(--azul-lt); }
+  .nf-upload-area input[type=file] { display: none; }
+  .nf-upload-icon { font-size: 32px; display: block; margin-bottom: 8px; }
+  .nf-upload-txt  { font-size: 13px; color: var(--cinza); }
+  .nf-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .nf-fields .full { grid-column: 1 / -1; }
+  .nf-item { background: var(--verde-lt); border: 1px solid #bbf7d0; border-radius: var(--radius); padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .nf-item-nome  { font-size: 13px; font-weight: 600; }
+  .nf-item-meta  { font-size: 11px; color: var(--cinza); }
+  .btn-sm { padding: 7px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
+  .btn-success { background: var(--verde); color: #fff; }
+  .btn-success:hover { background: #15803d; }
+  .btn-outline { background: transparent; border: 1px solid var(--borda); color: var(--txt); }
+  .btn-outline:hover { background: #f1f5f9; }
+
+  /* ── AI extraction ── */
+  .btn-ai {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-ai:hover { background: linear-gradient(135deg, #4338ca, #6d28d9); }
+  .btn-ai:disabled { background: #94a3b8; cursor: default; }
+  .btn-xml {
+    background: #0ea5e9; color: #fff;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-xml:hover { background: #0284c7; }
+  .btn-xml:disabled { background: #94a3b8; cursor: default; }
+  .nf-expandido {
+    display: none; border: 1px solid #c7d7f4; border-radius: var(--radius);
+    padding: 16px; margin-bottom: 14px; background: #f5f8ff;
+  }
+  .nf-expandido.visivel { display: block; }
+  .nf-ai-secao { margin-bottom: 14px; }
+  .nf-ai-secao-titulo {
+    font-size: 11px; font-weight: 700; color: var(--azul);
+    text-transform: uppercase; letter-spacing: .5px;
+    margin-bottom: 8px; border-bottom: 1px solid #c7d7f4; padding-bottom: 4px;
+  }
+  .nf-ai-secao .nf-fields { margin-bottom: 0; }
+  .nf-textarea {
+    width: 100%; padding: 8px 12px; border: 1px solid var(--borda);
+    border-radius: var(--radius); font-size: 13px; resize: vertical;
+    font-family: inherit; outline: none; transition: border .2s;
+  }
+  .nf-textarea:focus { border-color: var(--azul-md); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+  .nf-select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--borda);
+    border-radius: var(--radius); font-size: 14px; background: #fff; outline: none;
+  }
+
+  /* ── Validações da NF ── */
+  .nf-validacoes { margin-bottom: 14px; }
+  .nf-val-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px 14px; border-radius: 7px; margin-bottom: 6px;
+    font-size: 13px; line-height: 1.5;
+  }
+  .nf-val-erro  { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; }
+  .nf-val-aviso { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }
+  .nf-val-ok    { background: var(--verde-lt); border: 1px solid #bbf7d0; color: #166534; }
+  .nf-val-icon  { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+  .nf-val-msg   { flex: 1; }
+
+  /* ── Empty state ── */
+  .empty { text-align: center; padding: 48px 20px; color: var(--cinza); }
+  .empty-icon { font-size: 40px; display: block; margin-bottom: 12px; }
+  .empty p { font-size: 14px; }
+
+  /* ── Loading ── */
+  .spinner { display: inline-block; width: 20px; height: 20px;
+             border: 3px solid rgba(255,255,255,.3); border-top-color: #fff;
+             border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-page { text-align: center; padding: 60px; color: var(--cinza); }
+  .loading-page .spinner-big { width: 40px; height: 40px; border-color: var(--borda); border-top-color: var(--azul-md); display: inline-block; border-radius: 50%; animation: spin .8s linear infinite; border-width: 4px; border-style: solid; }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: #1e293b; color: #fff; padding: 12px 22px; border-radius: 8px;
+    font-size: 14px; transition: transform .3s; z-index: 9999; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,.2);
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.erro { background: var(--vermelho); }
+  #toast.ok   { background: var(--verde); }
+
+  @media (max-width: 600px) {
+    .nf-fields { grid-template-columns: 1fr; }
+    .detail-meta { gap: 14px; }
+    .med-card-info { gap: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="header-logo">CONSTRUTIVO OBRAS</div>
+    <div class="header-sub">Portal do Fornecedor</div>
+  </div>
+  <div class="header-user" id="header-user" style="display:none">
+    <span id="header-nome"></span>
+    <button class="btn-sair" onclick="Portal.sair()">Sair</button>
+  </div>
+</header>
+
+<div id="toast"></div>
+
+<!-- ── Tela: Login ── -->
+<div id="tela-login" class="tela ativa">
+  <div class="login-box">
+    <div class="login-header">
+      <h1>🏗️ Portal do Fornecedor</h1>
+      <p>CONSTRUTIVO OBRAS</p>
+    </div>
+    <div class="login-body">
+      <p>Informe o e-mail cadastrado no sistema para receber seu link de acesso. Nenhuma senha é necessária.</p>
+      <div class="form-group">
+        <label for="login-email">E-mail cadastrado</label>
+        <input type="email" id="login-email" placeholder="seu@email.com.br" autocomplete="email">
+      </div>
+      <button class="btn-primary" id="btn-solicitar" onclick="Portal.solicitarAcesso()">
+        Enviar link de acesso
+      </button>
+      <div class="msg-sucesso" id="msg-sucesso">
+        ✅ Link enviado! Verifique sua caixa de entrada e spam.
+        O link é válido por <strong>24 horas</strong>.
+      </div>
+      <div class="msg-erro" id="msg-erro"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tela: Lista de Medições ── -->
+<div id="tela-lista" class="tela">
+  <main>
+    <div class="page-title" id="lista-titulo">Suas Medições</div>
+    <div class="page-sub"  id="lista-sub"></div>
+    <div id="lista-medicoes" class="med-grid"></div>
+  </main>
+</div>
+
+<!-- ── Tela: Detalhe da Medição ── -->
+<div id="tela-detalhe" class="tela">
+  <main>
+    <button class="back-btn" onclick="Portal.irLista()">← Voltar para lista</button>
+    <div id="detalhe-conteudo"></div>
+  </main>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+// PORTAL — Frontend do Fornecedor
+// ═══════════════════════════════════════
+
+const API_BASE = '/api/portal';
+let _token = null;
+let _forn  = null;
+
+const Portal = {
+
+  // ── Inicialização ──────────────────────────────────────────────
+  async init() {
+    // Verifica se há token mágico na URL (acesso via link de e-mail)
+    const params = new URLSearchParams(window.location.search);
+    const magicToken = params.get('token');
+    if (magicToken) {
+      history.replaceState({}, '', '/portal.html'); // limpa token da URL
+      await this._verificarToken(magicToken);
+      return;
+    }
+    // Verifica se já tem sessão salva no localStorage
+    const sessao = localStorage.getItem('portal_session');
+    if (sessao) {
+      try {
+        const { token, forn } = JSON.parse(sessao);
+        // Verifica expiração decodificando o JWT (sem validar assinatura no client)
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.exp * 1000 > Date.now()) {
+          _token = token;
+          _forn  = forn;
+          await this.irLista();
+          return;
+        }
+      } catch {}
+      localStorage.removeItem('portal_session');
+    }
+    this._mostrarTela('login');
+  },
+
+  // ── Autenticação ───────────────────────────────────────────────
+  async solicitarAcesso() {
+    const email = document.getElementById('login-email').value.trim();
+    if (!email) { this._toast('Informe seu e-mail', 'erro'); return; }
+
+    const btn = document.getElementById('btn-solicitar');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Enviando...';
+
+    const ok = await document.getElementById('msg-sucesso');
+    const er = document.getElementById('msg-erro');
+    ok.style.display = 'none';
+    er.style.display = 'none';
+
+    try {
+      const r = await fetch(`${API_BASE}/solicitar-acesso`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Erro ao enviar');
+
+      if (d.semSmtp && d.link) {
+        // SMTP não configurado — exibe o link diretamente na tela
+        ok.innerHTML = `
+          <strong>SMTP não configurado.</strong> Use o link abaixo para acessar o portal:<br><br>
+          <a href="${d.link}" style="word-break:break-all;color:#1e3a5f">${d.link}</a><br>
+          <small style="color:#64748b">Válido até ${new Date(d.expira_em).toLocaleString('pt-BR')}</small>`;
+      } else {
+        ok.innerHTML = 'Link de acesso enviado! Verifique seu e-mail.';
+      }
+      ok.style.display = 'block';
+    } catch (e) {
+      er.textContent = e.message;
+      er.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Enviar link de acesso';
+    }
+  },
+
+  async _verificarToken(magicToken) {
+    this._mostrarTela('loading');
+    try {
+      const r = await fetch(`${API_BASE}/verificar?token=${magicToken}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Link inválido');
+      _token = d.token;
+      _forn  = d.fornecedor;
+      localStorage.setItem('portal_session', JSON.stringify({ token: _token, forn: _forn }));
+      await this.irLista();
+    } catch (e) {
+      this._mostrarTela('login');
+      const er = document.getElementById('msg-erro');
+      er.textContent = '❌ ' + e.message;
+      er.style.display = 'block';
+    }
+  },
+
+  sair() {
+    localStorage.removeItem('portal_session');
+    _token = null; _forn = null;
+    document.getElementById('header-user').style.display = 'none';
+    this._mostrarTela('login');
+  },
+
+  // ── Lista de medições ──────────────────────────────────────────
+  async irLista() {
+    this._mostrarTela('lista');
+    document.getElementById('header-user').style.display = 'flex';
+    document.getElementById('header-nome').textContent = _forn?.nome || '';
+    document.getElementById('lista-titulo').textContent = `Suas Medições`;
+    document.getElementById('lista-sub').textContent   = `${_forn?.nome || ''} — acompanhe o status das suas medições`;
+
+    const el = document.getElementById('lista-medicoes');
+    el.innerHTML = '<div class="loading-page"><div class="spinner-big"></div></div>';
+
+    try {
+      const r   = await this._fetch(`${API_BASE}/medicoes`);
+      const meds = await r.json();
+
+      if (!meds.length) {
+        el.innerHTML = `<div class="empty"><span class="empty-icon">📋</span><p>Nenhuma medição encontrada.</p></div>`;
+        return;
+      }
+
+      el.innerHTML = meds.map(m => `
+        <div class="med-card" onclick="Portal.verDetalhe(${m.id})">
+          <div class="med-card-top">
+            <div>
+              <div class="med-card-titulo">${m.codigo}</div>
+              <div class="med-card-sub">${m.obra_nome} · ${m.empresa_nome}</div>
+            </div>
+            ${this._badge(m.status)}
+          </div>
+          <div class="med-card-info">
+            <div class="med-info-item">
+              <span class="med-info-label">Período</span>
+              <span class="med-info-val">${this._periodo(m.periodo)}</span>
+            </div>
+            <div class="med-info-item">
+              <span class="med-info-label">Valor</span>
+              <span class="med-info-val">${this._fmt(m.valor_medicao)}</span>
+            </div>
+            <div class="med-info-item">
+              <span class="med-info-label">Contrato</span>
+              <span class="med-info-val">${m.contrato_numero}</span>
+            </div>
+            ${m.total_nfs > 0 ? `<div class="med-info-item"><span class="med-info-label">NFs enviadas</span><span class="med-info-val" style="color:var(--verde)">✓ ${m.total_nfs}</span></div>` : ''}
+          </div>
+        </div>
+      `).join('');
+    } catch (e) {
+      el.innerHTML = `<div class="msg-erro" style="display:block">${e.message}</div>`;
+    }
+  },
+
+  // ── Detalhe da medição ─────────────────────────────────────────
+  async verDetalhe(id) {
+    this._mostrarTela('detalhe');
+    const el = document.getElementById('detalhe-conteudo');
+    el.innerHTML = '<div class="loading-page"><div class="spinner-big"></div></div>';
+
+    try {
+      const r   = await this._fetch(`${API_BASE}/medicoes/${id}`);
+      const med = await r.json();
+      el.innerHTML = this._renderDetalhe(med);
+    } catch (e) {
+      el.innerHTML = `<div class="msg-erro" style="display:block">${e.message}</div>`;
+    }
+  },
+
+  _renderDetalhe(m) {
+    const isPago   = m.status === 'Pago' || (m.nfs || []).some(nf => nf.status_fin === 'Pago');
+    const statusOk = !isPago && ['Aprovado', 'Em Assinatura', 'Assinado'].includes(m.status);
+    const itensHtml = m.itens?.length
+      ? `<table class="itens-table">
+           <thead><tr><th>Descrição</th><th>Un.</th><th style="text-align:right">Qtd Mês</th><th style="text-align:right">Valor</th></tr></thead>
+           <tbody>${m.itens.map(it => `
+             <tr>
+               <td>${it.descricao}</td>
+               <td>${it.unidade}</td>
+               <td style="text-align:right">${parseFloat(it.qtd_mes||0).toLocaleString('pt-BR',{maximumFractionDigits:4})}</td>
+               <td style="text-align:right">${this._fmt(it.valor_item)}</td>
+             </tr>`).join('')}
+           </tbody>
+         </table>`
+      : '<p style="font-size:13px;color:var(--cinza)">Sem itens detalhados.</p>';
+
+    const histHtml = m.historico?.filter(h => h.acao !== 'lançado').length
+      ? m.historico.filter(h => h.acao !== 'lançado').map(h => `
+          <div class="historico-item">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="hist-nivel">${h.nivel}</span>
+              <span class="hist-data">${new Date(h.data_hora).toLocaleString('pt-BR')}</span>
+            </div>
+            <div class="hist-acao" style="color:${h.acao==='aprovado'?'var(--verde)':'var(--vermelho)'}">
+              ${h.acao === 'aprovado' ? '✅ Aprovado' : '❌ Reprovado'} — ${h.usuario}
+            </div>
+            ${h.comentario ? `<div class="hist-coment">"${h.comentario}"</div>` : ''}
+          </div>`).join('')
+      : '<p style="font-size:13px;color:var(--cinza)">Sem aprovações registradas ainda.</p>';
+
+    const _nfStatusBadge = s => {
+      const map = {
+        'Pendente':         ['var(--amarelo,#b45309)',  'rgba(234,179,8,.15)'],
+        'Em Processamento': ['var(--azul,#1d4ed8)',     'rgba(59,130,246,.15)'],
+        'Integrado ERP':    ['var(--verde,#0f766e)',    'rgba(20,184,166,.15)'],
+        'Pago':             ['var(--verde,#15803d)',    'rgba(34,197,94,.15)'],
+      };
+      const [c, b] = map[s] || ['#888', '#f1f5f9'];
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;color:${c};background:${b}">${s}</span>`;
+    };
+
+    const nfsHtml = m.nfs?.length
+      ? m.nfs.map(nf => `
+          <div class="nf-item">
+            <div style="flex:1">
+              <div class="nf-item-nome">📄 ${nf.nome_arquivo}</div>
+              <div class="nf-item-meta">
+                ${nf.numero_nf ? `NF ${nf.numero_nf}` : ''}
+                ${nf.valor_nf  ? ` · ${this._fmt(nf.valor_nf)}` : ''}
+                · ${new Date(nf.enviado_em).toLocaleDateString('pt-BR')}
+              </div>
+            </div>
+            <div style="flex-shrink:0">${_nfStatusBadge(nf.status_fin || 'Pendente')}</div>
+          </div>`).join('')
+      : '';
+
+    return `
+      <div class="detail-header">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+          <div class="detail-title">${m.codigo}</div>
+          ${this._badge(m.status)}
+        </div>
+        <div class="detail-meta">
+          <div class="detail-meta-item"><label>Obra</label><span>${m.obra_nome}</span></div>
+          <div class="detail-meta-item"><label>Empresa</label><span>${m.empresa_nome}</span></div>
+          <div class="detail-meta-item"><label>Contrato</label><span>${m.contrato_numero}</span></div>
+          <div class="detail-meta-item"><label>Período</label><span>${this._periodo(m.periodo)}</span></div>
+        </div>
+        <div style="margin-top:16px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:11px;color:var(--cinza)">Valor desta medição</div>
+            <div class="valor-destaque">${this._fmt(m.valor_medicao)}</div>
+          </div>
+          ${m.pct_total > 0 ? `<div><div style="font-size:11px;color:var(--cinza)">Progresso</div><div style="font-size:18px;font-weight:700">${m.pct_total}%</div></div>` : ''}
+        </div>
+        ${m.descricao ? `<div style="margin-top:12px;font-size:13px;color:var(--cinza);border-top:1px solid var(--borda);padding-top:12px">${m.descricao}</div>` : ''}
+      </div>
+
+      <div class="section-card">
+        <div class="section-title">📋 Itens Medidos</div>
+        ${itensHtml}
+      </div>
+
+      <div class="section-card">
+        <div class="section-title">📝 Histórico de Aprovação</div>
+        ${histHtml}
+      </div>
+
+      ${isPago ? `
+      <div class="section-card" style="border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.04)">
+        <div class="section-title" style="color:var(--verde,#15803d)">✅ Nota Fiscal — PAGO</div>
+        ${nfsHtml}
+        <div style="margin-top:14px;padding:12px 14px;background:rgba(34,197,94,.08);border-radius:8px;border-left:3px solid var(--verde,#15803d)">
+          <div style="font-size:13px;font-weight:600;color:var(--verde,#15803d);margin-bottom:4px">Pagamento confirmado</div>
+          <div style="font-size:12px;color:var(--cinza)">Esta medição foi paga. Nenhuma alteração é permitida neste ponto.</div>
+        </div>
+      </div>` : ''}
+
+      ${statusOk ? `
+      <div class="section-card">
+        <div class="section-title">📎 Nota Fiscal</div>
+        ${nfsHtml}
+        <div style="margin-top:12px">
+          <div id="nf-form-${m.id}">
+            <p style="font-size:13px;color:var(--cinza);margin-bottom:14px">
+              Sua medição está <strong>${m.status}</strong>. Você pode enviar a Nota Fiscal agora.
+            </p>
+            <!-- Upload -->
+            <div class="nf-upload-area" id="nf-drop-${m.id}" onclick="document.getElementById('nf-file-${m.id}').click()">
+              <span class="nf-upload-icon">📤</span>
+              <input type="file" id="nf-file-${m.id}" accept=".pdf,.xml,.png,.jpg,.jpeg"
+                     onchange="Portal.onNfFile(${m.id}, this)">
+              <div class="nf-upload-txt">Clique ou arraste o arquivo da NF aqui<br><small>PDF, XML ou imagem — máx. 20 MB</small></div>
+              <div id="nf-file-nome-${m.id}" style="font-weight:600;font-size:13px;margin-top:8px"></div>
+            </div>
+
+            <!-- Botão IA (aparece ao selecionar arquivo) -->
+            <div style="margin-bottom:14px">
+              <button class="btn-sm btn-ai" id="btn-ai-${m.id}"
+                      onclick="Portal.extrairNFcomIA(${m.id})" style="display:none">
+                🤖 Analisar com IA
+              </button>
+            </div>
+
+            <!-- Resultado das validações (preenchido pela IA) -->
+            <div class="nf-validacoes" id="nf-validacoes-${m.id}" style="display:none"></div>
+
+            <!-- Campos básicos -->
+            <div class="nf-fields">
+              <div class="form-group">
+                <label>Número da NF</label>
+                <input type="text" id="nf-numero-${m.id}" placeholder="Ex: 000123">
+              </div>
+              <div class="form-group">
+                <label>Valor da NF (R$)</label>
+                <input type="number" id="nf-valor-${m.id}" placeholder="${this._fmtNum(m.valor_medicao)}" step="0.01">
+              </div>
+              <div class="form-group full">
+                <label>Chave de Acesso NFS-e (opcional)</label>
+                <input type="text" id="nf-chave-${m.id}" placeholder="44 dígitos" maxlength="44">
+              </div>
+              <div class="form-group full">
+                <label>Observações (opcional)</label>
+                <input type="text" id="nf-obs-${m.id}" placeholder="Observações adicionais">
+              </div>
+            </div>
+
+            <!-- Seção expandida — preenchida pela IA -->
+            <div class="nf-expandido" id="nf-expandido-${m.id}">
+              <p style="font-size:12px;color:#4338ca;margin-bottom:12px">
+                ✅ Dados extraídos pela IA. Confira e corrija se necessário antes de baixar o XML.
+              </p>
+
+              <div class="nf-ai-secao">
+                <div class="nf-ai-secao-titulo">🏢 Prestador de Serviços</div>
+                <div class="nf-fields">
+                  <div class="form-group">
+                    <label>CNPJ</label>
+                    <input type="text" id="nfe-prest-cnpj-${m.id}" placeholder="00.000.000/0000-00">
+                  </div>
+                  <div class="form-group">
+                    <label>Inscrição Municipal</label>
+                    <input type="text" id="nfe-prest-im-${m.id}">
+                  </div>
+                  <div class="form-group full">
+                    <label>Razão Social</label>
+                    <input type="text" id="nfe-prest-razao-${m.id}">
+                  </div>
+                </div>
+              </div>
+
+              <div class="nf-ai-secao">
+                <div class="nf-ai-secao-titulo">👤 Tomador de Serviços</div>
+                <div class="nf-fields">
+                  <div class="form-group">
+                    <label>CNPJ / CPF</label>
+                    <input type="text" id="nfe-tom-cnpj-${m.id}">
+                  </div>
+                  <div class="form-group">
+                    <label>Município</label>
+                    <input type="text" id="nfe-tom-mun-${m.id}">
+                  </div>
+                  <div class="form-group full">
+                    <label>Razão Social / Nome</label>
+                    <input type="text" id="nfe-tom-razao-${m.id}">
+                  </div>
+                  <div class="form-group full">
+                    <label>Endereço Completo</label>
+                    <input type="text" id="nfe-tom-end-${m.id}">
+                  </div>
+                </div>
+              </div>
+
+              <div class="nf-ai-secao">
+                <div class="nf-ai-secao-titulo">🔧 Serviço Prestado</div>
+                <div class="nf-fields">
+                  <div class="form-group">
+                    <label>Item da LC 116/2003</label>
+                    <input type="text" id="nfe-serv-item-${m.id}" placeholder="Ex: 7.02">
+                  </div>
+                  <div class="form-group">
+                    <label>Cód. IBGE Município Prestação</label>
+                    <input type="text" id="nfe-serv-ibge-${m.id}" placeholder="Ex: 3550308">
+                  </div>
+                  <div class="form-group full">
+                    <label>Discriminação do Serviço</label>
+                    <textarea class="nf-textarea" id="nfe-serv-disc-${m.id}" rows="3"></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <div class="nf-ai-secao">
+                <div class="nf-ai-secao-titulo">💰 Valores e ISS</div>
+                <div class="nf-fields">
+                  <div class="form-group">
+                    <label>Valor Bruto (R$)</label>
+                    <input type="number" id="nfe-val-bruto-${m.id}" step="0.01">
+                  </div>
+                  <div class="form-group">
+                    <label>Alíquota ISS (%)</label>
+                    <input type="number" id="nfe-val-aliq-${m.id}" step="0.0001" placeholder="Ex: 3">
+                  </div>
+                  <div class="form-group">
+                    <label>Valor ISS (R$)</label>
+                    <input type="number" id="nfe-val-iss-${m.id}" step="0.01">
+                  </div>
+                  <div class="form-group">
+                    <label>ISS Retido na Fonte?</label>
+                    <select class="nf-select" id="nfe-val-retido-${m.id}">
+                      <option value="N">Não</option>
+                      <option value="S">Sim</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Valor Líquido (R$)</label>
+                    <input type="number" id="nfe-val-liquido-${m.id}" step="0.01">
+                  </div>
+                  <div class="form-group">
+                    <label>Deduções (R$)</label>
+                    <input type="number" id="nfe-val-deducoes-${m.id}" step="0.01" placeholder="0,00">
+                  </div>
+                </div>
+              </div>
+
+              <div class="nf-ai-secao">
+                <div class="nf-ai-secao-titulo">📋 RPS — Recibo Provisório de Serviços</div>
+                <div class="nf-fields">
+                  <div class="form-group">
+                    <label>Número RPS</label>
+                    <input type="text" id="nfe-rps-num-${m.id}">
+                  </div>
+                  <div class="form-group">
+                    <label>Série</label>
+                    <input type="text" id="nfe-rps-serie-${m.id}" placeholder="RPS">
+                  </div>
+                  <div class="form-group">
+                    <label>Data de Emissão</label>
+                    <input type="date" id="nfe-rps-data-${m.id}">
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- /nf-expandido -->
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn-sm btn-success" id="btn-nf-${m.id}" onclick="Portal.enviarNF(${m.id})">
+                📤 Enviar Nota Fiscal
+              </button>
+              <button class="btn-sm btn-xml" id="btn-xml-${m.id}"
+                      onclick="Portal.baixarXmlNFSe(${m.id})" style="display:none">
+                📥 Baixar XML NFS-e
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>` : ''}
+    `;
+  },
+
+  // ── Upload NF ──────────────────────────────────────────────────
+  _nfFile: {},
+  _nfDados: {},
+  _nfValidacoes: {},
+
+  onNfFile(id, input) {
+    const file = input.files[0];
+    if (!file) return;
+    this._nfFile[id] = file;
+    document.getElementById(`nf-file-nome-${id}`).textContent = `✓ ${file.name}`;
+    // Exibe botão de análise com IA
+    const btnAi = document.getElementById(`btn-ai-${id}`);
+    if (btnAi) btnAi.style.display = 'inline-flex';
+  },
+
+  // ── Extração de dados NFS-e com Gemini AI ─────────────────────
+  async extrairNFcomIA(id) {
+    const file = this._nfFile[id];
+    if (!file) { this._toast('Selecione o arquivo da NF primeiro', 'erro'); return; }
+
+    const btn = document.getElementById(`btn-ai-${id}`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Analisando com IA…';
+
+    try {
+      const fd = new FormData();
+      fd.append('arquivo', file);
+
+      const r = await fetch(`${API_BASE}/medicoes/${id}/nf/extrair`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${_token}` },
+        body: fd,
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Erro na extração IA');
+
+      // API retorna { ok: true, dados: { ... } } com campos camelCase
+      const dados = d.dados || d;
+      this._nfDados[id]      = dados;
+      this._nfValidacoes[id] = d.validacoes || [];
+
+      // ── Preenche campos básicos ──
+      if (dados.numero)           document.getElementById(`nf-numero-${id}`).value = dados.numero;
+      if (dados.valores?.valorServicos) document.getElementById(`nf-valor-${id}`).value = dados.valores.valorServicos;
+      if (dados.chaveAcesso)      document.getElementById(`nf-chave-${id}`).value  = dados.chaveAcesso;
+      // Pré-preenche obs com código da medição (rastreabilidade)
+      const obsEl = document.getElementById(`nf-obs-${id}`);
+      const codigoMed = dados._medicao?.codigo || '';
+      if (obsEl && codigoMed && !obsEl.value) obsEl.value = `Medição: ${codigoMed}`;
+
+      // ── Helper para setar campo (input ou textarea) ──
+      const set = (fieldId, val) => {
+        if (val == null || val === '') return;
+        const el = document.getElementById(`nfe-${fieldId}-${id}`);
+        if (el) el.value = val;
+      };
+
+      // Prestador (camelCase conforme retorno da API)
+      set('prest-cnpj',  dados.prestador?.cnpj);
+      set('prest-im',    dados.prestador?.inscricaoMunicipal);
+      set('prest-razao', dados.prestador?.razaoSocial);
+
+      // Tomador
+      set('tom-cnpj',  dados.tomador?.cnpj || dados.tomador?.cpf);
+      set('tom-razao', dados.tomador?.razaoSocial);
+      set('tom-end',   dados.tomador?.endereco);
+      set('tom-mun',   dados.tomador?.municipio);
+
+      // Serviço
+      set('serv-disc', dados.servico?.discriminacao);
+      set('serv-item', dados.servico?.itemListaServico);
+      set('serv-ibge', dados.servico?.codigoMunicipio);
+
+      // Valores
+      set('val-bruto',    dados.valores?.valorServicos);
+      set('val-aliq',     dados.valores?.aliquota);
+      set('val-iss',      dados.valores?.valorIss);
+      set('val-liquido',  dados.valores?.valorLiquido);
+      set('val-deducoes', dados.valores?.valorDeducoes);
+      // issRetido: "1" = retido, "2" = não retido
+      const selRetido = document.getElementById(`nfe-val-retido-${id}`);
+      if (selRetido) selRetido.value = dados.valores?.issRetido === '1' ? 'S' : 'N';
+
+      // RPS
+      set('rps-num',   dados.rps?.numero);
+      set('rps-serie', dados.rps?.serie);
+      set('rps-data',  dados.dataEmissao);
+
+      // ── Exibe validações ──────────────────────────────────────────
+      const valBox = document.getElementById(`nf-validacoes-${id}`);
+      if (valBox) {
+        const validacoes = d.validacoes || [];
+        if (!validacoes.length) {
+          valBox.innerHTML = `
+            <div class="nf-val-item nf-val-ok">
+              <span class="nf-val-icon">✅</span>
+              <span class="nf-val-msg">Todos os dados validados com sucesso: CNPJ, valor e tributação conferem.</span>
+            </div>`;
+        } else {
+          const temErro = validacoes.some(v => v.nivel === 'erro');
+          valBox.innerHTML = validacoes.map(v => `
+            <div class="nf-val-item nf-val-${v.nivel}">
+              <span class="nf-val-icon">${v.nivel === 'erro' ? '❌' : '⚠️'}</span>
+              <span class="nf-val-msg">${v.msg}</span>
+            </div>`).join('');
+          // Aviso global se houver erros
+          if (temErro) {
+            valBox.innerHTML = `
+              <div class="nf-val-item nf-val-erro" style="font-weight:700">
+                <span class="nf-val-icon">🚫</span>
+                <span class="nf-val-msg">Foram encontrados erros críticos. Corrija-os antes de enviar a NF.</span>
+              </div>` + valBox.innerHTML;
+          }
+        }
+        valBox.style.display = 'block';
+      }
+
+      // Se a discriminação não tem o código da medição, sugere adicioná-lo
+      const medicaoCodigo = dados._medicao?.codigo || '';
+      const discAtual = document.getElementById(`nfe-serv-disc-${id}`)?.value || '';
+      if (medicaoCodigo && !discAtual.toUpperCase().includes(medicaoCodigo.toUpperCase())) {
+        const discEl = document.getElementById(`nfe-serv-disc-${id}`);
+        if (discEl && discEl.value) {
+          discEl.value = discEl.value + `\nMedição: ${medicaoCodigo}`;
+        } else if (discEl) {
+          discEl.value = `Medição: ${medicaoCodigo}`;
+        }
+      }
+
+      // Mostra seção expandida e botão XML
+      const exp = document.getElementById(`nf-expandido-${id}`);
+      if (exp) exp.classList.add('visivel');
+      const btnXml = document.getElementById(`btn-xml-${id}`);
+      if (btnXml) btnXml.style.display = 'inline-flex';
+
+      const temErros = (d.validacoes || []).some(v => v.nivel === 'erro');
+      this._toast(
+        temErros ? '⚠️ Dados extraídos com pendências. Veja os alertas.' : '✅ Dados extraídos! Confira os campos.',
+        temErros ? 'erro' : 'ok'
+      );
+    } catch (e) {
+      this._toast('Erro IA: ' + e.message, 'erro');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🤖 Analisar com IA';
+    }
+  },
+
+  // ── Geração de XML NFS-e ABRASF 2.01 ─────────────────────────
+  async baixarXmlNFSe(id) {
+    const btn = document.getElementById(`btn-xml-${id}`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    // Lê valores atuais do formulário (podem ter sido editados após extração IA)
+    const gv = (fieldId) => {
+      const el = document.getElementById(`nfe-${fieldId}-${id}`);
+      return el ? el.value : null;
+    };
+
+    // Monta payload no formato camelCase que o backend espera
+    // (mesma estrutura retornada pelo Gemini / usada pelo /nf/xml)
+    const base = this._nfDados[id] || {};
+    const retidoSel = document.getElementById(`nfe-val-retido-${id}`)?.value;
+    const dadosXml = {
+      ...base,
+      numero:      document.getElementById(`nf-numero-${id}`)?.value || base.numero || '',
+      dataEmissao: gv('rps-data') || base.dataEmissao || new Date().toISOString().slice(0,10),
+      prestador: {
+        ...(base.prestador || {}),
+        cnpj:                gv('prest-cnpj')  || base.prestador?.cnpj  || '',
+        inscricaoMunicipal:  gv('prest-im')    || base.prestador?.inscricaoMunicipal || '',
+        razaoSocial:         gv('prest-razao') || base.prestador?.razaoSocial || '',
+      },
+      tomador: {
+        ...(base.tomador || {}),
+        cnpj:        gv('tom-cnpj')  || base.tomador?.cnpj  || '',
+        razaoSocial: gv('tom-razao') || base.tomador?.razaoSocial || '',
+        endereco:    gv('tom-end')   || base.tomador?.endereco || '',
+        municipio:   gv('tom-mun')   || base.tomador?.municipio || '',
+      },
+      servico: {
+        ...(base.servico || {}),
+        discriminacao:    gv('serv-disc') || base.servico?.discriminacao    || '',
+        itemListaServico: gv('serv-item') || base.servico?.itemListaServico || '',
+        codigoMunicipio:  gv('serv-ibge') || base.servico?.codigoMunicipio  || '',
+      },
+      valores: {
+        ...(base.valores || {}),
+        valorServicos: parseFloat(gv('val-bruto')    || base.valores?.valorServicos || 0),
+        aliquota:      parseFloat(gv('val-aliq')     || base.valores?.aliquota      || 0),
+        valorIss:      parseFloat(gv('val-iss')      || base.valores?.valorIss      || 0),
+        issRetido:     retidoSel === 'S' ? '1' : '2',
+        valorLiquido:  parseFloat(gv('val-liquido')  || base.valores?.valorLiquido  || 0),
+        valorDeducoes: parseFloat(gv('val-deducoes') || base.valores?.valorDeducoes || 0),
+      },
+      rps: {
+        ...(base.rps || {}),
+        numero: gv('rps-num')   || base.rps?.numero || '',
+        serie:  gv('rps-serie') || base.rps?.serie  || 'A1',
+      },
+    };
+    const payload = { dados: dadosXml };
+
+    try {
+      const r = await fetch(`${API_BASE}/nf/xml`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const d = await r.json();
+        throw new Error(d.error || 'Erro ao gerar XML');
+      }
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `nfse_${dadosXml.numero || 'rps'}.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      this._toast('XML NFS-e gerado!', 'ok');
+    } catch (e) {
+      this._toast(e.message, 'erro');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '📥 Baixar XML NFS-e';
+    }
+  },
+
+  async enviarNF(id) {
+    const file = this._nfFile[id];
+    if (!file) { this._toast('Selecione o arquivo da NF', 'erro'); return; }
+
+    const btn = document.getElementById(`btn-nf-${id}`);
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Enviando...';
+
+    try {
+      const fd = new FormData();
+      fd.append('arquivo',    file);
+      fd.append('numero_nf',  document.getElementById(`nf-numero-${id}`)?.value || '');
+      fd.append('valor_nf',   document.getElementById(`nf-valor-${id}`)?.value  || '');
+      fd.append('chave_nfe',  document.getElementById(`nf-chave-${id}`)?.value  || '');
+      fd.append('obs',        document.getElementById(`nf-obs-${id}`)?.value    || '');
+      // Inclui dados NFS-e extraídos pela IA (se disponíveis) para uso do backoffice
+      if (this._nfDados[id]) {
+        fd.append('dados_nfse', JSON.stringify(this._nfDados[id]));
+      }
+      // Inclui validações para exibição no painel financeiro do backoffice
+      if (this._nfValidacoes[id] && this._nfValidacoes[id].length) {
+        fd.append('validacoes', JSON.stringify(this._nfValidacoes[id]));
+      }
+
+      const r = await fetch(`${API_BASE}/medicoes/${id}/nf`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${_token}` },
+        body: fd,
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Erro ao enviar');
+
+      this._toast('Nota Fiscal enviada com sucesso!', 'ok');
+      delete this._nfFile[id];
+      await this.verDetalhe(id); // recarrega detalhe
+    } catch (e) {
+      this._toast(e.message, 'erro');
+      btn.disabled = false;
+      btn.textContent = '📤 Enviar Nota Fiscal';
+    }
+  },
+
+  // ── Helpers ────────────────────────────────────────────────────
+  async _fetch(url) {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${_token}` } });
+    if (r.status === 401) { this.sair(); throw new Error('Sessão expirada. Faça login novamente.'); }
+    return r;
+  },
+
+  _badge(status) {
+    const map = {
+      'Rascunho':      'rascunho',
+      'Aguardando N1': 'aguardando',
+      'Aguardando N2': 'aguardando',
+      'Aguardando N3': 'aguardando',
+      'Aprovado':      'aprovado',
+      'Em Assinatura': 'assinatura',
+      'Assinado':      'assinado',
+      'Reprovado':     'reprovado',
+      'Pago':          'pago',
+    };
+    return `<span class="badge badge-${map[status]||'rascunho'}">${status}</span>`;
+  },
+
+  _periodo(p) {
+    if (!p) return '—';
+    const [y, m] = p.split('-');
+    const meses = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    return `${meses[parseInt(m)]}/${y}`;
+  },
+
+  _fmt(v) {
+    return 'R$ ' + parseFloat(v||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  },
+
+  _fmtNum(v) {
+    return parseFloat(v||0).toFixed(2);
+  },
+
+  _mostrarTela(id) {
+    document.querySelectorAll('.tela').forEach(t => t.classList.remove('ativa'));
+    const el = document.getElementById(`tela-${id}`);
+    if (el) el.classList.add('ativa');
+  },
+
+  _toast(msg, tipo = '') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = tipo ? `show ${tipo}` : 'show';
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => { el.className = ''; }, 3500);
+  },
+};
+
+Portal.init();
+</script>
+</body>
+</html>

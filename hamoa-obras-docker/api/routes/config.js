@@ -13,20 +13,36 @@ const storage = require('../helpers/storage');
 
 // Mapa de chaves legíveis para exibição no log
 const _chaveLabel = {
-  permissoes:       'Permissões de grupos',
-  ldap:             'Configuração LDAP',
-  ia:               'Inteligência Artificial',
-  clicksign:        'ClickSign (assinatura)',
-  alcadas:          'Alçadas de aprovação',
-  storage:          'Armazenamento de Evidências',
+  permissoes:  'Permissões de grupos',
+  ldap:        'Configuração LDAP',
+  ia:          'Inteligência Artificial',
+  assinatura:  'Assinatura Eletrônica (D4Sign / ClickSign)',
+  clicksign:   'ClickSign (assinatura)',
+  alcadas:     'Alçadas de aprovação',
+  storage:     'Armazenamento de Evidências',
+  erp:         'Integração ERP',
+  whatsapp:    'WhatsApp (Evolution API)',
 };
 
+// Chaves sensíveis — somente ADM pode ler (contêm API keys, tokens, credenciais)
+const _chavesSensiveis = new Set(['ldap', 'assinatura', 'clicksign', 'erp', 'storage', 'ia', 'permissoes', 'whatsapp']);
+
+// Middleware: restringe escrita e leitura de chaves sensíveis a administradores
+function authADM(req, res, next) {
+  if (req.user?.perfil !== 'ADM')
+    return res.status(403).json({ error: 'Acesso restrito a administradores.' });
+  next();
+}
+
 router.get('/:chave', auth, async (req, res) => {
+  // Chaves sensíveis só podem ser lidas por ADM
+  if (_chavesSensiveis.has(req.params.chave) && req.user?.perfil !== 'ADM')
+    return res.status(403).json({ error: 'Acesso restrito a administradores.' });
   const r = await db.query('SELECT * FROM configuracoes WHERE chave=$1', [req.params.chave]);
   res.json(r.rows[0] || null);
 });
 
-router.put('/:chave', auth, async (req, res) => {
+router.put('/:chave', auth, authADM, async (req, res) => {
   const r = await db.query(
     `INSERT INTO configuracoes(chave,valor) VALUES($1,$2)
      ON CONFLICT(chave) DO UPDATE SET valor=$2,atualizado_em=NOW()

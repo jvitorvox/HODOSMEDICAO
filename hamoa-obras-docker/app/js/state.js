@@ -17,7 +17,8 @@ const Perm = {
   /** Chaves válidas de permissão */
   _keys: ['dashboard','verMedicoes','criarMedicao','aprovarN1','aprovarN2','aprovarN3',
           'acompanhamento','cadastros','alcadas','configuracoes','enviarAssinatura',
-          'cronograma','cronogramaEditar','cronogramaVinculos','cronogramaIA'],
+          'integrarErp','cronograma','cronogramaEditar','cronogramaVinculos','cronogramaIA',
+          'financeiro'],
 
   /** Retorna true se o usuário logado possui a permissão */
   has(key) {

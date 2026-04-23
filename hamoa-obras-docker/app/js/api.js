@@ -108,6 +108,9 @@ const API = (() => {
     testLdap:      (cfg) => req('POST', '/api/config/ldap/test', cfg),
     testClickSign: (cfg) => req('POST', '/api/config/clicksign/test', cfg),
 
+    // ── Integração ERP ───────────────────────────────────────────
+    integrarErp: (ids) => req('POST', '/api/medicoes/integrar-erp', { ids }),
+
     // Upload de arquivo (multipart/form-data) — não usa req() genérico
     interpretarContrato:   (file, obraId) => _uploadIA('/api/contratos/interpretar', file, obraId ? { obra_id: obraId } : undefined),
     interpretarFornecedor: (file) => _uploadIA('/api/fornecedores/interpretar', file),
@@ -232,5 +235,19 @@ const API = (() => {
     // Sync com medições
     lbmDiagnostico:     (obraId)       => req('GET',  `/api/lbm/${obraId}/sincronizar-medicoes`),
     lbmSincronizar:     (obraId)       => req('POST', `/api/lbm/${obraId}/sincronizar-medicoes`),
+
+    // ── Financeiro — fila de NFs (backoffice) ────────────────────
+    finStats:       ()            => req('GET', '/api/portal/nfs/fila/stats'),
+    finFila:        (filters)     => {
+      const qs = filters
+        ? Object.entries(filters).filter(([,v]) => v != null && v !== '').map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+        : '';
+      return req('GET', '/api/portal/nfs/fila' + (qs ? '?' + qs : ''));
+    },
+    finUpdateStatus: (id, data)   => req('PUT', `/api/portal/nfs/${id}/status`, data),
+
+    // Download de arquivo e XML NFS-e — abre direto (usa window.open ou <a>)
+    finArquivoUrl:  (id)          => `/api/portal/nfs/${id}/arquivo`,
+    finXmlUrl:      (id)          => `/api/portal/nfs/${id}/xml`,
   };
 })();

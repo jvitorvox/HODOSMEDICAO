@@ -357,12 +357,13 @@ const Configs = {
       {
         label: '📋 Medições',
         itens: [
-          ['verMedicoes',  'Ver Medições'],
-          ['criarMedicao', 'Criar Medição'],
-          ['aprovarN1',    'Aprovar N1'],
-          ['aprovarN2',    'Aprovar N2'],
-          ['aprovarN3',    'Aprovar N3'],
+          ['verMedicoes',      'Ver Medições'],
+          ['criarMedicao',     'Criar / Editar Medição e Evidências'],
+          ['aprovarN1',        'Aprovar N1'],
+          ['aprovarN2',        'Aprovar N2'],
+          ['aprovarN3',        'Aprovar N3'],
           ['enviarAssinatura', 'Enviar para Assinatura'],
+          ['integrarErp',      'Integrar com ERP'],
         ],
       },
       {
@@ -442,7 +443,7 @@ const Configs = {
       // Medições
       verMedicoes: false, criarMedicao: false,
       aprovarN1: false, aprovarN2: false, aprovarN3: false,
-      enviarAssinatura: false,
+      enviarAssinatura: false, integrarErp: false,
       // Cronograma
       cronograma: false, cronogramaEditar: false,
       cronogramaVinculos: false, cronogramaIA: false,
@@ -456,7 +457,7 @@ const Configs = {
     const perms = cfg ? cfg.valor : {};
     const telas = [
       'dashboard', 'acompanhamento',
-      'verMedicoes', 'criarMedicao', 'aprovarN1', 'aprovarN2', 'aprovarN3', 'enviarAssinatura',
+      'verMedicoes', 'criarMedicao', 'aprovarN1', 'aprovarN2', 'aprovarN3', 'enviarAssinatura', 'integrarErp',
       'cronograma', 'cronogramaEditar', 'cronogramaVinculos', 'cronogramaIA',
       'cadastros', 'alcadas', 'configuracoes',
     ];
@@ -599,6 +600,132 @@ const Configs = {
   },
 
   // ══════════════════════════════════════════════════════════════════
+  // WHATSAPP
+  // ══════════════════════════════════════════════════════════════════
+  async whatsapp() {
+    const cfg = await API.config('whatsapp').catch(() => null);
+    const c = cfg ? cfg.valor : {};
+    H.el('cfg-content').innerHTML = `
+    <div style="margin-bottom:18px">
+      <div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">WHATSAPP</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:5px">Aprovação de medições via WhatsApp usando Evolution API (self-hosted)</div>
+    </div>
+
+    <div class="ibox info" style="margin-bottom:18px">
+      <div class="ibox-title">📱 Como funciona</div>
+      <div class="ibox-text">
+        Quando uma medição entra em alçada de aprovação, o sistema envia automaticamente uma mensagem WhatsApp
+        para os aprovadores cadastrados. O aprovador responde <b>APROVAR</b> ou <b>REPROVAR</b> diretamente
+        pelo WhatsApp. Para receber notificações, cada usuário precisa ter o campo <b>Telefone</b> preenchido
+        em <a href="#" onclick="Nav.go('configuracoes');setTimeout(()=>Configs.usuarios(),200);return false" style="color:var(--accent)">Configurações → Usuários</a>.
+      </div>
+    </div>
+
+    <div class="fsec">
+      <div class="fsec-title">EVOLUTION API</div>
+      <div class="fgrid">
+        <div class="fg cs2">
+          <label class="fl">URL da API *</label>
+          <input class="fi" id="cfg-wa-url" value="${H.esc(c.api_url || '')}" placeholder="http://localhost:8080">
+          <div class="hint">Endereço do servidor Evolution API (ex: http://construtivo-whatsapp:8080)</div>
+        </div>
+        <div class="fg cs2">
+          <label class="fl">API Key *</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="fi" type="password" id="cfg-wa-key" value="${H.esc(c.api_key || '')}" placeholder="sua-api-key-aqui" style="flex:1;font-family:monospace">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cfg-wa-key').type=document.getElementById('cfg-wa-key').type==='password'?'text':'password'">👁</button>
+          </div>
+          <div class="hint">Chave de autenticação configurada no Evolution API</div>
+        </div>
+        <div class="fg">
+          <label class="fl">Nome da Instância *</label>
+          <input class="fi" id="cfg-wa-instancia" value="${H.esc(c.instancia || 'construtivo')}" placeholder="construtivo">
+          <div class="hint">Nome da instância WhatsApp no Evolution API</div>
+        </div>
+        <div class="fg" style="display:flex;align-items:flex-end">
+          <div>
+            <label class="fl">Ativo</label>
+            <label class="sw" id="cfg-wa-ativo-sw" onclick="this.querySelector('.sw-tr').classList.toggle('on')">
+              <div class="sw-tr ${c.ativo ? 'on' : ''}"><div class="sw-th"></div></div>
+              Enviar notificações WhatsApp
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="fsec" style="margin-top:16px">
+      <div class="fsec-title">STATUS DA INSTÂNCIA</div>
+      <div id="cfg-wa-status-box" style="padding:12px;background:var(--bg2);border-radius:8px;font-size:12px;color:var(--muted)">
+        Clique em "Verificar Status" para consultar o estado da instância WhatsApp.
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+      <button class="btn btn-a" onclick="Configs._saveWhatsapp()">💾 Salvar Configuração</button>
+      <button class="btn btn-o" onclick="Configs._testWhatsapp()">🔗 Verificar Status</button>
+      <button class="btn btn-ghost" onclick="Configs._waQrCode()">📷 Ver QR Code</button>
+    </div>`;
+  },
+
+  async _saveWhatsapp() {
+    const data = {
+      api_url:   H.el('cfg-wa-url').value.trim(),
+      api_key:   H.el('cfg-wa-key').value.trim(),
+      instancia: H.el('cfg-wa-instancia').value.trim() || 'construtivo',
+      ativo:     !!H.el('cfg-wa-ativo-sw')?.querySelector('.sw-tr.on'),
+    };
+    if (!data.api_url || !data.api_key) {
+      return UI.toast('URL da API e API Key são obrigatórios', 'error');
+    }
+    try {
+      await API.saveConfig('whatsapp', data);
+      UI.toast('Configuração WhatsApp salva com sucesso', 'success');
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async _testWhatsapp() {
+    const box = H.el('cfg-wa-status-box');
+    box.innerHTML = '<span style="color:var(--muted)">⏳ Consultando Evolution API...</span>';
+    try {
+      const r = await API._req('GET', '/api/whatsapp/status');
+      const s = r.instancia?.connectionStatus || r.status || 'desconhecido';
+      const cor = s === 'open' ? 'var(--green)' : s === 'connecting' ? 'var(--yellow)' : 'var(--red)';
+      const icone = s === 'open' ? '✅' : s === 'connecting' ? '⏳' : '❌';
+      box.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:20px">${icone}</span>
+          <div>
+            <div style="font-weight:600;color:${cor}">${s === 'open' ? 'Conectado' : s === 'connecting' ? 'Conectando...' : 'Desconectado'}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px">Status: <code>${H.esc(s)}</code>${r.instancia?.profileName ? ` · Número: ${H.esc(r.instancia.profileName)}` : ''}</div>
+          </div>
+        </div>`;
+    } catch(e) {
+      box.innerHTML = `<span style="color:var(--red)">❌ Erro ao conectar: ${H.esc(e.message)}</span>`;
+    }
+  },
+
+  async _waQrCode() {
+    const box = H.el('cfg-wa-status-box');
+    box.innerHTML = '<span style="color:var(--muted)">⏳ Buscando QR Code...</span>';
+    try {
+      const r = await API._req('GET', '/api/whatsapp/status');
+      if (r.qrcode) {
+        box.innerHTML = `
+          <div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Escaneie o QR Code abaixo com o WhatsApp:</div>
+            <img src="${H.esc(r.qrcode)}" style="max-width:280px;border-radius:8px;border:2px solid var(--border)">
+          </div>`;
+      } else {
+        box.innerHTML = '<span style="color:var(--muted)">Nenhum QR Code disponível. A instância pode já estar conectada.</span>';
+        await Configs._testWhatsapp();
+      }
+    } catch(e) {
+      box.innerHTML = `<span style="color:var(--red)">❌ Erro: ${H.esc(e.message)}</span>`;
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════════════
   // USUÁRIOS
   // ══════════════════════════════════════════════════════════════════
   _usuariosData: [],   // cache da lista
@@ -632,6 +759,7 @@ const Configs = {
         <td style="font-weight:600">${H.esc(u.nome || u.login)}</td>
         <td style="font-family:var(--font-m);font-size:12px;color:var(--muted)">${H.esc(u.login)}</td>
         <td style="font-size:12px">${H.esc(u.email||'—')}</td>
+        <td style="font-size:12px;color:var(--muted)">${u.telefone ? `📱 ${H.esc(u.telefone)}` : '<span style="color:var(--muted)">—</span>'}</td>
         <td style="text-align:center">${perfilBadge(u.perfil)}</td>
         <td style="font-size:11px;max-width:200px">
           ${(u.grupos_ad||[]).map(g=>`<span class="adtag" style="font-size:10px;padding:2px 7px">${H.esc(g)}</span>`).join(' ')||'<span style="color:var(--muted)">—</span>'}
@@ -659,7 +787,7 @@ const Configs = {
         <table class="tbl" style="font-size:13px">
           <thead>
             <tr>
-              <th>Nome</th><th>Login</th><th>E-mail</th>
+              <th>Nome</th><th>Login</th><th>E-mail</th><th>Telefone</th>
               <th style="text-align:center">Perfil</th>
               <th>Grupos AD</th>
               <th style="text-align:center">Status</th>
@@ -667,7 +795,7 @@ const Configs = {
               <th style="text-align:right">Ações</th>
             </tr>
           </thead>
-          <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Nenhum usuário cadastrado</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Nenhum usuário cadastrado</td></tr>'}</tbody>
         </table>
       </div>`;
 
@@ -708,6 +836,11 @@ const Configs = {
           <label class="fl">E-mail</label>
           <input class="fi" type="email" id="usr-email" value="${H.esc(u?.email||'')}" placeholder="email@empresa.com.br">
         </div>
+        <div class="fg cs2">
+          <label class="fl">Telefone (WhatsApp)</label>
+          <input class="fi" type="tel" id="usr-telefone" value="${H.esc(u?.telefone||'')}" placeholder="(48) 99999-9999">
+          <div class="hint">Necessário para receber notificações e aprovar medições via WhatsApp</div>
+        </div>
         <div class="fg">
           <label class="fl">Perfil *</label>
           <select class="fi fsel" id="usr-perfil">
@@ -745,17 +878,18 @@ const Configs = {
 
   async _saveUsuario() {
     const id = this._usuarioEditId;
-    const login  = H.el('usr-login')?.value.trim();
-    const nome   = H.el('usr-nome')?.value.trim();
-    const email  = H.el('usr-email')?.value.trim();
-    const perfil = H.el('usr-perfil')?.value;
-    const ativo  = !!H.el('usr-ativo-sw')?.querySelector('.sw-tr.on');
+    const login    = H.el('usr-login')?.value.trim();
+    const nome     = H.el('usr-nome')?.value.trim();
+    const email    = H.el('usr-email')?.value.trim();
+    const telefone = H.el('usr-telefone')?.value.trim();
+    const perfil   = H.el('usr-perfil')?.value;
+    const ativo    = !!H.el('usr-ativo-sw')?.querySelector('.sw-tr.on');
     const grupos_ad = [...(document.querySelectorAll('.usr-grupo-chk:checked')||[])].map(el=>el.value);
     const senha  = H.el('usr-senha')?.value || undefined;
 
     if (!id && !login) { UI.toast('Login é obrigatório','error'); return; }
 
-    const payload = { nome: nome||undefined, email: email||undefined, perfil, grupos_ad, ativo };
+    const payload = { nome: nome||undefined, email: email||undefined, telefone: telefone||null, perfil, grupos_ad, ativo };
     if (!id) { payload.login = login; if (senha) payload.senha = senha; }
 
     try {
@@ -1220,6 +1354,125 @@ const Configs = {
       UI.toast('✓ Configuração de armazenamento salva', 'success');
     } catch(e) {
       UI.toast('Erro ao salvar: ' + e.message, 'error');
+    }
+  },
+
+  // ── Integração ERP ───────────────────────────────────────────────
+  async erp() {
+    const cfg = await API.config('erp').catch(() => null);
+    const c = cfg?.valor || {};
+    H.el('cfg-content').innerHTML = `
+    <div style="margin-bottom:18px">
+      <div style="font-family:var(--font-d);font-size:22px;letter-spacing:2px;color:var(--text)">INTEGRAÇÃO ERP</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:5px">Configure o endpoint e a autenticação do ERP para envio automático das medições aprovadas</div>
+    </div>
+    <div class="ibox ${c.url ? 'info' : 'warn'}" style="margin-bottom:18px">
+      <div class="ibox-title">${c.url
+        ? `🔗 Endpoint configurado: <span style="font-family:var(--font-m)">${H.esc(c.url)}</span>`
+        : '⚠️ ERP não configurado — as medições não serão enviadas até que o endpoint seja informado'}</div>
+    </div>
+
+    <div class="fsec"><div class="fsec-title">ENDPOINT DO ERP</div>
+    <div class="fgrid">
+      <div class="fg cs2"><label class="fl">URL do Endpoint *</label>
+        <input class="fi" id="erp-url" value="${H.esc(c.url||'')}" placeholder="https://erp.empresa.com.br/api/medicoes">
+        <div class="hint">URL completa onde as medições serão enviadas via HTTP</div>
+      </div>
+      <div class="fg"><label class="fl">Método HTTP</label>
+        <select class="fi fsel" id="erp-method">
+          <option value="POST" ${(c.method||'POST')==='POST'?'selected':''}>POST</option>
+          <option value="PUT"  ${c.method==='PUT'?'selected':''}>PUT</option>
+        </select>
+      </div>
+    </div></div>
+
+    <div class="fsec"><div class="fsec-title">AUTENTICAÇÃO (API KEY)</div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl">Nome do Header *</label>
+        <input class="fi" id="erp-auth-header" value="${H.esc(c.auth_header||'Authorization')}" placeholder="Authorization">
+        <div class="hint">Ex: Authorization, X-Api-Key, X-Token</div>
+      </div>
+      <div class="fg"><label class="fl">Valor do Header *</label>
+        <input class="fi" id="erp-auth-value" type="password" value="${H.esc(c.auth_value||'')}" placeholder="Bearer sua-chave-aqui">
+        <div class="hint">Valor enviado no header — ex: Bearer abc123</div>
+      </div>
+    </div></div>
+
+    <div class="fsec"><div class="fsec-title">MAPEAMENTO DE CAMPOS</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px">
+      Estes são os campos enviados ao ERP em cada medição integrada. Os nomes podem ser ajustados conforme o contrato da API do seu ERP.
+    </div>
+    <div class="fgrid">
+      <div class="fg"><label class="fl">Campo: Código da Empresa</label>
+        <select class="fi fsel" id="erp-campo-empresa">
+          <option value="cnpj"   ${(c.campo_empresa_codigo||'cnpj')==='cnpj'  ?'selected':''}>CNPJ da empresa</option>
+          <option value="codigo" ${c.campo_empresa_codigo==='codigo'           ?'selected':''}>Código da obra (prefixo)</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:14px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:14px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--text2);margin-bottom:10px">PAYLOAD ENVIADO AO ERP (exemplo)</div>
+      <pre style="font-size:11px;color:var(--text2);margin:0;white-space:pre-wrap">{
+  "codigo_medicao":   "MED-2506-001",
+  "empresa_codigo":   "00.000.000/0001-00",
+  "obra_codigo":      "OBR-001",
+  "contrato_numero":  "CT-2025-001",
+  "fornecedor_cnpj":  "07.261.151/0001-42",
+  "fornecedor_razao": "FURA SOLO SERVIÇOS LTDA",
+  "valor_medicao":    150000.00,
+  "periodo_inicio":   "2025-06-01",
+  "periodo_fim":      "2025-06-30",
+  "status":           "Aprovado"
+}</pre>
+    </div></div>
+
+    <div style="margin-top:20px;display:flex;gap:10px">
+      <button class="btn btn-o" onclick="Configs._testErp()">🔍 Testar Conexão</button>
+      <button class="btn btn-a" onclick="Configs._saveErp()">💾 Salvar Configuração ERP</button>
+    </div>
+    <div id="erp-test-result" style="margin-top:12px;font-size:12px"></div>
+    `;
+  },
+
+  async _saveErp() {
+    const url = H.el('erp-url')?.value?.trim();
+    if (!url) return UI.toast('Informe a URL do endpoint ERP', 'error');
+    const payload = {
+      url,
+      method:              H.el('erp-method')?.value || 'POST',
+      auth_header:         H.el('erp-auth-header')?.value?.trim() || 'Authorization',
+      auth_value:          H.el('erp-auth-value')?.value?.trim() || '',
+      campo_empresa_codigo: H.el('erp-campo-empresa')?.value || 'cnpj',
+    };
+    try {
+      await API.saveConfig('erp', payload);
+      UI.toast('✓ Configuração ERP salva com sucesso', 'success');
+    } catch(e) {
+      UI.toast('Erro ao salvar: ' + e.message, 'error');
+    }
+  },
+
+  async _testErp() {
+    const url = H.el('erp-url')?.value?.trim();
+    const res = H.el('erp-test-result');
+    if (!url) { res.textContent = '⚠ Informe a URL antes de testar'; res.style.color = 'var(--yellow)'; return; }
+    const btn = document.querySelector('[onclick="Configs._testErp()"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Testando…'; }
+    res.textContent = '';
+    try {
+      const header = H.el('erp-auth-header')?.value?.trim() || 'Authorization';
+      const value  = H.el('erp-auth-value')?.value?.trim() || '';
+      const testPayload = { teste: true, origem: 'CONSTRUTIVO OBRAS', timestamp: new Date().toISOString() };
+      const headers = { 'Content-Type': 'application/json' };
+      if (header && value) headers[header] = value;
+      const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(testPayload) });
+      res.style.color = r.ok ? 'var(--green)' : 'var(--yellow)';
+      res.textContent = r.ok ? `✓ Conexão OK — HTTP ${r.status}` : `⚠ ERP retornou HTTP ${r.status} — verifique URL e credenciais`;
+    } catch(e) {
+      res.style.color = 'var(--red)';
+      res.textContent = '✗ Falha na conexão: ' + e.message;
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 Testar Conexão'; }
     }
   },
 };

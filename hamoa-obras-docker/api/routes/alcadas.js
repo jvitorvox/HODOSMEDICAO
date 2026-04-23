@@ -4,11 +4,24 @@
  * POST   /api/alcadas
  * PUT    /api/alcadas/:id
  * DELETE /api/alcadas/:id
+ *
+ * Alçadas configuram o fluxo de aprovação de medições.
+ * Todas as operações de escrita são restritas a ADM para evitar
+ * que usuários comuns adulterem ou removam níveis de aprovação.
  */
 const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
+const audit  = require('../middleware/audit');
 
+// Middleware: restringe escrita a administradores
+function authADM(req, res, next) {
+  if (req.user?.perfil !== 'ADM')
+    return res.status(403).json({ error: 'Acesso restrito a administradores.' });
+  next();
+}
+
+// Leitura: qualquer usuário autenticado pode consultar alçadas (necessário para o fluxo de aprovação)
 router.get('/', auth, async (req, res) => {
   const q = req.query.empresa_id
     ? `SELECT a.*,e.nome_fantasia as empresa_nome,o.nome as obra_nome
@@ -25,7 +38,7 @@ router.get('/', auth, async (req, res) => {
   res.json(r.rows);
 });
 
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, authADM, async (req, res) => {
   const { empresa_id, obra_id, nome,
           n1_titulo, n1_grupos, n1_prazo,
           n2_titulo, n2_grupos, n2_prazo,
@@ -45,10 +58,13 @@ router.post('/', auth, async (req, res) => {
      n3_titulo, n3_grupos||[], n3_prazo||5,
      !!escalonamento, escalonamento_dias||2, email_copia||'']
   );
-  res.status(201).json(r.rows[0]);
+  const row = r.rows[0];
+  await audit(req, 'criar', 'alcada', row.id,
+    `Alçada "${row.nome}" criada — empresa_id: ${empresa_id}${obra_id ? ` | obra_id: ${obra_id}` : ''}`);
+  res.status(201).json(row);
 });
 
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', auth, authADM, async (req, res) => {
   const { nome,
           n1_titulo, n1_grupos, n1_prazo,
           n2_titulo, n2_grupos, n2_prazo,
@@ -68,11 +84,18 @@ router.put('/:id', auth, async (req, res) => {
      n3_titulo, n3_grupos||[], n3_prazo||5,
      !!escalonamento, escalonamento_dias||2, email_copia||'', ativo!==false, req.params.id]
   );
-  res.json(r.rows[0]);
+  const row = r.rows[0];
+  const statusStr = ativo === false ? ' — DESATIVADA' : '';
+  await audit(req, 'editar', 'alcada', row.id,
+    `Alçada "${row.nome}" atualizada${statusStr}`);
+  res.json(row);
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, authADM, async (req, res) => {
+  const prev = await db.query('SELECT nome FROM alcadas WHERE id=$1', [req.params.id]);
   await db.query('DELETE FROM alcadas WHERE id=$1', [req.params.id]);
+  await audit(req, 'excluir', 'alcada', parseInt(req.params.id),
+    `Alçada "${prev.rows[0]?.nome || req.params.id}" excluída`);
   res.status(204).end();
 });
 

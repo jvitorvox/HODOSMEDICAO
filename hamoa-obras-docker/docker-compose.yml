@@ -129,6 +129,48 @@ services:
     labels:
       - "com.construtivo.service=cache"
 
+  # ─── Evolution API (WhatsApp) ───────────────────────────────────────────────
+  # Ativa somente com: docker compose --profile whatsapp up -d
+  # Após subir: acesse http://localhost:8081 → conecte seu número (QR Code)
+  construtivo-whatsapp:
+    image: atendai/evolution-api:latest
+    container_name: construtivo-obras-whatsapp
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      SERVER_URL: ${WA_SERVER_URL:-http://construtivo-whatsapp:8080}
+      AUTHENTICATION_TYPE: apikey
+      AUTHENTICATION_API_KEY: ${WA_API_KEY:-construtivo-wa-key-2025}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      # Webhook de retorno para a API do Construtivo
+      WEBHOOK_GLOBAL_URL: http://construtivo-api:3000/api/whatsapp/webhook
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS: "false"
+      WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
+      # Banco de dados
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${DB_USER:-construtivo}:${DB_PASS:-construtivo@2025}@construtivo-db:5432/${DB_NAME:-construtivo_obras}
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_api
+      # Redis para cache de sessões WhatsApp
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://:${REDIS_PASS:-construtivo-redis@2025}@construtivo-redis:6379/1
+      LOG_LEVEL: ERROR
+    volumes:
+      - whatsapp-instances:/evolution/instances
+    depends_on:
+      construtivo-db:
+        condition: service_healthy
+      construtivo-redis:
+        condition: service_healthy
+    networks:
+      - construtivo-net
+    profiles:
+      - whatsapp              # sobe com: docker compose --profile whatsapp up -d
+    labels:
+      - "com.construtivo.service=whatsapp"
+
   # ─── Adminer (gerenciador visual do banco) ───────────────────────────────────
   construtivo-adminer:
     image: adminer:4-standalone
@@ -159,6 +201,8 @@ volumes:
   api-logs:
     driver: local
   nginx-logs:
+    driver: local
+  whatsapp-instances:
     driver: local
 
 # ─── Redes ────────────────────────────────────────────────────────────────────

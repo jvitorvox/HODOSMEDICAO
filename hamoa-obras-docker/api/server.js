@@ -55,6 +55,9 @@ app.use('/api/cronogramas',  require('./routes/cronogramas'));
 app.use('/api/usuarios',     require('./routes/usuarios'));
 app.use('/api/audit',        require('./routes/audit'));
 app.use('/api/lbm',          require('./routes/lbm'));
+app.use('/api/portal',       require('./routes/portal'));
+app.use('/api/whatsapp',     require('./routes/whatsapp'));
+app.use('/api/d4sign',       require('./routes/d4sign'));
 
 // ── Tratamento global de erros ───────────────────────────────────
 app.use((err, req, res, _next) => {
@@ -175,6 +178,77 @@ async function runMigrations() {
     `INSERT INTO lbm_servico_contratos(servico_id, contrato_id)
      SELECT id, contrato_id FROM lbm_servicos WHERE contrato_id IS NOT NULL
      ON CONFLICT DO NOTHING`,
+    // v3.8 — integração ERP
+    `ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS integrada_erp      BOOLEAN   NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS integrada_erp_em   TIMESTAMP WITH TIME ZONE`,
+    `ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS integrada_erp_user VARCHAR(150)`,
+    `ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS integrada_erp_resp JSONB`,
+    `CREATE INDEX IF NOT EXISTS idx_medicoes_integrada_erp ON medicoes(integrada_erp)`,
+    // v3.9 — Portal do Fornecedor: tokens mágicos de acesso por e-mail
+    `CREATE TABLE IF NOT EXISTS portal_tokens (
+       id           SERIAL PRIMARY KEY,
+       token        VARCHAR(128) NOT NULL UNIQUE,
+       fornecedor_id INTEGER NOT NULL REFERENCES fornecedores(id) ON DELETE CASCADE,
+       email        VARCHAR(200) NOT NULL,
+       expira_em    TIMESTAMP WITH TIME ZONE NOT NULL,
+       usado_em     TIMESTAMP WITH TIME ZONE,
+       ip_usado     VARCHAR(50),
+       criado_em    TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_portal_tokens_token       ON portal_tokens(token)`,
+    `CREATE INDEX IF NOT EXISTS idx_portal_tokens_fornecedor  ON portal_tokens(fornecedor_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_portal_tokens_expira      ON portal_tokens(expira_em)`,
+    // v3.9.1 — NFs enviadas pelo fornecedor pelo portal
+    `CREATE TABLE IF NOT EXISTS portal_nfs (
+       id            SERIAL PRIMARY KEY,
+       medicao_id    INTEGER NOT NULL REFERENCES medicoes(id) ON DELETE CASCADE,
+       fornecedor_id INTEGER NOT NULL REFERENCES fornecedores(id),
+       nome_arquivo  VARCHAR(500) NOT NULL,
+       caminho       VARCHAR(1000),
+       provider      VARCHAR(20) DEFAULT 'local',
+       url_storage   VARCHAR(1000),
+       numero_nf     VARCHAR(50),
+       valor_nf      NUMERIC(15,2),
+       chave_nfe     VARCHAR(60),
+       obs           TEXT,
+       enviado_em    TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_portal_nfs_medicao ON portal_nfs(medicao_id)`,
+    // v3.9.2 — WhatsApp: tokens de aprovação por link rápido
+    `CREATE TABLE IF NOT EXISTS whatsapp_tokens (
+       id          SERIAL PRIMARY KEY,
+       token       VARCHAR(128) NOT NULL UNIQUE,
+       medicao_id  INTEGER NOT NULL REFERENCES medicoes(id) ON DELETE CASCADE,
+       nivel       VARCHAR(5)   NOT NULL,
+       usuario_id  INTEGER REFERENCES usuarios(id),
+       telefone    VARCHAR(30),
+       acao        VARCHAR(20),
+       comentario  TEXT,
+       expira_em   TIMESTAMP WITH TIME ZONE NOT NULL,
+       usado_em    TIMESTAMP WITH TIME ZONE,
+       criado_em   TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_wa_tokens_token    ON whatsapp_tokens(token)`,
+    `CREATE INDEX IF NOT EXISTS idx_wa_tokens_medicao  ON whatsapp_tokens(medicao_id)`,
+    // v3.9.3 — telefone nos usuários internos (para WhatsApp)
+    `ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefone VARCHAR(30)`,
+    // v3.9.4 — UUID do documento D4Sign para rastreamento via webhook
+    `ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS d4sign_doc_uuid VARCHAR(100)`,
+    `CREATE INDEX IF NOT EXISTS idx_medicoes_d4sign_doc ON medicoes(d4sign_doc_uuid)`,
+    // v3.10 — Portal NFs: controle financeiro / fila backoffice
+    `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS dados_nfse    JSONB`,
+    `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS status_fin    VARCHAR(30) NOT NULL DEFAULT 'Pendente'`,
+    `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS processado_em  TIMESTAMP WITH TIME ZONE`,
+    `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS processado_por VARCHAR(150)`,
+    `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS processado_obs TEXT`,
+    `CREATE INDEX IF NOT EXISTS idx_portal_nfs_status_fin ON portal_nfs(status_fin)`,
+    // v3.11 — validações cruzadas salvas no upload da NF pelo fornecedor
+    `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS validacoes JSONB`,
+    // v3.12 — amplia CHECK constraint de medicoes.status para incluir 'Assinado' e 'Pago'
+    `ALTER TABLE medicoes DROP CONSTRAINT IF EXISTS medicoes_status_check`,
+    `ALTER TABLE medicoes ADD CONSTRAINT medicoes_status_check
+       CHECK (status IN ('Rascunho','Aguardando N1','Aguardando N2','Aguardando N3',
+                         'Aprovado','Em Assinatura','Assinado','Concluído','Reprovado','Pago'))`,
   ];
   for (const sql of migrations) {
     try {

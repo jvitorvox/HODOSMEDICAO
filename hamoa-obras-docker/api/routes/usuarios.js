@@ -24,7 +24,7 @@ function authADM(req, res, next) {
 router.get('/', auth, authADM, async (req, res) => {
   try {
     const r = await db.query(
-      `SELECT id, login, nome, email, grupos_ad, perfil, ativo,
+      `SELECT id, login, nome, email, telefone, grupos_ad, perfil, ativo,
               ultimo_acesso, criado_em,
               (senha_hash IS NOT NULL) AS tem_senha_local
          FROM usuarios
@@ -40,7 +40,7 @@ router.get('/', auth, authADM, async (req, res) => {
 router.get('/:id', auth, authADM, async (req, res) => {
   try {
     const r = await db.query(
-      `SELECT id, login, nome, email, grupos_ad, perfil, ativo,
+      `SELECT id, login, nome, email, telefone, grupos_ad, perfil, ativo,
               ultimo_acesso, criado_em,
               (senha_hash IS NOT NULL) AS tem_senha_local
          FROM usuarios WHERE id=$1`, [req.params.id]
@@ -55,7 +55,7 @@ router.get('/:id', auth, authADM, async (req, res) => {
 // ── POST /api/usuarios — cria usuário ────────────────────────────
 router.post('/', auth, authADM, async (req, res) => {
   try {
-    const { login, nome, email, senha, perfil, grupos_ad = [], ativo = true } = req.body;
+    const { login, nome, email, telefone, senha, perfil, grupos_ad = [], ativo = true } = req.body;
     if (!login?.trim()) return res.status(400).json({ error: 'Login é obrigatório' });
     if (perfil && !PERFIS_VALIDOS.includes(perfil))
       return res.status(400).json({ error: `Perfil inválido. Use: ${PERFIS_VALIDOS.join(', ')}` });
@@ -64,10 +64,10 @@ router.post('/', auth, authADM, async (req, res) => {
     const gruposArr = Array.isArray(grupos_ad) ? grupos_ad.filter(Boolean) : [];
 
     const r = await db.query(
-      `INSERT INTO usuarios (login, nome, email, senha_hash, perfil, grupos_ad, ativo)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      `INSERT INTO usuarios (login, nome, email, telefone, senha_hash, perfil, grupos_ad, ativo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
       [login.trim(), nome?.trim() || null, email?.trim() || null,
-       senhaHash, perfil || 'N1', gruposArr, ativo]
+       telefone?.trim() || null, senhaHash, perfil || 'N1', gruposArr, ativo]
     );
     await audit(req, 'criar', 'usuario', r.rows[0].id,
       `Usuário "${login.trim()}" criado — perfil: ${perfil || 'N1'}`,
@@ -82,7 +82,7 @@ router.post('/', auth, authADM, async (req, res) => {
 // ── PUT /api/usuarios/:id — atualiza usuário ─────────────────────
 router.put('/:id', auth, authADM, async (req, res) => {
   try {
-    const { nome, email, perfil, grupos_ad, ativo } = req.body;
+    const { nome, email, telefone, perfil, grupos_ad, ativo } = req.body;
     if (perfil && !PERFIS_VALIDOS.includes(perfil))
       return res.status(400).json({ error: `Perfil inválido. Use: ${PERFIS_VALIDOS.join(', ')}` });
 
@@ -94,6 +94,7 @@ router.put('/:id', auth, authADM, async (req, res) => {
 
     if (nome      !== undefined) push('nome',      nome?.trim() || null);
     if (email     !== undefined) push('email',     email?.trim() || null);
+    if (telefone  !== undefined) push('telefone',  telefone?.trim() || null);
     if (perfil    !== undefined) push('perfil',    perfil);
     if (gruposArr !== undefined) push('grupos_ad', gruposArr);
     if (ativo     !== undefined) push('ativo',     ativo);

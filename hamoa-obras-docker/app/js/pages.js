@@ -205,6 +205,9 @@ const Pages = {
     }).join('');
   },
 
+  // Status que permitem integração ERP
+  _erpStatusPermitidos: ['Aprovado', 'Em Assinatura', 'Assinado'],
+
   async acompanhamento() {
     try {
       const meds = await API.medicoes();
@@ -223,12 +226,15 @@ const Pages = {
         <div style="font-family:var(--font-d);font-size:26px;color:${color}">${cnt}</div>
         <div style="font-size:9px;color:var(--text3);letter-spacing:1px;margin-top:4px">${lbl.toUpperCase()}</div>
       </div>`).join('');
+
+      // Mostra barra ERP
+      const erpBar = H.el('acon-erp-bar');
+      if (erpBar) erpBar.style.display = 'flex';
+
       if(!filtered.length) { H.el('acon-list').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Nenhuma medição encontrada</div>'; return; }
+
       H.el('acon-list').innerHTML = filtered.map(m => {
         const aprs = m.aprovacoes || [];
-        const n1 = aprs.find(a=>a.nivel==='N1');
-        const n2 = aprs.find(a=>a.nivel==='N2');
-        const n3 = aprs.find(a=>a.nivel==='N3');
         const statusClass = m.status === 'Reprovado' ? 'urgent' : (['Aguardando N1','Aguardando N2','Aguardando N3'].includes(m.status) ? 'warn-border' : '');
         const stepClass = (lv) => {
           const a = aprs.find(a=>a.nivel===lv);
@@ -255,7 +261,26 @@ const Pages = {
                <div style="font-size:10px;color:var(--text3)">do contrato<br>R$ ${H.fmt(vMed)}</div>
              </div>`
           : `<div style="font-size:11px;font-family:var(--font-m);color:var(--accent)">R$ ${H.fmt(vMed)}</div>`;
-        return `<div class="tkcard ${statusClass}" onclick="Medicoes.openDetalhe(${m.id})">
+
+        // Coluna ERP
+        const elegivel = this._erpStatusPermitidos.includes(m.status) && !m.integrada_erp;
+        const erpCell = m.integrada_erp
+          ? `<div title="Integrada em ${m.integrada_erp_em ? new Date(m.integrada_erp_em).toLocaleString('pt-BR') : ''}">
+               <span style="background:rgba(34,197,94,.12);color:var(--green);font-size:10px;font-weight:700;padding:3px 7px;border-radius:4px;white-space:nowrap">✓ Integrada</span>
+               ${m.integrada_erp_user ? `<div style="font-size:9px;color:var(--text3);margin-top:3px">${H.esc(m.integrada_erp_user)}</div>` : ''}
+             </div>`
+          : elegivel
+            ? `<div onclick="event.stopPropagation()">
+                 <input type="checkbox" class="acon-erp-chk" data-id="${m.id}"
+                   style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)"
+                   onchange="Pages._erpUpdateBar()">
+               </div>`
+            : `<span style="font-size:10px;color:var(--text3)">—</span>`;
+
+        return `<div class="tkcard ${statusClass}" style="grid-template-columns:32px 1fr 110px 220px 160px 100px 90px" onclick="Medicoes.openDetalhe(${m.id})">
+          <div onclick="event.stopPropagation()" style="display:flex;align-items:center">
+            ${elegivel ? `<input type="checkbox" class="acon-erp-chk" data-id="${m.id}" style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)" onchange="Pages._erpUpdateBar()">` : ''}
+          </div>
           <div>
             <span class="cc" style="font-size:9px">${m.codigo}</span>
             <div class="tp" style="font-size:12px;margin-top:5px">${m.obra_nome||'—'}</div>
@@ -271,7 +296,6 @@ const Pages = {
                 const dot = a?.acao === 'aprovado' ? '✓'
                           : a?.acao === 'reprovado' ? '✗'
                           : lv;
-                // Nome curto: pega o primeiro nome ou login
                 const nomeAprov = a?.usuario
                   ? a.usuario.split(' ')[0].split('@')[0]
                   : (m.status === `Aguardando ${lv}` ? '…' : '—');
@@ -288,9 +312,76 @@ const Pages = {
           </div>
           <div><div style="font-size:11px;color:var(--text);font-weight:500">${comQuem.nome}</div><div style="font-size:10px;color:var(--text3)">${comQuem.cargo}</div><div style="font-size:10px;color:var(--blue);margin-top:2px">${comQuem.email}</div></div>
           <div>${prazoHtml}<div style="font-size:10px;color:var(--text3)">desde ${H.fmtDateShort(m.criado_em)}</div></div>
+          <div style="display:flex;align-items:center">${erpCell}</div>
         </div>`;
       }).join('');
+
+      this._erpUpdateBar();
     } catch(e) { UI.toast('Erro ao carregar acompanhamento: ' + e.message, 'error'); }
+  },
+
+  // Atualiza contador e estado do botão da barra ERP
+  _erpUpdateBar() {
+    const chks = document.querySelectorAll('.acon-erp-chk:checked');
+    const count = chks.length;
+    const countEl = H.el('acon-erp-count');
+    const btn     = H.el('acon-erp-btn');
+    if (countEl) countEl.textContent = `${count} medição${count !== 1 ? 'ões' : ''} selecionada${count !== 1 ? 's' : ''}`;
+    if (btn) btn.disabled = count === 0;
+    const allChks = document.querySelectorAll('.acon-erp-chk');
+    const chkAll  = H.el('acon-chk-all');
+    if (chkAll) chkAll.checked = allChks.length > 0 && count === allChks.length;
+  },
+
+  erpToggleAll(checked) {
+    document.querySelectorAll('.acon-erp-chk').forEach(c => c.checked = checked);
+    this._erpUpdateBar();
+  },
+
+  erpSelectAll() {
+    document.querySelectorAll('.acon-erp-chk').forEach(c => c.checked = true);
+    this._erpUpdateBar();
+  },
+
+  erpClearAll() {
+    document.querySelectorAll('.acon-erp-chk').forEach(c => c.checked = false);
+    const chkAll = H.el('acon-chk-all');
+    if (chkAll) chkAll.checked = false;
+    this._erpUpdateBar();
+  },
+
+  async erpIntegrar() {
+    const chks = document.querySelectorAll('.acon-erp-chk:checked');
+    if (!chks.length) return;
+    const ids = Array.from(chks).map(c => parseInt(c.dataset.id));
+    const btn = H.el('acon-erp-btn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Enviando…';
+    try {
+      const res = await API.integrarErp(ids);
+      const ok    = res.integradas || 0;
+      const erros = res.erros || 0;
+      const ignor = res.ignoradas || 0;
+      let msg = `✅ ${ok} medição${ok !== 1 ? 'ões' : ''} integrada${ok !== 1 ? 's' : ''} com sucesso`;
+      if (erros) msg += ` · ⚠ ${erros} com erro`;
+      if (ignor) msg += ` · ${ignor} ignorada${ignor !== 1 ? 's' : ''}`;
+      UI.toast(msg, ok > 0 ? 'success' : 'error');
+
+      // Mostra erros detalhados se houver
+      if (erros > 0) {
+        const errList = res.resultados.filter(r => r.status === 'erro');
+        console.warn('[ERP] Erros:', errList);
+        UI.toast(errList.map(r => `${r.codigo || r.id}: ${r.motivo}`).join(' | '), 'error');
+      }
+
+      // Recarrega acompanhamento para refletir badges "Integrada"
+      await this.acompanhamento();
+    } catch(e) {
+      UI.toast('Erro na integração ERP: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔗 Integrar com ERP';
+    }
   },
 
   _comQuem(m) {
@@ -474,10 +565,26 @@ const Pages = {
     } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
   },
 
+  async financeiro() {
+    try {
+      // Popula filtros de empresa e fornecedor uma vez (se ainda vazios)
+      const selEmp  = H.el('fin-f-empresa');
+      const selForn = H.el('fin-f-fornecedor');
+      const selObra = H.el('fin-f-obra');
+      if (selEmp.options.length <= 1) {
+        const [emps, forns, obras] = await Promise.all([API.empresas(), API.fornecedores(), API.obras()]);
+        emps.forEach(e => { const o = document.createElement('option'); o.value = e.id; o.textContent = e.razao_social || e.nome_fantasia; selEmp.appendChild(o); });
+        forns.forEach(f => { const o = document.createElement('option'); o.value = f.id; o.textContent = f.razao_social || f.nome_fantasia; selForn.appendChild(o); });
+        obras.forEach(ob => { const o = document.createElement('option'); o.value = ob.id; o.textContent = ob.nome; selObra.appendChild(o); });
+      }
+      await Financeiro.load();
+    } catch(e) { UI.toast('Erro ao carregar financeiro: ' + e.message, 'error'); }
+  },
+
   async configuracoes(section) {
     const active = section || document.querySelector('.cfg-menu-item.active')?.dataset.cfg || 'ldap';
     document.querySelectorAll('.cfg-menu-item').forEach(i => i.classList.toggle('active', i.dataset.cfg === active));
-    const loaders = { ldap: Configs.ldap, assinatura: Configs.assinatura, permissoes: Configs.permissoes, notificacoes: Configs.notificacoes, geral: Configs.geral, ia: Configs.ia, backup: Configs.backup, usuarios: Configs.usuarios, audit: Configs.audit, storage: Configs.storage };
+    const loaders = { ldap: Configs.ldap, assinatura: Configs.assinatura, permissoes: Configs.permissoes, notificacoes: Configs.notificacoes, geral: Configs.geral, ia: Configs.ia, whatsapp: Configs.whatsapp, backup: Configs.backup, usuarios: Configs.usuarios, audit: Configs.audit, storage: Configs.storage, erp: Configs.erp };
     if(loaders[active]) await loaders[active].call(Configs);
   },
 };

@@ -25,6 +25,7 @@ const multerStorage = multer.diskStorage({
 });
 const upload = multer({ storage: multerStorage, limits: { fileSize: 50 * 1024 * 1024 } });
 const storageHelper = require('../helpers/storage');
+const wa = require('../helpers/whatsapp');
 
 // ══════════════════════════════════════════════════════════════
 // HELPER: Sincroniza progresso LBM quando uma medição é aprovada
@@ -398,6 +399,121 @@ router.get('/adiantamentos-pendentes', auth, async (req, res) => {
   })));
 });
 
+// ── Integração ERP ────────────────────────────────────────────────
+// POST /api/medicoes/integrar-erp  — deve ficar ANTES de /:id
+// Body: { ids: [1, 2, 3] }
+router.post('/integrar-erp', auth, perm('integrarErp'), async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0)
+    return res.status(400).json({ error: 'Informe ao menos uma medição.' });
+
+  const cfgRow = await db.query("SELECT valor FROM configuracoes WHERE chave='erp'");
+  const cfg = cfgRow.rows[0]?.valor || {};
+  if (!cfg.url) return res.status(503).json({ error: 'ERP não configurado. Acesse Configurações → Integração ERP.' });
+
+  const statusPermitidos = ['Aprovado', 'Em Assinatura', 'Assinado'];
+  const resultados = [];
+
+  for (const id of ids) {
+    try {
+      const r = await db.query(`
+        SELECT m.*,
+               o.codigo         AS obra_codigo,
+               o.nome           AS obra_nome,
+               e.cnpj           AS empresa_cnpj,
+               e.razao_social   AS empresa_razao,
+               c.numero         AS contrato_numero,
+               f.cnpj           AS fornecedor_cnpj,
+               f.razao_social   AS fornecedor_razao
+        FROM medicoes m
+        JOIN contratos    c ON m.contrato_id   = c.id
+        JOIN obras        o ON c.obra_id        = o.id
+        JOIN empresas     e ON c.empresa_id     = e.id
+        JOIN fornecedores f ON c.fornecedor_id  = f.id
+        WHERE m.id = $1
+      `, [id]);
+
+      if (!r.rows.length) { resultados.push({ id, status: 'erro', motivo: 'Medição não encontrada' }); continue; }
+      const m = r.rows[0];
+
+      if (m.integrada_erp) { resultados.push({ id, status: 'ignorada', motivo: 'Já integrada anteriormente', codigo: m.codigo }); continue; }
+      if (!statusPermitidos.includes(m.status)) {
+        resultados.push({ id, status: 'erro', motivo: `Status "${m.status}" não permitido para integração`, codigo: m.codigo }); continue;
+      }
+
+      const payload = {
+        codigo_medicao:   m.codigo,
+        empresa_codigo:   cfg.campo_empresa_codigo === 'cnpj' ? m.empresa_cnpj : (m.obra_codigo?.split('-')[0] || m.empresa_cnpj),
+        obra_codigo:      m.obra_codigo,
+        contrato_numero:  m.contrato_numero,
+        fornecedor_cnpj:  m.fornecedor_cnpj,
+        fornecedor_razao: m.fornecedor_razao,
+        valor_medicao:    parseFloat(m.valor_medicao) || 0,
+        periodo_inicio:   m.periodo_inicio,
+        periodo_fim:      m.periodo_fim,
+        status:           m.status,
+        ...(cfg.payload_extra || {}),
+      };
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (cfg.auth_header && cfg.auth_value) headers[cfg.auth_header] = cfg.auth_value;
+
+      // HTTP nativo Node.js (sem dependência externa)
+      const erpResult = await new Promise((resolve, reject) => {
+        const https   = require('https');
+        const http    = require('http');
+        const urlObj  = new URL(cfg.url);
+        const lib     = urlObj.protocol === 'https:' ? https : http;
+        const body    = JSON.stringify(payload);
+        const opts    = {
+          hostname: urlObj.hostname,
+          port:     urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+          path:     urlObj.pathname + urlObj.search,
+          method:   cfg.method || 'POST',
+          headers:  { ...headers, 'Content-Length': Buffer.byteLength(body) },
+        };
+        const req2 = lib.request(opts, resp => {
+          let data = '';
+          resp.on('data', c => data += c);
+          resp.on('end', () => resolve({ ok: resp.statusCode < 300, status: resp.statusCode, body: data }));
+        });
+        req2.on('error', reject);
+        req2.write(body);
+        req2.end();
+      });
+
+      let erpJson;
+      try { erpJson = JSON.parse(erpResult.body); } catch { erpJson = { raw: erpResult.body }; }
+
+      if (!erpResult.ok) {
+        resultados.push({ id, status: 'erro', motivo: `ERP retornou HTTP ${erpResult.status}`, codigo: m.codigo, erp_resp: erpJson });
+        continue;
+      }
+
+      await db.query(`
+        UPDATE medicoes SET
+          integrada_erp      = TRUE,
+          integrada_erp_em   = NOW(),
+          integrada_erp_user = $1,
+          integrada_erp_resp = $2
+        WHERE id = $3
+      `, [req.user?.login || req.user?.nome || 'sistema', JSON.stringify(erpJson), id]);
+
+      await audit(req, 'integrar_erp', 'medicao', id,
+        `Medição "${m.codigo}" integrada ao ERP — obra ${m.obra_codigo} · contrato ${m.contrato_numero} · R$ ${m.valor_medicao}`);
+
+      resultados.push({ id, status: 'ok', codigo: m.codigo, erp_resp: erpJson });
+    } catch (e) {
+      resultados.push({ id, status: 'erro', motivo: e.message });
+    }
+  }
+
+  const ok    = resultados.filter(r => r.status === 'ok').length;
+  const erros = resultados.filter(r => r.status === 'erro').length;
+  const ignor = resultados.filter(r => r.status === 'ignorada').length;
+  res.json({ total: ids.length, integradas: ok, erros, ignoradas: ignor, resultados });
+});
+
 // ── Detalhe ──────────────────────────────────────────────────────
 
 router.get('/:id', auth, async (req, res) => {
@@ -592,6 +708,22 @@ router.post('/', auth, perm('criarMedicao'), async (req, res) => {
     await audit(req, 'criar', 'medicao', row.id,
       `Medição "${row.codigo}" criada — valor: R$ ${Number(row.valor_medicao).toLocaleString('pt-BR',{minimumFractionDigits:2})} — status: ${row.status}`,
       { tipo: row.tipo, periodo: row.periodo });
+
+    // Notifica aprovadores via WhatsApp quando lançada diretamente para aprovação
+    if (row.status && row.status.startsWith('Aguardando')) {
+      const medCompleta = await db.query(`
+        SELECT m.*, o.nome AS obra_nome, f.razao_social AS fornecedor_nome
+          FROM medicoes m
+          JOIN obras o ON o.id = m.obra_id
+          JOIN fornecedores f ON f.id = m.fornecedor_id
+         WHERE m.id = $1`, [row.id]);
+      if (medCompleta.rows[0]) {
+        wa.notificarAprovadores(medCompleta.rows[0]).catch(e =>
+          console.warn('[WhatsApp] Falha ao notificar aprovadores na criação:', e.message)
+        );
+      }
+    }
+
     res.status(201).json(row);
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_) {}
@@ -602,9 +734,19 @@ router.post('/', auth, perm('criarMedicao'), async (req, res) => {
 
 // ── Atualizar ────────────────────────────────────────────────────
 
+// Statuses que permitem edição — somente medições em rascunho podem ser alteradas
+const STATUS_EDITAVEIS = ['Rascunho'];
+
 router.put('/:id', auth, perm('criarMedicao'), async (req, res) => {
   const m = await db.query('SELECT * FROM medicoes WHERE id=$1', [req.params.id]);
   if (!m.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+
+  // Bloqueia edição de medições que já avançaram no fluxo de aprovação
+  if (!STATUS_EDITAVEIS.includes(m.rows[0].status)) {
+    return res.status(422).json({
+      error: `Medição com status "${m.rows[0].status}" não pode ser editada. Apenas medições em Rascunho podem ser alteradas.`
+    });
+  }
 
   const { descricao, status, itens, pct_anterior, pct_mes, pct_total, contrato_id } = req.body;
   const arr             = Array.isArray(itens) ? itens : [];
@@ -634,6 +776,22 @@ router.put('/:id', auth, perm('criarMedicao'), async (req, res) => {
     const row = r.rows[0];
     await audit(req, 'editar', 'medicao', row.id,
       `Medição "${row.codigo}" atualizada — status: ${row.status}`);
+
+    // Notifica aprovadores via WhatsApp quando submetida para aprovação
+    if (row.status && row.status.startsWith('Aguardando')) {
+      const medCompleta = await db.query(`
+        SELECT m.*, o.nome AS obra_nome, f.razao_social AS fornecedor_nome
+          FROM medicoes m
+          JOIN obras o ON o.id = m.obra_id
+          JOIN fornecedores f ON f.id = m.fornecedor_id
+         WHERE m.id = $1`, [row.id]);
+      if (medCompleta.rows[0]) {
+        wa.notificarAprovadores(medCompleta.rows[0]).catch(e =>
+          console.warn('[WhatsApp] Falha ao notificar aprovadores na submissão:', e.message)
+        );
+      }
+    }
+
     res.json(row);
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_) {}
@@ -671,6 +829,21 @@ router.post('/:id/aprovar', auth, async (req, res) => {
   await audit(req, 'aprovar', 'medicao', id,
     `Medição "${med.codigo}" aprovada nível ${nivel} — novo status: ${novoStatus}`,
     { nivel, comentario: comentario || null });
+
+  // Notifica próximo nível via WhatsApp (fire-and-forget)
+  if (novoStatus.startsWith('Aguardando')) {
+    const medCompleta = await db.query(`
+      SELECT m.*, o.nome AS obra_nome, f.razao_social AS fornecedor_nome
+        FROM medicoes m
+        JOIN obras o ON o.id = m.obra_id
+        JOIN fornecedores f ON f.id = m.fornecedor_id
+       WHERE m.id = $1`, [id]);
+    if (medCompleta.rows[0]) {
+      wa.notificarAprovadores({ ...medCompleta.rows[0], status: novoStatus }).catch(e =>
+        console.warn('[WhatsApp] Falha ao notificar aprovadores:', e.message)
+      );
+    }
+  }
 
   // Sincroniza progresso LBM quando atinge aprovação final (sem bloqueio da resposta)
   const isFinalAprov = novoStatus === 'Aprovado' || novoStatus === 'Em Assinatura';
@@ -1021,7 +1194,14 @@ router.post('/:id/enviar-assinatura', auth, perm('enviarAssinatura'), async (req
 
     // ── Atualiza status e registra histórico ────────────────────
     if (med.status === 'Aprovado') {
-      await db.query("UPDATE medicoes SET status=$1 WHERE id=$2", [novoStatus, id]);
+      if (d4signDocUuid) {
+        await db.query(
+          "UPDATE medicoes SET status=$1, d4sign_doc_uuid=$2 WHERE id=$3",
+          [novoStatus, d4signDocUuid, id]
+        );
+      } else {
+        await db.query("UPDATE medicoes SET status=$1 WHERE id=$2", [novoStatus, id]);
+      }
     }
     const ambLabel = cfgAssin.provedor === 'ClickSign'
       ? ` [${(cfgAssin.ambiente === 'producao' ? 'PRODUÇÃO' : 'SANDBOX — emails não são reais')}]`
@@ -1056,7 +1236,7 @@ router.post('/:id/enviar-assinatura', auth, perm('enviarAssinatura'), async (req
 
 // ── Upload de evidências ──────────────────────────────────────────
 // POST /api/medicoes/:id/evidencias   multipart: files[] (máx 20 arquivos · 50 MB cada)
-router.post('/:id/evidencias', auth, upload.array('files', 20), async (req, res) => {
+router.post('/:id/evidencias', auth, perm('criarMedicao'), upload.array('files', 20), async (req, res) => {
   const medicaoId = parseInt(req.params.id);
   if (!medicaoId) return res.status(400).json({ error: 'ID inválido' });
 
@@ -1127,7 +1307,7 @@ router.get('/:id/evidencias', auth, async (req, res) => {
 
 // ── Remove evidência ──────────────────────────────────────────────
 // DELETE /api/medicoes/:id/evidencias/:evId
-router.delete('/:id/evidencias/:evId', auth, async (req, res) => {
+router.delete('/:id/evidencias/:evId', auth, perm('criarMedicao'), async (req, res) => {
   try {
     const medicaoId = parseInt(req.params.id);
     const evId      = parseInt(req.params.evId);

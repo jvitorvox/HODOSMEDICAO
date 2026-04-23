@@ -47,6 +47,7 @@
       <div class="ni" data-page="cadastros">🗂 Cadastros</div>
       <div class="ni" data-page="cronograma">📅 Cronograma</div>
       <div class="ni" data-page="alcadas">⚡ Alçadas</div>
+      <div class="ni" data-page="financeiro">💰 Financeiro <span class="nb" id="nb-financeiro" style="display:none">0</span></div>
       <div class="ni" data-page="configuracoes">⚙️ Configurações</div>
     </nav>
     <div class="t-right">
@@ -120,7 +121,7 @@
             <div class="pt">ACOMPANHAMENTO</div>
             <div class="ps">Status de aprovação em tempo real — com quem está cada medição</div>
           </div>
-          <div class="ph-right">
+          <div class="ph-right" style="display:flex;gap:10px;align-items:center">
             <select class="sel" id="acon-filter" onchange="Pages.acompanhamento()">
               <option value="">Todos os status</option>
               <option>Aguardando N1</option><option>Aguardando N2</option><option>Aguardando N3</option>
@@ -128,13 +129,23 @@
             </select>
           </div>
         </div>
+        <!-- Barra de integração ERP (aparece quando há selecionadas) -->
+        <div id="acon-erp-bar" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:10px 16px;margin-bottom:12px;display:none;align-items:center;gap:12px">
+          <span id="acon-erp-count" style="font-size:13px;font-weight:600;color:var(--text)">0 selecionadas</span>
+          <div style="flex:1"></div>
+          <button class="btn btn-o btn-sm" onclick="Pages.erpSelectAll()">Selecionar elegíveis</button>
+          <button class="btn btn-o btn-sm" onclick="Pages.erpClearAll()">Limpar seleção</button>
+          <button class="btn btn-a btn-sm" id="acon-erp-btn" onclick="Pages.erpIntegrar()" disabled>🔗 Integrar com ERP</button>
+        </div>
         <div id="acon-summary" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px"></div>
-        <div id="acon-header" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:9px 16px;margin-bottom:8px;display:grid;grid-template-columns:1fr 110px 220px 160px 100px;gap:14px">
+        <div id="acon-header" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:9px 16px;margin-bottom:8px;display:grid;grid-template-columns:32px 1fr 110px 220px 160px 100px 90px;gap:14px">
+          <div><input type="checkbox" id="acon-chk-all" title="Marcar/desmarcar elegíveis" onchange="Pages.erpToggleAll(this.checked)" style="cursor:pointer"></div>
           <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">MEDIÇÃO / FORNECEDOR</div>
           <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">STATUS</div>
           <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3);text-align:center">FLUXO APROVAÇÃO</div>
           <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">COM QUEM ESTÁ</div>
           <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">PRAZO</div>
+          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--text3)">ERP</div>
         </div>
         <div id="acon-list"></div>
       </div>
@@ -312,16 +323,57 @@
             <div class="cfg-menu-item" data-cfg="notificacoes">🔔 Notificações & E-mail</div>
             <div class="cfg-menu-item" data-cfg="geral">🔧 Parâmetros Gerais</div>
             <div class="cfg-menu-item" data-cfg="ia">🤖 Inteligência Artificial</div>
+            <div class="cfg-menu-item" data-cfg="whatsapp">📱 WhatsApp</div>
             <div class="cfg-menu-item" data-cfg="backup">💾 Backup & Dados</div>
             <div class="cfg-menu-item" data-cfg="usuarios">👤 Usuários</div>
             <div class="cfg-menu-item" data-cfg="audit">📋 Logs de Auditoria</div>
             <div class="cfg-menu-item" data-cfg="storage">☁ Armazenamento</div>
+            <div class="cfg-menu-item" data-cfg="erp">🔗 Integração ERP</div>
           </div>
           <div class="cfg-panel">
             <div class="cfg-panel-inner" id="cfg-content"></div>
           </div>
         </div>
       </div>
+
+      <!-- ════ FINANCEIRO ════ -->
+      <div class="page" id="page-financeiro">
+        <div class="ph">
+          <div class="ph-left">
+            <div class="pt">FINANCEIRO — NOTAS FISCAIS</div>
+            <div class="ps">Fila de NFs recebidas pelo portal — controle de processamento e pagamento</div>
+          </div>
+          <div class="ph-right">
+            <button class="btn btn-o btn-sm" onclick="Financeiro.load()">↻ Atualizar</button>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats" id="fin-stats"></div>
+
+        <!-- Filtros -->
+        <div class="tc" style="margin-bottom:14px">
+          <div style="padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;border-bottom:1px solid var(--border)">
+            <span style="font-size:11px;font-weight:600;color:var(--text3);letter-spacing:.5px;margin-right:4px">FILTRAR:</span>
+            <select class="sel" id="fin-f-empresa"    onchange="Financeiro.load()" style="min-width:140px"><option value="">Todas as empresas</option></select>
+            <select class="sel" id="fin-f-obra"       onchange="Financeiro.load()" style="min-width:140px"><option value="">Todas as obras</option></select>
+            <select class="sel" id="fin-f-fornecedor" onchange="Financeiro.load()" style="min-width:160px"><option value="">Todos os fornecedores</option></select>
+            <select class="sel" id="fin-f-status"     onchange="Financeiro.load()" style="min-width:150px">
+              <option value="">Todos os status</option>
+              <option value="Pendente">⏳ Pendente</option>
+              <option value="Em Processamento">🔄 Em Processamento</option>
+              <option value="Integrado ERP">🔗 Integrado ERP</option>
+              <option value="Pago">✅ Pago</option>
+            </select>
+            <input class="si" id="fin-f-periodo" type="month" onchange="Financeiro.load()" style="max-width:150px" title="Filtrar por período da medição">
+            <button class="btn btn-ghost btn-sm" onclick="Financeiro._limparFiltros()" style="margin-left:auto">✕ Limpar</button>
+          </div>
+        </div>
+
+        <!-- Tabela -->
+        <div class="tc" id="fin-table"></div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -330,6 +382,61 @@
 <div id="toast"></div>
 
 <!-- ═══ MODALS ═══ -->
+
+<!-- Modal: Divergências da NF -->
+<div class="mo" id="modal-fin-divergencias">
+  <div class="md sm">
+    <div class="mh">
+      <div class="mh-title">Divergências da NF</div>
+      <button class="mc-btn" onclick="UI.closeModal('modal-fin-divergencias')">✕</button>
+    </div>
+    <div class="mb">
+      <div style="font-size:11px;color:var(--text3);margin-bottom:14px;line-height:1.5">
+        Resultado das validações automáticas realizadas no momento do envio pelo fornecedor.
+        Erros indicam problemas críticos; avisos requerem verificação antes do pagamento.
+      </div>
+      <div id="fin-div-lista" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-a" onclick="UI.closeModal('modal-fin-divergencias')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Atualizar status NF -->
+<div class="mo" id="modal-fin-status">
+  <div class="md sm">
+    <div class="mh"><div class="mh-title">Atualizar Status da NF</div><button class="mc-btn" onclick="UI.closeModal('modal-fin-status')">✕</button></div>
+    <div class="mb">
+      <div class="fg">
+        <label class="fl">Número NF</label>
+        <div style="font-size:14px;font-weight:600;padding:4px 0" id="fin-modal-nf-numero">—</div>
+      </div>
+      <div class="fg">
+        <label class="fl">Fornecedor</label>
+        <div style="font-size:13px;color:var(--text2);padding:4px 0" id="fin-modal-forn">—</div>
+      </div>
+      <div class="fg">
+        <label class="fl">Novo Status *</label>
+        <select class="fi" id="fin-modal-status">
+          <option value="Pendente">Pendente</option>
+          <option value="Em Processamento">Em Processamento</option>
+          <option value="Integrado ERP">Integrado ERP</option>
+          <option value="Pago">Pago</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Observação (opcional)</label>
+        <textarea class="fi" id="fin-modal-obs" rows="3" placeholder="Ex: Lançado no TOTVS — NF 000123 — vencimento 30/05/2025"></textarea>
+      </div>
+    </div>
+    <div class="mf">
+      <button class="btn btn-o" onclick="UI.closeModal('modal-fin-status')">Cancelar</button>
+      <button class="btn btn-a" onclick="Financeiro.salvarStatus()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: Detalhes de Medição -->
 <div class="mo" id="modal-medicao-detalhe">
   <div class="md lg">
@@ -965,6 +1072,7 @@
 <script src="js/cadastros.js"></script>
 <script src="js/alcadas.js"></script>
 <script src="js/lbm.js"></script>
+<script src="js/financeiro.js"></script>
 <script src="js/cronograma.js"></script>
 <script>
 // Expõe todos os módulos como globais após todos os scripts carregarem

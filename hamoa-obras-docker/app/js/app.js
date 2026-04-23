@@ -43,6 +43,7 @@ const App = {
       cadastros:      'cadastros',
       cronograma:     'cronograma',
       alcadas:        'alcadas',
+      financeiro:     'financeiro',
       configuracoes:  'configuracoes',
     };
     document.querySelectorAll('.ni[data-page]').forEach(n => {
@@ -68,6 +69,7 @@ const App = {
       medicoes: 'verMedicoes', acompanhamento: 'acompanhamento',
       cadastros: 'cadastros',  cronograma: 'cronograma',
       alcadas: 'alcadas',      configuracoes: 'configuracoes',
+      financeiro: 'financeiro',
     };
     if (permMap[page] && !Perm.has(permMap[page])) {
       UI.toast('Sem permissão para acessar esta página', 'error');
@@ -76,9 +78,10 @@ const App = {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.ni').forEach(n => n.classList.toggle('active', n.dataset.page === page));
     H.el(`page-${page}`).classList.add('active');
+    H.el('content').scrollTop = 0; // reseta scroll ao trocar de página
     State.currentPage = page;
     this.closeNav();
-    const loader = { dashboard: Pages.dashboard.bind(Pages), medicoes: Pages.medicoes.bind(Pages), acompanhamento: Pages.acompanhamento.bind(Pages), cadastros: Pages.cadastros.bind(Pages), cronograma: Cronograma.init.bind(Cronograma), alcadas: Pages.alcadas.bind(Pages), configuracoes: Pages.configuracoes.bind(Pages) };
+    const loader = { dashboard: Pages.dashboard.bind(Pages), medicoes: Pages.medicoes.bind(Pages), acompanhamento: Pages.acompanhamento.bind(Pages), cadastros: Pages.cadastros.bind(Pages), cronograma: Cronograma.init.bind(Cronograma), alcadas: Pages.alcadas.bind(Pages), financeiro: Pages.financeiro.bind(Pages), configuracoes: Pages.configuracoes.bind(Pages) };
     if(loader[page]) await loader[page]();
   },
   logout() {
