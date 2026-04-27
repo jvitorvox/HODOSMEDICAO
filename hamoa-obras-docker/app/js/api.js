@@ -91,7 +91,9 @@ const API = (() => {
     createMedicao:  (d) => req('POST', '/api/medicoes', d),
     updateMedicao:  (id, d) => req('PUT', `/api/medicoes/${id}`, d),
     aprovar:          (id, comentario) => req('POST', `/api/medicoes/${id}/aprovar`, { comentario }),
-    reprovar:         (id, motivo) => req('POST', `/api/medicoes/${id}/reprovar`, { motivo }),
+    reprovar:         (id, motivo)     => req('POST', `/api/medicoes/${id}/reprovar`, { motivo }),
+    reabrir:          (id)             => req('POST', `/api/medicoes/${id}/reabrir`, {}),
+    marcarAssinado:   (id)             => req('POST', `/api/medicoes/${id}/marcar-assinado`, {}),
     enviarAssinatura: (id, dados) => req('POST', `/api/medicoes/${id}/enviar-assinatura`, dados),
     descompasso: (filters) => {
       const params = filters ? Object.entries(filters).filter(([,v])=>v).map(([k,v])=>`${k}=${encodeURIComponent(v)}`).join('&') : '';

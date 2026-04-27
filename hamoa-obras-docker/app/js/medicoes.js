@@ -1005,6 +1005,26 @@ const Medicoes = {
     } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
   },
 
+  async reabrir(id) {
+    if(!confirm('Reabrir esta medição reprovada? Ela voltará para Rascunho e poderá ser editada e reenviada.')) return;
+    try {
+      await API.reabrir(id);
+      UI.toast('Medição reaberta — status voltou para Rascunho.', 'success');
+      if(State.currentPage==='medicoes') await Pages.medicoes();
+      if(State.currentPage==='acompanhamento') await Pages.acompanhamento();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
+  async marcarAssinado(id) {
+    if(!confirm('Marcar esta medição como Assinada manualmente?\n\nUse esta opção apenas se o documento foi assinado fora do sistema ou quando o D4Sign está desabilitado.')) return;
+    try {
+      await API.marcarAssinado(id);
+      UI.toast('Medição marcada como Assinada.', 'success');
+      if(State.currentPage==='medicoes') await Pages.medicoes();
+      if(State.currentPage==='acompanhamento') await Pages.acompanhamento();
+    } catch(e) { UI.toast('Erro: ' + e.message, 'error'); }
+  },
+
   async openDetalhe(id) {
     State.currentMedicaoId = id;
     try {
@@ -1185,10 +1205,14 @@ const Medicoes = {
         });
       });
       const canA = H.canApprove(m.status, m);
-      const canEnviarAssin = ['Aprovado','Em Assinatura'].includes(m.status) && Perm.has('enviarAssinatura') && assinaturaAtiva;
+      const canEnviarAssin   = ['Aprovado','Em Assinatura'].includes(m.status) && Perm.has('enviarAssinatura') && assinaturaAtiva;
+      const canMarcarAssinado= m.status === 'Em Assinatura' && !assinaturaAtiva && Perm.has('enviarAssinatura');
+      const canReabrir       = m.status === 'Reprovado' && Perm.has('criarMedicao');
       H.el('det-footer').innerHTML = `
         <button class="btn btn-o" onclick="UI.closeModal('modal-detalhe')">Fechar</button>
-        ${canEnviarAssin ? `<button class="btn btn-a" style="background:var(--teal)" onclick="UI.closeModal('modal-detalhe');Medicoes.openEnviarAssinatura(${id})">✍ Enviar para Assinatura</button>` : ''}
+        ${canReabrir       ? `<button class="btn btn-a" style="background:var(--orange,#f59e0b)" onclick="UI.closeModal('modal-detalhe');Medicoes.reabrir(${id})">↩ Reabrir</button>` : ''}
+        ${canMarcarAssinado? `<button class="btn btn-a" style="background:var(--teal)" onclick="UI.closeModal('modal-detalhe');Medicoes.marcarAssinado(${id})">✍ Marcar como Assinado</button>` : ''}
+        ${canEnviarAssin   ? `<button class="btn btn-a" style="background:var(--teal)" onclick="UI.closeModal('modal-detalhe');Medicoes.openEnviarAssinatura(${id})">✍ Enviar para Assinatura</button>` : ''}
         ${canA ? `<button class="btn btn-r" onclick="UI.closeModal('modal-detalhe');Medicoes.openReprovar(${id})">✗ Reprovar</button><button class="btn btn-g" onclick="UI.closeModal('modal-detalhe');Medicoes.openAprovar(${id})">✓ Aprovar</button>` : ''}
       `;
       UI.openModal('modal-detalhe');

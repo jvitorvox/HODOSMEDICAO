@@ -20,19 +20,31 @@
  */
 'use strict';
 
-const router  = require('express').Router();
-const crypto  = require('crypto');
-const jwt     = require('jsonwebtoken');
-const multer  = require('multer');
-const path    = require('path');
+const router    = require('express').Router();
+const crypto    = require('crypto');
+const jwt       = require('jsonwebtoken');
+const multer    = require('multer');
+const path      = require('path');
+const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
-const db      = require('../db');
+const db        = require('../db');
 const storageHelper = require('../helpers/storage');
 const { sendMail: _sendMail, notificarAprovadoresStatusChange } = require('../helpers/email');
 const authInterno   = require('../middleware/auth'); // auth JWT interno (backoffice)
 const { perm }      = require('../middleware/perm');
+const { getObrasPermitidas, obraClause } = require('../middleware/obras');
 
 const TOKEN_EXPIRY_HOURS = 24;
+
+// Rate limiter para rotas públicas do portal (anti-enumeration / brute-force)
+const portalPublicLimiter = rateLimit({
+  windowMs:   15 * 60 * 1000, // 15 minutos
+  max:        10,              // máx 10 requisições por IP
+  keyGenerator: req => req.ip,
+  message:    { error: 'Muitas requisições ao portal. Aguarde 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders:   false,
+});
 
 // ── Helper: envio de e-mail via SMTP ──────────────────────────────
 // Mantido por compatibilidade — agora delega para helpers/email.js
@@ -96,17 +108,29 @@ function portalAuth(req, res, next) {
 }
 
 // Upload de NF — multer em /app/uploads
+const NF_ALLOWED = {
+  '.pdf':  ['application/pdf'],
+  '.xml':  ['application/xml', 'text/xml', 'application/octet-stream'],
+  '.png':  ['image/png'],
+  '.jpg':  ['image/jpeg'],
+  '.jpeg': ['image/jpeg'],
+};
 const uploadNF = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, '/app/uploads'),
-    filename:    (req, file, cb) => cb(null, `nf-${uuidv4()}${path.extname(file.originalname)}`),
+    filename:    (req, file, cb) => cb(null, `nf-${uuidv4()}${path.extname(file.originalname).toLowerCase()}`),
   }),
-  limits:  { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  limits:  { fileSize: 20 * 1024 * 1024, files: 1 }, // 20 MB, 1 arquivo por vez
   fileFilter: (req, file, cb) => {
-    const ok = ['.pdf', '.xml', '.png', '.jpg', '.jpeg'].includes(
-      path.extname(file.originalname).toLowerCase()
-    );
-    cb(null, ok);
+    const ext  = path.extname(file.originalname).toLowerCase();
+    const mime = (file.mimetype || '').toLowerCase().split(';')[0].trim();
+    const allowed = NF_ALLOWED[ext];
+    if (!allowed) return cb(new Error(`Tipo de arquivo não permitido: ${ext}`));
+    // XML pode vir como application/octet-stream em alguns navegadores — aceitar
+    if (!allowed.includes(mime) && ext !== '.xml') {
+      return cb(new Error(`Tipo MIME não compatível com a extensão (${mime})`));
+    }
+    cb(null, true);
   },
 });
 
@@ -120,7 +144,7 @@ const uploadNF = multer({
  * Busca o fornecedor pelo e-mail (email, email_nf ou email_assin),
  * gera um token e envia link por e-mail.
  */
-router.post('/solicitar-acesso', async (req, res) => {
+router.post('/solicitar-acesso', portalPublicLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email?.trim()) return res.status(400).json({ error: 'E-mail é obrigatório.' });
 
@@ -222,7 +246,7 @@ router.post('/solicitar-acesso', async (req, res) => {
  * GET /api/portal/verificar?token=xxx
  * Valida o token mágico e retorna um JWT de sessão do portal.
  */
-router.get('/verificar', async (req, res) => {
+router.get('/verificar', portalPublicLimiter, async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).json({ error: 'Token não informado.' });
 
@@ -419,6 +443,17 @@ router.post('/medicoes/:id/nf', portalAuth, uploadNF.single('arquivo'), async (r
     }
 
     if (!req.file) return res.status(400).json({ error: 'Arquivo da NF é obrigatório.' });
+
+    // ── Extração IA obrigatória (se Gemini estiver configurado) ───────────────
+    // Valida que dados_nfse foi preenchido pela extração IA antes do upload.
+    // Se o Gemini não estiver configurado, o envio sem análise é permitido.
+    const geminiKey = process.env.GEMINI_API_KEY || '';
+    if (geminiKey && !dadosNfse) {
+      return res.status(422).json({
+        error: 'Análise da NF pela IA é obrigatória antes de enviar. '
+             + 'Selecione o arquivo novamente para que a extração automática seja realizada.',
+      });
+    }
 
     // ── Verifica se já existe uma NF para esta medição ────────────────────────
     const nfExistente = await db.query(
@@ -992,6 +1027,10 @@ router.get('/nfs/fila', authInterno, perm('financeiro'), async (req, res) => {
     if (status_fin)    { where.push(`pn.status_fin = $${i++}`);params.push(status_fin); }
     if (periodo)       { where.push(`m.periodo = $${i++}`);    params.push(periodo); }
 
+    // Restrição de acesso por obras permitidas do usuário interno
+    const obrasPermitidas = await getObrasPermitidas(req, db);
+    const obraFiltroStr   = obraClause(obrasPermitidas, 'o.id', params); // muta params, retorna "AND o.id = ANY($N)"
+
     const r = await db.query(`
       SELECT
         pn.id, pn.nome_arquivo, pn.numero_nf, pn.valor_nf, pn.chave_nfe, pn.obs,
@@ -1012,7 +1051,7 @@ router.get('/nfs/fila', authInterno, perm('financeiro'), async (req, res) => {
       JOIN contratos  c  ON c.id  = m.contrato_id
       JOIN obras      o  ON o.id  = c.obra_id
       JOIN empresas   e  ON e.id  = c.empresa_id
-      WHERE ${where.join(' AND ')}
+      WHERE ${where.join(' AND ')} ${obraFiltroStr}
       ORDER BY
         CASE pn.status_fin
           WHEN 'Pendente'         THEN 1

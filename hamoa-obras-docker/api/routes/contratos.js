@@ -319,6 +319,22 @@ router.put('/:id', auth, perm('cadastros'), async (req, res) => {
 
 router.delete('/:id', auth, perm('cadastros'), async (req, res) => {
   const prev = await db.query('SELECT numero FROM contratos WHERE id=$1', [req.params.id]);
+  if (!prev.rows[0]) return res.status(404).json({ error: 'Contrato não encontrado.' });
+
+  // Impede deleção se houver medições fora de Rascunho/Reprovado
+  const medAtivasR = await db.query(
+    `SELECT COUNT(*) AS cnt FROM medicoes
+      WHERE contrato_id = $1
+        AND status NOT IN ('Rascunho', 'Reprovado')`,
+    [req.params.id]
+  );
+  const qtd = parseInt(medAtivasR.rows[0]?.cnt || 0);
+  if (qtd > 0) {
+    return res.status(422).json({
+      error: `O contrato "${prev.rows[0].numero}" não pode ser excluído pois possui ${qtd} medição(ões) em andamento (aprovação, assinatura ou concluída). Finalize ou reprove as medições antes de excluir o contrato.`,
+    });
+  }
+
   await db.query('DELETE FROM contratos WHERE id=$1', [req.params.id]);
   await audit(req, 'excluir', 'contrato', parseInt(req.params.id),
     `Contrato "${prev.rows[0]?.numero || req.params.id}" excluído`);

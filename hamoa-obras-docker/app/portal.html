@@ -1079,8 +1079,15 @@ const Portal = {
           : `<span style="font-size:16px">✅</span> <span><strong>NF analisada com sucesso!</strong> Confira os dados preenchidos e clique em Enviar.</span>`;
       }
     } catch (e) {
-      this._toast('Erro IA: ' + e.message, 'erro');
-      if (iaStatus) iaStatus.style.display = 'none';
+      this._toast('Erro na análise IA: ' + e.message, 'erro');
+      // Marca que a extração falhou — impede o envio
+      delete this._nfDados[id];
+      delete this._nfValidacoes[id];
+      if (iaStatus) {
+        iaStatus.style.display = 'flex';
+        iaStatus.style.color   = '#dc2626';
+        iaStatus.innerHTML = `<span style="font-size:16px">❌</span> <span><strong>Análise IA falhou.</strong> Selecione o arquivo novamente para tentar outra vez.</span>`;
+      }
     } finally {
       clearInterval(subTimer);
       // Remove o overlay e reabilita a área de upload
@@ -1176,6 +1183,30 @@ const Portal = {
   async enviarNF(id) {
     const file = this._nfFile[id];
     if (!file) { this._toast('Selecione o arquivo da NF', 'erro'); return; }
+
+    // Bloqueia envio se extração IA ainda não foi concluída (apenas quando Gemini está ativo)
+    if (!this._nfDados[id]) {
+      const uploadArea = document.getElementById(`nf-drop-${id}`);
+      const analisando = uploadArea?.classList.contains('analisando');
+      if (analisando) {
+        this._toast('Aguarde a análise da NF pela IA ser concluída.', 'erro');
+        return;
+      }
+      // Extração não concluída — tenta disparar novamente
+      this._toast('Aguardando análise da NF pela IA. Tentando novamente...', 'erro');
+      await this.extrairNFcomIA(id);
+      if (!this._nfDados[id]) {
+        this._toast('A análise pela IA é obrigatória. Tente selecionar o arquivo novamente.', 'erro');
+        return;
+      }
+    }
+
+    // Bloqueia envio se há erros críticos de validação
+    const errosCriticos = (this._nfValidacoes[id] || []).filter(v => v.nivel === 'erro');
+    if (errosCriticos.length > 0) {
+      this._toast('Corrija os erros críticos indicados antes de enviar a NF.', 'erro');
+      return;
+    }
 
     const btn = document.getElementById(`btn-nf-${id}`);
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Enviando...';

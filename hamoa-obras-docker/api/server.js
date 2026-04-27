@@ -4,6 +4,23 @@
  */
 require('dotenv').config();
 
+// ── Validação de variáveis críticas na inicialização ─────────────────
+const REQUIRED_VARS = [
+  { key: 'JWT_SECRET',  minLen: 32, hint: 'Gere com: openssl rand -hex 32' },
+  { key: 'DB_PASS',     minLen: 12, hint: 'Defina no .env ou variável de ambiente' },
+];
+const WEAK_DEFAULTS = ['construtivo@2025', 'construtivo-jwt-secret-muito-longo-e-seguro-2025', 'mude-esta-chave-em-producao'];
+for (const { key, minLen, hint } of REQUIRED_VARS) {
+  const val = process.env[key];
+  if (!val || val.length < minLen) {
+    console.error(`[STARTUP] FATAL: ${key} não definido ou muito curto (mín ${minLen} chars). ${hint}`);
+    if (process.env.NODE_ENV === 'production') process.exit(1);
+  }
+  if (WEAK_DEFAULTS.includes(val)) {
+    console.warn(`[STARTUP] AVISO: ${key} está usando valor padrão inseguro. Altere antes de ir para produção!`);
+  }
+}
+
 const express     = require('express');
 const helmet      = require('helmet');
 const cors        = require('cors');
@@ -25,15 +42,29 @@ redisClient.connect().catch(err => console.warn('[Redis] Não conectado:', err.m
 // ── Middleware global ────────────────────────────────────────────
 app.set('trust proxy', 1); // necessário atrás do Nginx
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
+
+// CORS — aceita origens configuradas ou localhost para desenvolvimento
+const _corsOrigins = (process.env.CORS_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: _corsOrigins.length ? _corsOrigins : (process.env.NODE_ENV === 'production' ? false : '*'),
+  credentials: true,
+  methods:      ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Authorization','Content-Type','Accept'],
+}));
+if (!_corsOrigins.length && process.env.NODE_ENV === 'production') {
+  console.warn('[STARTUP] AVISO: CORS_ORIGIN não definido em produção — todas as origens serão bloqueadas!');
+}
+
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
-app.use(morgan('combined'));
+// Morgan — sem expor Authorization no log
+app.use(morgan(':remote-addr - [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" :response-time ms'));
 
 // Rate limiting
-app.use('/api/auth', rateLimit({ windowMs: 15*60*1000, max: 20, message: { error: 'Muitas tentativas. Aguarde.' } }));
-app.use('/api/',     rateLimit({ windowMs: 60*1000,    max: 300 }));
+app.use('/api/auth/login', rateLimit({ windowMs: 15*60*1000, max: 10, skipSuccessfulRequests: true, message: { error: 'Muitas tentativas de login. Aguarde 15 minutos.' } }));
+app.use('/api/auth',       rateLimit({ windowMs: 15*60*1000, max: 30, message: { error: 'Muitas tentativas. Aguarde.' } }));
+app.use('/api/',           rateLimit({ windowMs: 60*1000,    max: 300 }));
 
 // ── Health check ─────────────────────────────────────────────────
 app.get('/health', (req, res) => {
@@ -63,8 +94,13 @@ app.use('/api/d4sign',       require('./routes/d4sign'));
 
 // ── Tratamento global de erros ───────────────────────────────────
 app.use((err, req, res, _next) => {
-  console.error('[ERRO]', err);
-  res.status(500).json({ error: err.message || 'Erro interno do servidor' });
+  // Loga apenas mensagem + stack em dev; só mensagem em produção (evita vazar detalhes internos)
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[ERRO]', err.message);
+  } else {
+    console.error('[ERRO]', err);
+  }
+  res.status(err.status || 500).json({ error: err.message || 'Erro interno do servidor' });
 });
 
 // ── Proteção contra crash por promise rejections não tratadas ────

@@ -950,11 +950,41 @@ router.post('/:id/aprovar', auth, async (req, res) => {
   const lvMap = { 'Aguardando N1': 'N1', 'Aguardando N2': 'N2', 'Aguardando N3': 'N3' };
   const nivel = lvMap[med.status];
   if (!nivel) return res.status(400).json({ error: 'Medição não está em alçada de aprovação' });
-  const permKey = `aprovar${nivel}`; // 'aprovarN1' | 'aprovarN2' | 'aprovarN3'
-  if (!await checkPerm(req.user?.grupos || [], req.user?.perfil, permKey))
+
+  // ── Busca alçada antes de validar (usada tanto na validação de grupo quanto no nextStatus) ──
+  const alcR = await db.query(
+    `SELECT n1_grupos, n2_grupos, n3_grupos FROM alcadas
+      WHERE empresa_id = (SELECT empresa_id FROM obras WHERE id = $1)
+        AND (obra_id = $1 OR obra_id IS NULL)
+        AND (ativo IS NULL OR ativo = true)
+      ORDER BY obra_id NULLS LAST LIMIT 1`,
+    [med.obra_id]
+  );
+  const alc    = alcR.rows[0] || {};
+  const nKey   = nivel.toLowerCase(); // 'n1', 'n2', 'n3'
+  const grupos = Array.isArray(alc[`${nKey}_grupos`]) ? alc[`${nKey}_grupos`] : [];
+  const userGrupos = req.user?.grupos || [];
+
+  // ── Validação 1: perfil genérico (ADM sempre pode) ──────────────────────────
+  const permKey = `aprovar${nivel}`;
+  if (!await checkPerm(userGrupos, req.user?.perfil, permKey))
     return res.status(403).json({ error: `Sem permissão para aprovar nível ${nivel}. Contate o administrador.` });
 
-  // Segregação de funções: impede que o mesmo usuário aprove mais de um nível na mesma medição
+  // ── Validação 2: grupo AD real da alçada (se alçada tiver grupos configurados) ─
+  // ADM bypassa a validação de grupo AD
+  if (req.user?.perfil !== 'ADM' && grupos.length > 0) {
+    const temGrupo = userGrupos.some(g => grupos.includes(g));
+    if (!temGrupo) {
+      return res.status(403).json({
+        error: `Seu usuário não pertence aos grupos autorizados para aprovar o nível ${nivel} nesta obra. `
+             + `Grupos necessários: ${grupos.join(', ')}. `
+             + `Seus grupos: ${userGrupos.length ? userGrupos.join(', ') : '(nenhum)'}. `
+             + `Contate o administrador.`,
+      });
+    }
+  }
+
+  // ── Segregação de funções: impede que o mesmo usuário aprove mais de um nível ─
   const jaAprovouR = await db.query(
     `SELECT nivel FROM aprovacoes
       WHERE medicao_id = $1
@@ -973,8 +1003,20 @@ router.post('/:id/aprovar', auth, async (req, res) => {
     'INSERT INTO aprovacoes(medicao_id,nivel,acao,usuario,comentario) VALUES($1,$2,$3,$4,$5)',
     [id, nivel, 'aprovado', req.user.nome, comentario||'']
   );
-  const nextStatus = { 'Aguardando N1': 'Aguardando N2', 'Aguardando N2': 'Aguardando N3', 'Aguardando N3': 'Aprovado' };
-  let novoStatus = nextStatus[med.status];
+
+  // ── Determina próximo status pulando níveis não configurados na alçada ───────
+  const temN2 = Array.isArray(alc.n2_grupos) ? alc.n2_grupos.length > 0 : false;
+  const temN3 = Array.isArray(alc.n3_grupos) ? alc.n3_grupos.length > 0 : false;
+
+  let novoStatus;
+  if (med.status === 'Aguardando N1') {
+    novoStatus = temN2 ? 'Aguardando N2' : (temN3 ? 'Aguardando N3' : 'Aprovado');
+  } else if (med.status === 'Aguardando N2') {
+    novoStatus = temN3 ? 'Aguardando N3' : 'Aprovado';
+  } else {
+    novoStatus = 'Aprovado';
+  }
+
   if (novoStatus === 'Aprovado') {
     const assinCfg = await db.query("SELECT valor FROM configuracoes WHERE chave='assinatura'");
     const assin = assinCfg.rows[0] ? assinCfg.rows[0].valor : {};
@@ -1120,6 +1162,64 @@ router.post('/:id/reprovar', auth, async (req, res) => {
     .catch(e => console.warn('[email] Falha ao notificar aprovadores sobre reprovação:', e.message));
 
   res.json({ ok: true });
+});
+
+// ── Marcar como Assinado manualmente (bypass D4Sign) ─────────────
+// Útil quando D4Sign estiver desabilitado ou documento assinado fora do sistema
+
+router.post('/:id/marcar-assinado', auth, perm('enviarAssinatura'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const m  = await db.query('SELECT * FROM medicoes WHERE id=$1', [id]);
+    if (!m.rows[0]) return res.status(404).json({ error: 'Medição não encontrada.' });
+    if (m.rows[0].status !== 'Em Assinatura') {
+      return res.status(422).json({
+        error: `Apenas medições com status "Em Assinatura" podem ser marcadas como assinadas manualmente. Status atual: "${m.rows[0].status}".`,
+      });
+    }
+
+    await db.query("UPDATE medicoes SET status='Assinado' WHERE id=$1", [id]);
+    await db.query(
+      `INSERT INTO aprovacoes(medicao_id, nivel, acao, usuario, comentario)
+       VALUES ($1, 'Sistema', 'assinado', $2, 'Documento marcado como assinado manualmente (sem D4Sign).')`,
+      [id, req.user.nome]
+    );
+    await audit(req, 'marcar_assinado', 'medicao', id,
+      `Medição "${m.rows[0].codigo}" marcada como Assinada manualmente por ${req.user.nome}`);
+
+    res.json({ ok: true, novoStatus: 'Assinado' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Reabrir medição reprovada ─────────────────────────────────────
+// Retorna do status Reprovado para Rascunho para o fornecedor poder corrigir e reenviar
+
+router.post('/:id/reabrir', auth, perm('criarMedicao'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const m  = await db.query('SELECT * FROM medicoes WHERE id=$1', [id]);
+    if (!m.rows[0]) return res.status(404).json({ error: 'Medição não encontrada.' });
+    if (m.rows[0].status !== 'Reprovado') {
+      return res.status(422).json({
+        error: `Apenas medições "Reprovadas" podem ser reabertas. Status atual: "${m.rows[0].status}".`,
+      });
+    }
+
+    await db.query("UPDATE medicoes SET status='Rascunho' WHERE id=$1", [id]);
+    await db.query(
+      `INSERT INTO aprovacoes(medicao_id, nivel, acao, usuario, comentario)
+       VALUES ($1, 'Sistema', 'reaberto', $2, 'Medição reaberta para correção.')`,
+      [id, req.user.nome]
+    );
+    await audit(req, 'reabrir', 'medicao', id,
+      `Medição "${m.rows[0].codigo}" reaberta (Reprovado → Rascunho) por ${req.user.nome}`);
+
+    res.json({ ok: true, novoStatus: 'Rascunho' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Enviar para assinatura ────────────────────────────────────────

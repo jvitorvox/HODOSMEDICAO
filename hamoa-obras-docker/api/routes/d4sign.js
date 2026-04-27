@@ -51,6 +51,18 @@ router.post('/webhook', async (req, res) => {
       return;
     }
 
+    // ── Idempotência: ignorar eventos "finished" já processados ──────────────
+    if (/finish|conclu|signed|assinado/i.test(evento + etapa)) {
+      const jaAssinado = await db.query(
+        "SELECT id FROM medicoes WHERE d4sign_doc_uuid = $1 AND status = 'Assinado'",
+        [docUuid]
+      );
+      if (jaAssinado.rows[0]) {
+        console.log(`[D4Sign webhook] Evento duplicado ignorado — doc=${docUuid} já está Assinado.`);
+        return;
+      }
+    }
+
     console.log(`[D4Sign webhook] doc=${docUuid} evento="${evento}" etapa="${etapa}"`);
 
     // Busca a medição pelo d4sign_doc_uuid (inclui dados do fornecedor para e-mail)
