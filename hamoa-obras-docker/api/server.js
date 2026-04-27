@@ -16,9 +16,10 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 
 // ── Redis (conexão opcional — não bloqueia inicialização) ────────
-const redisClient = redis.createClient({
-  url: `redis://:${process.env.REDIS_PASS||'construtivo-redis@2025'}@${process.env.REDIS_HOST||'construtivo-redis'}:6379`,
-});
+const redisUrl = process.env.REDIS_PASS
+  ? `redis://:${process.env.REDIS_PASS}@${process.env.REDIS_HOST || 'construtivo-redis'}:6379`
+  : `redis://${process.env.REDIS_HOST || 'construtivo-redis'}:6379`;
+const redisClient = redis.createClient({ url: redisUrl });
 redisClient.connect().catch(err => console.warn('[Redis] Não conectado:', err.message));
 
 // ── Middleware global ────────────────────────────────────────────
@@ -56,7 +57,8 @@ app.use('/api/usuarios',     require('./routes/usuarios'));
 app.use('/api/audit',        require('./routes/audit'));
 app.use('/api/lbm',          require('./routes/lbm'));
 app.use('/api/portal',       require('./routes/portal'));
-app.use('/api/whatsapp',     require('./routes/whatsapp'));
+// WhatsApp desativado (depende de serviço pago — reativar quando necessário)
+// app.use('/api/whatsapp',     require('./routes/whatsapp'));
 app.use('/api/d4sign',       require('./routes/d4sign'));
 
 // ── Tratamento global de erros ───────────────────────────────────
@@ -232,6 +234,9 @@ async function runMigrations() {
     `CREATE INDEX IF NOT EXISTS idx_wa_tokens_medicao  ON whatsapp_tokens(medicao_id)`,
     // v3.9.3 — telefone nos usuários internos (para WhatsApp)
     `ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefone VARCHAR(30)`,
+    // v3.13 — obras permitidas por usuário (array de obra_id; vazio = acesso total)
+    `ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS obras_permitidas integer[] NOT NULL DEFAULT '{}'`,
+    `CREATE INDEX IF NOT EXISTS idx_usuarios_obras_permitidas ON usuarios USING GIN(obras_permitidas)`,
     // v3.9.4 — UUID do documento D4Sign para rastreamento via webhook
     `ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS d4sign_doc_uuid VARCHAR(100)`,
     `CREATE INDEX IF NOT EXISTS idx_medicoes_d4sign_doc ON medicoes(d4sign_doc_uuid)`,

@@ -29,7 +29,14 @@ async function _loadPerms() {
   if (_cache && (now - _cacheTime) < CACHE_TTL) return _cache;
   try {
     const r = await db.query("SELECT valor FROM configuracoes WHERE chave='permissoes'");
-    _cache     = r.rows[0]?.valor || {};
+    const raw = r.rows[0]?.valor || {};
+    // Normaliza chaves para lowercase — evita falha silenciosa por diferença de case
+    // entre o nome do grupo cadastrado nas permissões e o grupo vindo do AD/JWT.
+    const normalized = {};
+    for (const [grupo, perms] of Object.entries(raw)) {
+      normalized[grupo.toLowerCase()] = perms;
+    }
+    _cache     = normalized;
     _cacheTime = now;
   } catch {
     _cache = _cache || {};
@@ -55,7 +62,8 @@ async function checkPerm(grupos, perfil, permKey) {
   if (perfil === 'ADM') return true;
   const perms = await _loadPerms();
   const gruposUsuario = Array.isArray(grupos) ? grupos : [];
-  return gruposUsuario.some(g => perms[g]?.[permKey] === true);
+  // Compara em lowercase dos dois lados para ignorar diferenças de maiúsculas/minúsculas
+  return gruposUsuario.some(g => perms[g.toLowerCase()]?.[permKey] === true);
 }
 
 /**

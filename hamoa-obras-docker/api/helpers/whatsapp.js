@@ -30,7 +30,7 @@ async function _loadCfg() {
 function _evReq(cfg, method, path, body) {
   return new Promise((resolve, reject) => {
     const baseUrl = cfg.api_url || 'http://construtivo-whatsapp:8080';
-    const apiKey  = cfg.api_key || process.env.WA_API_KEY || 'construtivo-wa-key-2025';
+    const apiKey  = cfg.api_key || process.env.WA_API_KEY || '';
     const parsed  = new URL(baseUrl + path);
     const lib     = parsed.protocol === 'https:' ? https : http;
     const bodyStr = body ? JSON.stringify(body) : null;
@@ -94,7 +94,7 @@ function _textoAprovacao(med, nivel, usuario) {
   const meses = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const periodo = m ? `${meses[parseInt(m)]}/${y}` : med.periodo || '—';
 
-  return `🏗️ *CONSTRUTIVO OBRAS*
+  return `🏗️ *CONSTRUTIVO AI*
 ━━━━━━━━━━━━━━━━━━━━
 📋 *Medição para aprovação — ${nivel}*
 
@@ -123,6 +123,9 @@ Para *reprovar*, responda:
  * @returns {Promise<{enviados: number, erros: string[]}>}
  */
 async function notificarAprovadores(med) {
+  // WhatsApp desativado temporariamente — reativar removendo este return
+  return { enviados: 0, erros: ['WhatsApp desativado.'] };
+  // eslint-disable-next-line no-unreachable
   const cfg = await _loadCfg();
   if (!cfg.ativo) return { enviados: 0, erros: ['WhatsApp não configurado ou inativo.'] };
 

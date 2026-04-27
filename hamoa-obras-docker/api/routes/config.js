@@ -25,7 +25,8 @@ const _chaveLabel = {
 };
 
 // Chaves sensíveis — somente ADM pode ler (contêm API keys, tokens, credenciais)
-const _chavesSensiveis = new Set(['ldap', 'assinatura', 'clicksign', 'erp', 'storage', 'ia', 'permissoes', 'whatsapp']);
+const _chavesSensiveis = new Set(['ldap', 'assinatura', 'clicksign', 'erp', 'storage', 'ia', 'whatsapp']);
+// 'permissoes' é lida pelo frontend de qualquer usuário autenticado para montar o menu
 
 // Middleware: restringe escrita e leitura de chaves sensíveis a administradores
 function authADM(req, res, next) {
@@ -51,6 +52,10 @@ router.put('/:chave', auth, authADM, async (req, res) => {
   );
   const label = _chaveLabel[req.params.chave] || req.params.chave;
   await audit(req, 'salvar_config', 'configuracao', null, `Configuração "${label}" salva`);
+  // Invalida o cache de permissões imediatamente ao salvar
+  if (req.params.chave === 'permissoes') {
+    require('../middleware/perm').invalidatePermsCache();
+  }
   res.json(r.rows[0]);
 });
 
@@ -181,7 +186,7 @@ router.post('/d4sign/diagnose', auth, async (req, res) => {
 
     res.json({ ok: true, resultados: results });
   } catch (e) {
-    res.status(500).json({ error: e.message, stack: e.stack });
+    res.status(500).json({ error: e.message });
   }
 });
 

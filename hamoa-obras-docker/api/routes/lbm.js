@@ -29,14 +29,20 @@ const router = require('express').Router({ mergeParams: true });
 const db     = require('../db');
 const auth   = require('../middleware/auth');
 const audit  = require('../middleware/audit');
+const { getObrasPermitidas, temAcessoObra } = require('../middleware/obras');
 const { uploadMem, _iaGetKey, _iaFileToParts, _iaCall, _parseDate } = require('../helpers/ia');
 
 const obraId = req => parseInt(req.params.obraId);
 
-// ─── Helper: garante que a obra pertence ao usuário e retorna a metodologia ──
+// ─── Helper: garante que a obra existe e o usuário tem acesso ──────────────
 async function _checkObra(req, res) {
   const r = await db.query('SELECT id, nome, metodologia FROM obras WHERE id=$1', [obraId(req)]);
   if (!r.rows[0]) { res.status(404).json({ error: 'Obra não encontrada' }); return null; }
+  const obras = await getObrasPermitidas(req, db);
+  if (!temAcessoObra(obras, r.rows[0].id)) {
+    res.status(403).json({ error: 'Acesso negado a esta obra.' });
+    return null;
+  }
   return r.rows[0];
 }
 
@@ -517,12 +523,12 @@ async function _calcPctServico(contratoIds) {
            COALESCE(MAX(pct_total), 0) AS pct_acumulado,
            (SELECT id FROM medicoes m2
             WHERE m2.contrato_id = m.contrato_id
-              AND m2.status IN ('Aprovado','Em Assinatura','Concluído')
+              AND m2.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
             ORDER BY m2.periodo DESC LIMIT 1) AS medicao_id_recente
     FROM medicoes m
     WHERE contrato_id = ANY($1)
       AND COALESCE(tipo,'Normal') IN ('Normal','Avanco_Fisico')
-      AND status IN ('Aprovado','Em Assinatura','Concluído')
+      AND status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
     GROUP BY contrato_id
   `, [contratoIds]);
 
@@ -580,7 +586,7 @@ router.get('/:obraId/sincronizar-medicoes', auth, async (req, res) => {
                (SELECT numero FROM contratos WHERE id = m.contrato_id) AS contrato_numero
         FROM medicoes m
         WHERE contrato_id = ANY($1)
-          AND status IN ('Aprovado','Em Assinatura','Concluído')
+          AND status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
         ORDER BY contrato_id, periodo
       `, [contratoIds]);
 

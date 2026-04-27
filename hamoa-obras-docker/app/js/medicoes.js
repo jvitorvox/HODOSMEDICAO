@@ -19,23 +19,31 @@ const Medicoes = {
   },
 
   async _buildForm(m) {
-    const [empresas, obras, forns] = await Promise.all([ API.empresas(), API.obras(), API.fornecedores() ]);
+    const [empresas, obras] = await Promise.all([ API.empresas(), API.obras() ]);
     const obrasFilt = m ? obras.filter(o=>o.empresa_id===m.empresa_id) : obras;
-    // Para nova medição: sem contrato pré-selecionado. Para edição: carrega disponíveis + o próprio contrato
+    const tipoAtual = m?.tipo || 'Normal';
+
+    // Para nova medição: sem contrato pré-selecionado.
+    // Para edição: carrega contratos disponíveis + o próprio contrato para pré-seleção.
     let contsFilt = [];
-    if(m?.obra_id || m?.fornecedor_id) {
-      const filters = { disponivel: 1 };
-      if(m.obra_id)       filters.obra_id       = m.obra_id;
-      if(m.fornecedor_id) filters.fornecedor_id = m.fornecedor_id;
-      contsFilt = await API.contratos(filters);
-      // Garante que o contrato atual esteja na lista (pode estar 100% mas ainda é a medição sendo editada)
-      if(m.contrato_id && !contsFilt.find(c=>c.id===m.contrato_id)) {
-        const allConts = await API.contratos({ obra_id: m.obra_id });
-        const current = allConts.find(c=>c.id===m.contrato_id);
-        if(current) contsFilt.unshift(current);
+    let fornsEdit = []; // fornecedores disponíveis para edição
+    if (m?.obra_id) {
+      // Busca contratos disponíveis para a obra — deriva fornecedores únicos deles
+      const contsDisp = await API.contratos({ disponivel: 1, tipo: tipoAtual, obra_id: m.obra_id });
+      const fornsMap = new Map();
+      contsDisp.forEach(c => { if (!fornsMap.has(c.fornecedor_id)) fornsMap.set(c.fornecedor_id, c.fornecedor_nome); });
+      fornsEdit = [...fornsMap.entries()].map(([id, nome]) => ({ id, nome }));
+
+      if (m.fornecedor_id) {
+        contsFilt = contsDisp.filter(c => c.fornecedor_id === m.fornecedor_id);
+        // Garante contrato atual na lista mesmo que esteja 100% (edição)
+        if (m.contrato_id && !contsFilt.find(c => c.id === m.contrato_id)) {
+          const allConts = await API.contratos({ obra_id: m.obra_id });
+          const current  = allConts.find(c => c.id === m.contrato_id);
+          if (current) contsFilt.unshift(current);
+        }
       }
     }
-    const tipoAtual = m?.tipo || 'Normal';
     return `
     <!-- Seletor de Tipo de Medição -->
     <div class="fsec" style="padding-bottom:0">
@@ -69,15 +77,25 @@ const Medicoes = {
           </select></div>
         <div class="fg"><label class="fl">Fornecedor *</label>
           <select class="fi fsel" id="mf-fornecedor" onchange="Medicoes._onFornecedorChange()">
-            <option value="">Selecione...</option>${forns.map(f=>`<option value="${f.id}" ${m?.fornecedor_id===f.id?'selected':''}>${f.nome_fantasia||f.razao_social}</option>`).join('')}
+            ${m?.obra_id && fornsEdit.length
+              ? '<option value="">Selecione o fornecedor...</option>' +
+                fornsEdit.map(f => `<option value="${f.id}" ${m?.fornecedor_id===f.id?'selected':''}>${f.nome}</option>`).join('')
+              : '<option value="">Selecione a obra primeiro...</option>'}
           </select></div>
         <div class="fg"><label class="fl">Contrato *</label>
           <select class="fi fsel" id="mf-contrato" onchange="Medicoes._onContratoChange()">
             ${contsFilt.length
               ? '<option value="">Selecione o contrato...</option>' + contsFilt.map(c => {
-                  const pct = parseFloat(c.pct_executado_real) || 0;
-                  const saldo = (100 - pct).toFixed(0);
-                  return `<option value="${c.id}" ${m?.contrato_id===c.id?'selected':''}>${c.numero} · ${c.objeto} (${saldo}% a medir)</option>`;
+                  let info;
+                  if (tipoAtual === 'Avanco_Fisico') {
+                    info = 'avanço físico pendente';
+                  } else {
+                    const totalFin = parseFloat(c.total_financeiro) || 0;
+                    const valorTot = parseFloat(c.valor_total) || 0;
+                    const pctFin   = valorTot > 0 ? Math.min(100, (totalFin / valorTot) * 100) : 0;
+                    info = `${(100 - pctFin).toFixed(0)}% saldo financeiro`;
+                  }
+                  return `<option value="${c.id}" ${m?.contrato_id===c.id?'selected':''}>${c.numero} · ${c.objeto} (${info})</option>`;
                 }).join('')
               : '<option value="">Selecione obra e fornecedor primeiro...</option>'
             }
@@ -244,7 +262,7 @@ const Medicoes = {
     }
   },
 
-  _onTipoChange() {
+  async _onTipoChange() {
     const tipo = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
 
     // Atualiza visual dos radio cards
@@ -289,16 +307,16 @@ const Medicoes = {
       }
     }
 
-    // Recarrega itens do contrato de acordo com o novo tipo
-    const contId = parseInt(H.el('mf-contrato')?.value);
-    if (contId) {
-      this._onContratoChange();
+    // Recarrega fornecedores (e contratos) filtrando pelo novo tipo
+    // (Normal/Adiantamento → saldo financeiro; Avanço Físico → avanço pendente de confirmação)
+    const obraId = parseInt(H.el('mf-obra')?.value) || null;
+    if (obraId) {
+      await this._reloadFornecedores();
     } else {
-      // Atualiza mensagem vazia
+      H.el('mf-fornecedor').innerHTML = '<option value="">Selecione a obra primeiro...</option>';
+      H.el('mf-contrato').innerHTML   = '<option value="">Selecione a obra primeiro...</option>';
       const container = H.el('mf-itens');
-      if (container) {
-        container.innerHTML = `<div class="items-empty" id="mf-itens-empty">Selecione o contrato para carregar os itens.</div>`;
-      }
+      if (container) container.innerHTML = `<div class="items-empty" id="mf-itens-empty">Selecione o contrato para carregar os itens.</div>`;
     }
   },
 
@@ -462,39 +480,88 @@ const Medicoes = {
   async _onEmpresaChange() {
     const empId = parseInt(H.el('mf-empresa').value);
     const obras = await API.obras(empId);
-    H.el('mf-obra').innerHTML = '<option value="">Selecione a obra...</option>' + obras.map(o=>`<option value="${o.id}">${o.nome}</option>`).join('');
-    H.el('mf-contrato').innerHTML = '<option value="">Selecione a obra primeiro...</option>';
+    H.el('mf-obra').innerHTML      = '<option value="">Selecione a obra...</option>' + obras.map(o=>`<option value="${o.id}">${o.nome}</option>`).join('');
+    H.el('mf-fornecedor').innerHTML = '<option value="">Selecione a obra primeiro...</option>';
+    H.el('mf-contrato').innerHTML   = '<option value="">Selecione a obra primeiro...</option>';
+    H.el('mf-itens').innerHTML = `<div class="items-empty">Selecione o contrato para carregar os itens de medição.</div>`;
+    if(H.el('mf-totais')) H.el('mf-totais').style.display = 'none';
   },
 
   async _onObraChange() {
-    await this._reloadContratos();
+    await this._reloadFornecedores();
   },
 
   async _onFornecedorChange() {
     await this._reloadContratos();
   },
 
+  // Recarrega fornecedores com base nos contratos disponíveis da obra + tipo selecionados
+  async _reloadFornecedores() {
+    const obraId = parseInt(H.el('mf-obra')?.value) || null;
+    const tipo   = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
+
+    // Reseta fornecedor, contrato e itens
+    H.el('mf-fornecedor').innerHTML = '<option value="">Selecione...</option>';
+    H.el('mf-contrato').innerHTML   = '<option value="">Selecione o fornecedor...</option>';
+    H.el('mf-itens').innerHTML = `<div class="items-empty">Selecione o contrato para carregar os itens de medição.</div>`;
+    if(H.el('mf-totais')) H.el('mf-totais').style.display = 'none';
+
+    if (!obraId) return;
+
+    // Busca contratos com saldo disponível nesta obra
+    const conts = await API.contratos({ disponivel: 1, tipo, obra_id: obraId });
+
+    // Extrai fornecedores únicos dos contratos retornados
+    const fornsMap = new Map();
+    conts.forEach(c => { if (!fornsMap.has(c.fornecedor_id)) fornsMap.set(c.fornecedor_id, c.fornecedor_nome); });
+
+    if (!fornsMap.size) {
+      const msg = tipo === 'Avanco_Fisico'
+        ? 'Nenhum contrato com avanço físico pendente nesta obra'
+        : 'Nenhum fornecedor com saldo disponível nesta obra';
+      H.el('mf-fornecedor').innerHTML = `<option value="">${msg}</option>`;
+      H.el('mf-contrato').innerHTML   = `<option value="">—</option>`;
+      return;
+    }
+
+    H.el('mf-fornecedor').innerHTML = '<option value="">Selecione o fornecedor...</option>' +
+      [...fornsMap.entries()].map(([id, nome]) => `<option value="${id}">${nome}</option>`).join('');
+  },
+
   async _reloadContratos() {
-    const obraId      = parseInt(H.el('mf-obra')?.value)       || null;
-    const fornId      = parseInt(H.el('mf-fornecedor')?.value) || null;
+    const obraId = parseInt(H.el('mf-obra')?.value)       || null;
+    const fornId = parseInt(H.el('mf-fornecedor')?.value) || null;
+    const tipo   = document.querySelector('input[name="mf-tipo"]:checked')?.value || 'Normal';
+
     // Limpa itens ao trocar contrato
     H.el('mf-contrato').innerHTML = '<option value="">Selecione o contrato...</option>';
     H.el('mf-itens').innerHTML = `<div class="items-empty">Selecione o contrato para carregar os itens de medição.</div>`;
     if(H.el('mf-totais')) H.el('mf-totais').style.display = 'none';
     if(!obraId && !fornId) return;
-    const filters = { disponivel: 1 };
+
+    const filters = { disponivel: 1, tipo };
     if(obraId)  filters.obra_id       = obraId;
     if(fornId)  filters.fornecedor_id = fornId;
     const conts = await API.contratos(filters);
     if(!conts.length) {
-      H.el('mf-contrato').innerHTML = '<option value="">Nenhum contrato disponível</option>';
+      const msg = tipo === 'Avanco_Fisico'
+        ? 'Nenhum contrato com avanço físico pendente'
+        : 'Nenhum contrato com saldo financeiro disponível';
+      H.el('mf-contrato').innerHTML = `<option value="">${msg}</option>`;
       return;
     }
     H.el('mf-contrato').innerHTML = '<option value="">Selecione o contrato...</option>' +
       conts.map(c => {
-        const pct = parseFloat(c.pct_executado_real) || 0;
-        const saldo = (100 - pct).toFixed(0);
-        return `<option value="${c.id}">${c.numero} · ${c.objeto} (${saldo}% a medir)</option>`;
+        let info;
+        if (tipo === 'Avanco_Fisico') {
+          info = 'avanço físico pendente';
+        } else {
+          const totalFin = parseFloat(c.total_financeiro) || 0;
+          const valorTot = parseFloat(c.valor_total) || 0;
+          const pctFin   = valorTot > 0 ? Math.min(100, (totalFin / valorTot) * 100) : 0;
+          info = `${(100 - pctFin).toFixed(0)}% saldo financeiro`;
+        }
+        return `<option value="${c.id}">${c.numero} · ${c.objeto} (${info})</option>`;
       }).join('');
   },
 
@@ -538,13 +605,28 @@ const Medicoes = {
       }
 
       if(banner) {
-        // Para Adiantamento: mostra saldo financeiro disponível
-        // Para Normal: mostra % físico executado
-        const itensComSaldo = acum.itens.filter(i => i.qtd_saldo > 0.0001);
-        const pctFisico = acum.pct_executado.toFixed(1);
-        const adtPendente = acum.itens.reduce((s,i) => s + (i.qtd_saldo_adt_pendente||0), 0);
-        let msg = `<span style="color:var(--blue)">ℹ</span> ${pctFisico}% físico executado · ${itensComSaldo.length}/${acum.itens.length} itens com saldo financeiro disponível`;
+        const itensComSaldo  = acum.itens.filter(i => i.qtd_saldo > 0.0001);
+        const pctFisico      = acum.pct_executado.toFixed(1);
+        const adtPendente    = acum.itens.reduce((s,i) => s + (i.qtd_saldo_adt_pendente||0), 0);
+        const saldoGlobal    = parseFloat(acum.saldo_financeiro_global ?? acum.valor_total) || 0;
+        const totalFin       = parseFloat(acum.total_financeiro) || 0;
+        const valorTotal     = parseFloat(acum.valor_total) || 0;
+        const fmtR = v => 'R$ ' + parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+        let msg = `<span style="color:var(--blue)">ℹ</span> ${pctFisico}% físico executado · ${itensComSaldo.length}/${acum.itens.length} itens com saldo de quantidade`;
         if (adtPendente > 0) msg += ` · <span style="color:#d97706">⚠ ${adtPendente.toFixed(2)} un. adiantadas aguardando confirmação física</span>`;
+
+        // Alerta de saldo financeiro global (inclui adiantamentos avulsos)
+        if (valorTotal > 0) {
+          if (saldoGlobal <= 0) {
+            msg = `<span style="color:var(--danger)">🚫</span> <strong>Saldo financeiro esgotado.</strong> ` +
+                  `Total comprometido: ${fmtR(totalFin)} / ${fmtR(valorTotal)}. Não é possível criar novas medições financeiras neste contrato.`;
+            banner.style.cssText = 'display:block;background:rgba(220,38,38,.08);border:1px solid #fca5a5;border-radius:6px;padding:8px 12px;margin-bottom:8px';
+          } else {
+            msg += ` · 💰 Saldo financeiro disponível: <strong style="color:var(--green)">${fmtR(saldoGlobal)}</strong> de ${fmtR(valorTotal)}`;
+            banner.style.cssText = '';
+          }
+        }
         banner.innerHTML = msg;
         banner.style.display = '';
       }
@@ -675,6 +757,20 @@ const Medicoes = {
       if(it.qtd_mes > saldo + 0.0001) {
         const label = tipo === 'Avanco_Fisico' ? 'saldo de adiantamento pendente' : 'saldo disponível';
         UI.toast(`Item "${it.descricao}": ${it.qtd_mes} excede o ${label} de ${parseFloat(saldo.toFixed(4))} ${it.unidade}`, 'error');
+        return null;
+      }
+    }
+
+    // ── Validação financeira global (saldo real do contrato) ─────────
+    // Bloqueia no frontend se o valor total desta medição ultrapassa o
+    // saldo_financeiro_global retornado pelo backend (inclui adiantamentos avulsos).
+    if(['Normal','Adiantamento'].includes(tipo)) {
+      const acum = State.cache.acumulados;
+      const saldoGlobal = parseFloat(acum?.saldo_financeiro_global ?? acum?.valor_total ?? 0);
+      const valorEsta   = itens.reduce((s, it) => s + (it.valor_item || 0), 0);
+      if(acum?.valor_total > 0 && valorEsta > saldoGlobal + 0.01) {
+        const fmtR = v => 'R$ ' + parseFloat(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+        UI.toast(`Valor desta medição (${fmtR(valorEsta)}) excede o saldo financeiro disponível no contrato (${fmtR(saldoGlobal)}).`, 'error');
         return null;
       }
     }
@@ -912,7 +1008,11 @@ const Medicoes = {
   async openDetalhe(id) {
     State.currentMedicaoId = id;
     try {
-      const m = await API.medicao(id);
+      const [m, assinCfg] = await Promise.all([
+        API.medicao(id),
+        API.config('assinatura').catch(() => null),
+      ]);
+      const assinaturaAtiva = !!(assinCfg?.valor?.ativo);
       const aprs = m.aprovacoes || [];
       const evids = m.evidencias || [];
       H.el('det-title').innerHTML = `<span class="cc" style="font-size:14px">${m.codigo}</span> ${H.tipoBadge(m.tipo)} ${H.statusBadge(m.status)}`;
@@ -1085,7 +1185,7 @@ const Medicoes = {
         });
       });
       const canA = H.canApprove(m.status, m);
-      const canEnviarAssin = ['Aprovado','Em Assinatura'].includes(m.status) && Perm.has('enviarAssinatura');
+      const canEnviarAssin = ['Aprovado','Em Assinatura'].includes(m.status) && Perm.has('enviarAssinatura') && assinaturaAtiva;
       H.el('det-footer').innerHTML = `
         <button class="btn btn-o" onclick="UI.closeModal('modal-detalhe')">Fechar</button>
         ${canEnviarAssin ? `<button class="btn btn-a" style="background:var(--teal)" onclick="UI.closeModal('modal-detalhe');Medicoes.openEnviarAssinatura(${id})">✍ Enviar para Assinatura</button>` : ''}

@@ -28,20 +28,21 @@ const path    = require('path');
 const { v4: uuidv4 } = require('uuid');
 const db      = require('../db');
 const storageHelper = require('../helpers/storage');
+const { sendMail: _sendMail, notificarAprovadoresStatusChange } = require('../helpers/email');
 const authInterno   = require('../middleware/auth'); // auth JWT interno (backoffice)
+const { perm }      = require('../middleware/perm');
 
 const TOKEN_EXPIRY_HOURS = 24;
 
 // ── Helper: envio de e-mail via SMTP ──────────────────────────────
-// Lê configurações do banco (painel Admin → Notificações) com fallback para env.
-// Retorna true se enviou, false se SMTP não está configurado.
-async function _sendMail(to, subject, html) {
+// Mantido por compatibilidade — agora delega para helpers/email.js
+async function _sendMailLegacy(to, subject, html) {
   // 1. Tenta carregar config do banco (painel de configurações)
   let smtpHost = process.env.SMTP_HOST || '';
   let smtpPort = parseInt(process.env.SMTP_PORT || '587');
   let smtpUser = process.env.SMTP_USER || '';
   let smtpPass = process.env.SMTP_PASS || '';
-  let smtpFrom = process.env.SMTP_FROM || 'CONSTRUTIVO OBRAS <noreply@construtivo.com.br>';
+  let smtpFrom = process.env.SMTP_FROM || 'CONSTRUTIVO AI <noreply@construtivo.com.br>';
 
   try {
     const cfgR = await db.query("SELECT valor FROM configuracoes WHERE chave='notificacoes'");
@@ -71,6 +72,7 @@ async function _sendMail(to, subject, html) {
   await transporter.sendMail({ from: smtpFrom, to, subject, html });
   return true;
 }
+// (função legada acima mantida para não quebrar referências internas desta rota)
 
 // ── Helper: URL base do sistema ────────────────────────────────────
 function _baseUrl(req) {
@@ -84,7 +86,7 @@ function portalAuth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Token de acesso ao portal não fornecido.' });
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
     if (payload.role !== 'fornecedor') return res.status(403).json({ error: 'Acesso restrito ao portal do fornecedor.' });
     req.fornecedor = payload; // { fornecedor_id, nome, email, role }
     next();
@@ -135,10 +137,12 @@ router.post('/solicitar-acesso', async (req, res) => {
       [email.trim()]
     );
 
-    // Responde sempre com sucesso (não revela se o e-mail existe — anti-enumeração)
     if (!fR.rows[0]) {
       console.warn(`[Portal] Solicitação de acesso para e-mail não cadastrado: ${email}`);
-      return res.json({ ok: true, msg: 'Se o e-mail estiver cadastrado, você receberá o link em instantes.' });
+      return res.status(404).json({
+        error: 'E-mail não encontrado',
+        detalhe: `O endereço "${email}" não está cadastrado como e-mail de nenhum fornecedor ativo no sistema. Verifique o endereço informado ou entre em contato com o responsável pelo contrato.`,
+      });
     }
 
     const forn = fR.rows[0];
@@ -164,13 +168,13 @@ router.post('/solicitar-acesso', async (req, res) => {
     const nomeExib = forn.nome_fantasia || forn.razao_social;
 
     const emailEnviado = await _sendMail(email.trim(),
-      '🔑 Seu link de acesso — Portal CONSTRUTIVO OBRAS',
+      '🔑 Seu link de acesso — Portal CONSTRUTIVO AI',
       `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family:Arial,sans-serif;max-width:520px;margin:40px auto;color:#1e293b">
   <div style="background:#1e3a5f;padding:24px 32px;border-radius:8px 8px 0 0">
-    <h2 style="color:#fff;margin:0;font-size:18px">CONSTRUTIVO OBRAS</h2>
+    <h2 style="color:#fff;margin:0;font-size:18px">CONSTRUTIVO AI</h2>
     <p style="color:#93c5fd;margin:4px 0 0;font-size:13px">Portal do Fornecedor</p>
   </div>
   <div style="background:#f8fafc;padding:28px 32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
@@ -188,7 +192,7 @@ router.post('/solicitar-acesso', async (req, res) => {
       Se você não solicitou este acesso, ignore este e-mail.
     </p>
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0">
-    <p style="font-size:11px;color:#94a3b8;margin:0">CONSTRUTIVO OBRAS — Sistema de Gestão de Obras</p>
+    <p style="font-size:11px;color:#94a3b8;margin:0">CONSTRUTIVO AI — Sistema de Gestão de Obras e Medições</p>
   </div>
 </body>
 </html>`
@@ -248,7 +252,7 @@ router.get('/verificar', async (req, res) => {
     // Emite JWT de sessão do portal (validade: 8h)
     const sessionToken = jwt.sign(
       { fornecedor_id: t.fornecedor_id, nome, email: t.email, role: 'fornecedor' },
-      process.env.JWT_SECRET || 'dev-secret',
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 
@@ -293,8 +297,11 @@ router.get('/medicoes', portalAuth, async (req, res) => {
              e.nome_fantasia AS empresa_fantasia,
              c.numero AS contrato_numero,
              c.valor_total AS contrato_valor_total,
-             -- NFs enviadas
+             -- NFs enviadas + status da mais recente + flag de divergência
              (SELECT COUNT(*) FROM portal_nfs pn WHERE pn.medicao_id = m.id) AS total_nfs,
+             (SELECT pn.status_fin FROM portal_nfs pn WHERE pn.medicao_id = m.id ORDER BY pn.enviado_em DESC LIMIT 1) AS nf_status_fin,
+             (SELECT COALESCE(jsonb_array_length(pn.validacoes), 0) > 0
+                FROM portal_nfs pn WHERE pn.medicao_id = m.id ORDER BY pn.enviado_em DESC LIMIT 1) AS nf_tem_divergencia,
              -- Aprovações resumidas
              COALESCE((
                SELECT json_agg(json_build_object(
@@ -325,7 +332,37 @@ router.get('/medicoes/:id', portalAuth, async (req, res) => {
       SELECT m.*,
              o.nome AS obra_nome, o.codigo AS obra_codigo,
              e.razao_social AS empresa_nome,
-             c.numero AS contrato_numero, c.valor_total AS contrato_valor_total
+             c.numero AS contrato_numero, c.valor_total AS contrato_valor_total,
+             -- Progresso financeiro: total aprovado no contrato (inclui esta medição)
+             COALESCE((
+               SELECT SUM(m2.valor_medicao)
+                 FROM medicoes m2
+                WHERE m2.contrato_id = m.contrato_id
+                  AND COALESCE(m2.tipo,'Normal') IN ('Normal','Adiantamento')
+                  AND (m2.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
+                       OR m2.id = m.id)
+             ), 0) AS total_financeiro_aprovado,
+             -- Progresso físico acumulado (recalculado dos itens, inclui esta medição)
+             COALESCE(
+               LEAST(100, ROUND(
+                 COALESCE((
+                   SELECT SUM(
+                     CASE WHEN COALESCE(m2.tipo,'Normal') = 'Normal'
+                          THEN mi2.valor_item
+                          WHEN COALESCE(m2.tipo,'Normal') = 'Avanco_Fisico'
+                          THEN mi2.qtd_mes * mi2.valor_unitario
+                          ELSE 0 END
+                   )
+                     FROM medicao_itens mi2
+                     JOIN medicoes m2 ON m2.id = mi2.medicao_id
+                    WHERE m2.contrato_id = m.contrato_id
+                      AND COALESCE(m2.tipo,'Normal') IN ('Normal','Avanco_Fisico')
+                      AND (m2.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
+                           OR m2.id = m.id)
+                 ), 0)
+                 / NULLIF(c.valor_total, 0) * 100,
+               2))
+             , 0) AS pct_fisico_acumulado
         FROM medicoes m
         JOIN contratos c ON c.id = m.contrato_id
         JOIN obras o     ON o.id = c.obra_id
@@ -461,6 +498,14 @@ const uploadNFMem = multer({
 router.post('/medicoes/:id/nf/extrair', portalAuth, uploadNFMem.single('arquivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Arquivo é obrigatório.' });
+
+    // Verifica que a medição pertence ao fornecedor autenticado (via m.fornecedor_id direto)
+    const medOwn = await db.query(
+      `SELECT m.id FROM medicoes m
+        WHERE m.id = $1 AND m.fornecedor_id = $2`,
+      [parseInt(req.params.id), req.fornecedor.fornecedor_id]
+    );
+    if (!medOwn.rows[0]) return res.status(403).json({ error: 'Acesso negado a esta medição.' });
 
     // Carrega API key do Gemini
     let geminiKey = process.env.GEMINI_API_KEY || '';
@@ -908,7 +953,7 @@ router.get('/medicoes/:id/nfs', portalAuth, async (req, res) => {
  * GET /api/portal/nfs/fila/stats
  * Contadores por status para os cards do painel.
  */
-router.get('/nfs/fila/stats', authInterno, async (req, res) => {
+router.get('/nfs/fila/stats', authInterno, perm('financeiro'), async (req, res) => {
   try {
     const r = await db.query(`
       SELECT
@@ -934,7 +979,7 @@ router.get('/nfs/fila/stats', authInterno, async (req, res) => {
  * Lista todas as NFs recebidas com filtros para o backoffice.
  * Query params: obra_id, fornecedor_id, status_fin, periodo, empresa_id
  */
-router.get('/nfs/fila', authInterno, async (req, res) => {
+router.get('/nfs/fila', authInterno, perm('financeiro'), async (req, res) => {
   try {
     const { obra_id, fornecedor_id, status_fin, periodo, empresa_id } = req.query;
     const where  = ['1=1'];
@@ -989,7 +1034,7 @@ router.get('/nfs/fila', authInterno, async (req, res) => {
  * GET /api/portal/nfs/:id/xml
  * Gera e devolve o XML NFS-e ABRASF 2.01 a partir dos dados_nfse salvos (backoffice).
  */
-router.get('/nfs/:id/xml', authInterno, async (req, res) => {
+router.get('/nfs/:id/xml', authInterno, perm('financeiro'), async (req, res) => {
   try {
     const r = await db.query(
       `SELECT pn.dados_nfse, pn.numero_nf, f.cnpj AS fornecedor_cnpj
@@ -1016,7 +1061,7 @@ router.get('/nfs/:id/xml', authInterno, async (req, res) => {
  * Retorna URL assinada (S3) ou redireciona para o arquivo da NF (backoffice).
  * Para provider local: serve o arquivo diretamente via stream.
  */
-router.get('/nfs/:id/arquivo', authInterno, async (req, res) => {
+router.get('/nfs/:id/arquivo', authInterno, perm('financeiro'), async (req, res) => {
   try {
     const r = await db.query(
       `SELECT provider, caminho, url_storage, nome_arquivo FROM portal_nfs WHERE id = $1`,
@@ -1053,7 +1098,7 @@ router.get('/nfs/:id/arquivo', authInterno, async (req, res) => {
  * Atualiza o status financeiro de uma NF (backoffice).
  * Body: { status_fin, processado_obs }
  */
-router.put('/nfs/:id/status', authInterno, async (req, res) => {
+router.put('/nfs/:id/status', authInterno, perm('financeiro'), async (req, res) => {
   try {
     const nfId     = parseInt(req.params.id);
     const { status_fin, processado_obs } = req.body;
@@ -1083,6 +1128,22 @@ router.put('/nfs/:id/status', authInterno, async (req, res) => {
       ).catch(e => console.warn('[Portal] Aviso ao atualizar status da medição:', e.message));
 
       console.log(`[Portal] Medição ${nf.medicao_id} marcada como Paga — NF ${nfId}`);
+
+      // Notifica aprovadores que a medição foi paga
+      notificarAprovadoresStatusChange(
+        nf.medicao_id, 'Pago', 'pago', 'Financeiro',
+        req.user?.nome || req.user?.login || 'Financeiro',
+        processado_obs || null, db
+      ).catch(e => console.warn('[Portal] Falha ao notificar aprovadores sobre pagamento:', e.message));
+    }
+
+    // ── Ao marcar como Integrado ERP: notifica aprovadores ─────────────────
+    if (status_fin === 'Integrado ERP') {
+      notificarAprovadoresStatusChange(
+        nf.medicao_id, 'Integrado ERP', 'integrado_erp', 'Financeiro',
+        req.user?.nome || req.user?.login || 'Financeiro',
+        processado_obs || null, db
+      ).catch(e => console.warn('[Portal] Falha ao notificar aprovadores sobre integração ERP (NF):', e.message));
     }
 
     // Audit log

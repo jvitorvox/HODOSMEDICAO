@@ -25,7 +25,7 @@ router.get('/', auth, authADM, async (req, res) => {
   try {
     const r = await db.query(
       `SELECT id, login, nome, email, telefone, grupos_ad, perfil, ativo,
-              ultimo_acesso, criado_em,
+              obras_permitidas, ultimo_acesso, criado_em,
               (senha_hash IS NOT NULL) AS tem_senha_local
          FROM usuarios
         ORDER BY ativo DESC, nome`
@@ -41,7 +41,7 @@ router.get('/:id', auth, authADM, async (req, res) => {
   try {
     const r = await db.query(
       `SELECT id, login, nome, email, telefone, grupos_ad, perfil, ativo,
-              ultimo_acesso, criado_em,
+              obras_permitidas, ultimo_acesso, criado_em,
               (senha_hash IS NOT NULL) AS tem_senha_local
          FROM usuarios WHERE id=$1`, [req.params.id]
     );
@@ -55,23 +55,24 @@ router.get('/:id', auth, authADM, async (req, res) => {
 // ── POST /api/usuarios — cria usuário ────────────────────────────
 router.post('/', auth, authADM, async (req, res) => {
   try {
-    const { login, nome, email, telefone, senha, perfil, grupos_ad = [], ativo = true } = req.body;
+    const { login, nome, email, telefone, senha, perfil, grupos_ad = [], obras_permitidas = [], ativo = true } = req.body;
     if (!login?.trim()) return res.status(400).json({ error: 'Login é obrigatório' });
     if (perfil && !PERFIS_VALIDOS.includes(perfil))
       return res.status(400).json({ error: `Perfil inválido. Use: ${PERFIS_VALIDOS.join(', ')}` });
 
-    const senhaHash = senha ? await bcrypt.hash(senha, 12) : null;
-    const gruposArr = Array.isArray(grupos_ad) ? grupos_ad.filter(Boolean) : [];
+    const senhaHash  = senha ? await bcrypt.hash(senha, 12) : null;
+    const gruposArr  = Array.isArray(grupos_ad)       ? grupos_ad.filter(Boolean)       : [];
+    const obrasArr   = Array.isArray(obras_permitidas) ? obras_permitidas.map(Number).filter(Boolean) : [];
 
     const r = await db.query(
-      `INSERT INTO usuarios (login, nome, email, telefone, senha_hash, perfil, grupos_ad, ativo)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      `INSERT INTO usuarios (login, nome, email, telefone, senha_hash, perfil, grupos_ad, obras_permitidas, ativo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
       [login.trim(), nome?.trim() || null, email?.trim() || null,
-       telefone?.trim() || null, senhaHash, perfil || 'N1', gruposArr, ativo]
+       telefone?.trim() || null, senhaHash, perfil || 'N1', gruposArr, obrasArr, ativo]
     );
     await audit(req, 'criar', 'usuario', r.rows[0].id,
       `Usuário "${login.trim()}" criado — perfil: ${perfil || 'N1'}`,
-      { grupos_ad: gruposArr });
+      { grupos_ad: gruposArr, obras_permitidas: obrasArr });
     res.status(201).json({ id: r.rows[0].id, ok: true });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Login já cadastrado' });
@@ -82,22 +83,24 @@ router.post('/', auth, authADM, async (req, res) => {
 // ── PUT /api/usuarios/:id — atualiza usuário ─────────────────────
 router.put('/:id', auth, authADM, async (req, res) => {
   try {
-    const { nome, email, telefone, perfil, grupos_ad, ativo } = req.body;
+    const { nome, email, telefone, perfil, grupos_ad, obras_permitidas, ativo } = req.body;
     if (perfil && !PERFIS_VALIDOS.includes(perfil))
       return res.status(400).json({ error: `Perfil inválido. Use: ${PERFIS_VALIDOS.join(', ')}` });
 
-    const gruposArr = Array.isArray(grupos_ad) ? grupos_ad.filter(Boolean) : undefined;
+    const gruposArr = Array.isArray(grupos_ad)       ? grupos_ad.filter(Boolean)       : undefined;
+    const obrasArr  = Array.isArray(obras_permitidas) ? obras_permitidas.map(Number).filter(Boolean) : undefined;
 
     const sets = [];
     const vals = [];
     const push = (col, val) => { sets.push(`${col}=$${sets.length + 1}`); vals.push(val); };
 
-    if (nome      !== undefined) push('nome',      nome?.trim() || null);
-    if (email     !== undefined) push('email',     email?.trim() || null);
-    if (telefone  !== undefined) push('telefone',  telefone?.trim() || null);
-    if (perfil    !== undefined) push('perfil',    perfil);
-    if (gruposArr !== undefined) push('grupos_ad', gruposArr);
-    if (ativo     !== undefined) push('ativo',     ativo);
+    if (nome     !== undefined) push('nome',             nome?.trim() || null);
+    if (email    !== undefined) push('email',            email?.trim() || null);
+    if (telefone !== undefined) push('telefone',         telefone?.trim() || null);
+    if (perfil   !== undefined) push('perfil',           perfil);
+    if (gruposArr!== undefined) push('grupos_ad',        gruposArr);
+    if (obrasArr !== undefined) push('obras_permitidas', obrasArr);
+    if (ativo    !== undefined) push('ativo',            ativo);
 
     if (!sets.length) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
 

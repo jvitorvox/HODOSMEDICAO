@@ -13,6 +13,7 @@ const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
 const audit  = require('../middleware/audit');
+const { getObrasPermitidas, obraClause } = require('../middleware/obras');
 
 // Middleware: restringe escrita a administradores
 function authADM(req, res, next) {
@@ -23,18 +24,31 @@ function authADM(req, res, next) {
 
 // Leitura: qualquer usuário autenticado pode consultar alçadas (necessário para o fluxo de aprovação)
 router.get('/', auth, async (req, res) => {
-  const q = req.query.empresa_id
-    ? `SELECT a.*,e.nome_fantasia as empresa_nome,o.nome as obra_nome
+  const obras = await getObrasPermitidas(req, db);
+  const params = [];
+  const conds  = [];
+
+  if (req.query.empresa_id) {
+    params.push(req.query.empresa_id);
+    conds.push(`a.empresa_id=$${params.length}`);
+  }
+
+  // Usuários com restrição de obras veem alçadas globais (obra_id IS NULL) + alçadas das suas obras
+  if (obras) {
+    params.push(obras);
+    conds.push(`(a.obra_id IS NULL OR a.obra_id = ANY($${params.length}::int[]))`);
+  }
+
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+  const r = await db.query(
+    `SELECT a.*,e.nome_fantasia as empresa_nome,o.nome as obra_nome
        FROM alcadas a
        JOIN empresas e ON a.empresa_id=e.id
        LEFT JOIN obras o ON a.obra_id=o.id
-       WHERE a.empresa_id=$1 ORDER BY a.nome`
-    : `SELECT a.*,e.nome_fantasia as empresa_nome,o.nome as obra_nome
-       FROM alcadas a
-       JOIN empresas e ON a.empresa_id=e.id
-       LEFT JOIN obras o ON a.obra_id=o.id
-       ORDER BY a.nome`;
-  const r = await db.query(q, req.query.empresa_id ? [req.query.empresa_id] : []);
+       ${where}
+       ORDER BY a.nome`,
+    params
+  );
   res.json(r.rows);
 });
 

@@ -19,10 +19,21 @@
 
 const router = require('express').Router();
 const db     = require('../db');
+const { notificarAprovadoresStatusChange, notificarAprovacaoFornecedor } = require('../helpers/email');
 
 // ── Webhook D4Sign ────────────────────────────────────────────────────────────
 // Responde 200 imediatamente (D4Sign exige resposta rápida)
 router.post('/webhook', async (req, res) => {
+  // Validação de token secreto (configurado em D4SIGN_WEBHOOK_SECRET no .env)
+  const webhookSecret = process.env.D4SIGN_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const provided = req.headers['x-d4sign-token'] || req.headers['x-webhook-token'] || req.body?.token || '';
+    if (provided !== webhookSecret) {
+      console.warn('[D4Sign webhook] Token inválido — requisição rejeitada.');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+
   res.json({ ok: true });
 
   try {
@@ -42,11 +53,23 @@ router.post('/webhook', async (req, res) => {
 
     console.log(`[D4Sign webhook] doc=${docUuid} evento="${evento}" etapa="${etapa}"`);
 
-    // Busca a medição pelo d4sign_doc_uuid
+    // Busca a medição pelo d4sign_doc_uuid (inclui dados do fornecedor para e-mail)
     const medR = await db.query(
-      `SELECT m.id, m.codigo, m.status, o.nome AS obra_nome
+      `SELECT m.id, m.codigo, m.status, m.periodo, m.valor_medicao,
+              COALESCE(m.tipo,'Normal') AS tipo,
+              o.nome         AS obra_nome,
+              e.razao_social AS empresa_nome,
+              c.numero       AS contrato_numero,
+              c.valor_total  AS contrato_valor_total,
+              f.id           AS fornecedor_id,
+              f.razao_social AS fornecedor_nome,
+              f.email        AS fornecedor_email,
+              f.email_nf     AS fornecedor_email_nf
          FROM medicoes m
-         JOIN obras o ON o.id = m.obra_id
+         JOIN obras o        ON o.id = m.obra_id
+         JOIN empresas e     ON e.id = o.empresa_id
+         JOIN contratos c    ON c.id = m.contrato_id
+         JOIN fornecedores f ON f.id = m.fornecedor_id
         WHERE m.d4sign_doc_uuid = $1`,
       [docUuid]
     );
@@ -78,6 +101,28 @@ router.post('/webhook', async (req, res) => {
         [med.id, `Medição "${med.codigo}" (${med.obra_nome}) assinada via D4Sign. Evento: ${evento}`]
       );
       console.log(`[D4Sign webhook] ✅ Medição ${med.codigo} marcada como Assinado.`);
+
+      // Notifica aprovadores que a medição foi assinada digitalmente
+      notificarAprovadoresStatusChange(med.id, 'Assinado', 'assinado', 'Sistema', 'D4Sign', `Documento assinado por todos os signatários. UUID: ${docUuid}`, db)
+        .catch(e => console.warn('[D4Sign] Falha ao notificar aprovadores sobre assinatura:', e.message));
+
+      // Notifica o fornecedor que pode enviar a NF (documento assinado por todos)
+      (async () => {
+        try {
+          // Sem req disponível no webhook — usa config → env → fallback vazio
+          let portalUrl = process.env.PORTAL_URL || '';
+          try {
+            const notifCfgR = await db.query("SELECT valor FROM configuracoes WHERE chave='notificacoes'");
+            const notifCfg  = notifCfgR.rows[0]?.valor || {};
+            if (notifCfg.portalUrl) portalUrl = notifCfg.portalUrl;
+          } catch (_) {}
+          await notificarAprovacaoFornecedor(med, portalUrl);
+          console.log(`[D4Sign webhook] E-mail de aprovação enviado ao fornecedor — medicao=${med.id} portal=${portalUrl||'(não configurado)'}`);
+        } catch (e) {
+          console.warn('[D4Sign webhook] Falha ao notificar fornecedor:', e.message);
+        }
+      })();
+
       return;
     }
 

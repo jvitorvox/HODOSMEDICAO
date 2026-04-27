@@ -41,18 +41,9 @@ router.post('/login', async (req, res) => {
         console.log(`[LOGIN] LDAP OK: "${login}" grupos=${JSON.stringify(ldapUser.grupos_ad)}`);
       } catch (ldapErr) {
         console.error(`[LOGIN] LDAP falhou: "${login}" — ${ldapErr.message}`);
-        // Fallback local apenas em erros de conectividade (não de credencial)
-        const isConnErr = /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|inacessível|destroyed|timeout/i.test(ldapErr.message);
-        if (isConnErr) {
-          const localR = await db.query(
-            'SELECT * FROM usuarios WHERE login=$1 AND ativo=true AND senha_hash IS NOT NULL', [login]
-          );
-          if (localR.rows[0] && await bcrypt.compare(senha, localR.rows[0].senha_hash)) {
-            console.warn(`[LOGIN] Fallback local para "${login}" (LDAP inacessível)`);
-            user = localR.rows[0];
-          }
-        }
-        if (!user) return res.status(401).json({ error: `LDAP: ${ldapErr.message}` });
+        // Fallback local desabilitado quando LDAP está ativo:
+        // um atacante poderia derrubar o servidor LDAP para forçar autenticação local.
+        return res.status(401).json({ error: `Autenticação LDAP falhou: ${ldapErr.message}` });
       }
 
       if (!user) {
@@ -84,7 +75,7 @@ router.post('/login', async (req, res) => {
     if (user.id) await db.query('UPDATE usuarios SET ultimo_acesso=NOW() WHERE id=$1', [user.id]);
     const token = jwt.sign(
       { id: user.id, login: user.login, nome: user.nome, perfil: user.perfil, grupos: user.grupos_ad },
-      process.env.JWT_SECRET || 'dev-secret',
+      process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
     );
     // Injeta user em req temporariamente para o audit poder extrair os dados

@@ -14,6 +14,7 @@ const db      = require('../db');
 const auth    = require('../middleware/auth');
 const { perm } = require('../middleware/perm');
 const audit   = require('../middleware/audit');
+const { getObrasPermitidas, obraClause, temAcessoObra } = require('../middleware/obras');
 const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
@@ -253,7 +254,7 @@ async function _saveAtividades(client, cronogramaId, atividades) {
   }
 
   if (childUids.length > 0) {
-    await client.query(`
+    const updR = await client.query(`
       UPDATE atividades_cronograma child
       SET parent_id = parent.id
       FROM unnest($2::int[], $3::int[]) AS m(child_uid, parent_uid_ext)
@@ -263,6 +264,16 @@ async function _saveAtividades(client, cronogramaId, atividades) {
       WHERE child.uid_externo  = m.child_uid
         AND child.cronograma_id = $1
     `, [cronogramaId, childUids, parentUids]);
+
+    // Detecta atividades que ficaram órfãs (parent_uid referencia uid inexistente)
+    const linked = updR.rowCount || 0;
+    if (linked < childUids.length) {
+      console.warn(
+        `[cronograma] ${childUids.length - linked} atividade(s) com parent_uid não encontrado ` +
+        `no cronograma=${cronogramaId} — ficarão com parent_id=NULL. ` +
+        `Pares (child,parent) enviados: ${JSON.stringify(childUids.map((c,i) => [c, parentUids[i]]))}`
+      );
+    }
   }
 }
 
@@ -380,6 +391,13 @@ router.get('/', auth, async (req, res) => {
       conditions.push(`c.obra_id = $${params.length}`);
     }
 
+    // Restrição de acesso por obra
+    const obras = await getObrasPermitidas(req, db);
+    if (obras) {
+      params.push(obras);
+      conditions.push(`c.obra_id = ANY($${params.length}::int[])`);
+    }
+
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const r = await db.query(
       `SELECT c.*, o.nome AS obra_nome,
@@ -488,7 +506,7 @@ router.get('/:id/atividades', auth, async (req, res) => {
              FROM medicoes m
              JOIN medicao_itens mi ON mi.medicao_id = m.id
              LEFT JOIN contrato_itens ci ON ci.id = mi.contrato_item_id
-             WHERE m.status IN ('Aprovado','Em Assinatura','Concluído')
+             WHERE m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
                AND m.tipo IN ('Normal','Avanco_Fisico')
              GROUP BY m.contrato_id, m.id, m.valor_medicao
            ) sub
@@ -569,7 +587,7 @@ router.get('/:id/contratos-vinculos', auth, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // ROTA: GET /:id/atividades/debug  — diagnóstico dos dados brutos
 // ═══════════════════════════════════════════════════════════════
-router.get('/:id/atividades/debug', async (req, res) => {
+router.get('/:id/atividades/debug', auth, perm('verObra'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
 
@@ -612,7 +630,7 @@ router.get('/:id/atividades/debug', async (req, res) => {
           FROM medicoes m
           LEFT JOIN medicao_itens mi ON mi.medicao_id = m.id
          WHERE m.contrato_id = ANY($1::int[])
-           AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+           AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
            AND m.tipo IN ('Normal','Avanco_Fisico')
          GROUP BY m.id
          ORDER BY m.contrato_id, m.id`, [contIds]);
@@ -646,7 +664,7 @@ router.get('/:id/atividades/debug', async (req, res) => {
           JOIN medicoes m ON m.id = mi.medicao_id
           LEFT JOIN contrato_itens ci ON ci.id = mi.contrato_item_id
          WHERE m.contrato_id = ANY($1::int[])
-           AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+           AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
            AND m.tipo IN ('Normal','Avanco_Fisico')
          LIMIT 30`, [contIds]);
     }
@@ -681,7 +699,7 @@ router.get('/:id/atividades/debug', async (req, res) => {
           JOIN medicao_itens mi ON mi.medicao_id = m.id
           LEFT JOIN contrato_itens ci ON ci.id = mi.contrato_item_id
           WHERE m.contrato_id = ANY($1::int[])
-            AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+            AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
             AND m.tipo IN ('Normal','Avanco_Fisico')
           GROUP BY m.contrato_id, m.id, m.valor_medicao
         ) sub
@@ -812,7 +830,7 @@ router.get('/:id/financeiro', auth, async (req, res) => {
             JOIN medicao_itens mi ON mi.medicao_id = m.id
             LEFT JOIN contrato_itens ci ON ci.id = mi.contrato_item_id
            WHERE m.contrato_id IN (SELECT contrato_id FROM contratos_cron)
-             AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+             AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
              AND m.tipo IN ('Normal','Avanco_Fisico')
            GROUP BY m.contrato_id, m.id, m.valor_medicao
         ) sub
@@ -1104,7 +1122,7 @@ router.post('/:id/chat', auth, perm('cronogramaIA'), async (req, res) => {
                  JOIN medicao_itens mi ON mi.medicao_id = m.id
                  LEFT JOIN contrato_itens ci ON ci.id = mi.contrato_item_id
                  WHERE m.contrato_id = c.id
-                   AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+                   AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
                    AND m.tipo IN ('Normal','Avanco_Fisico')
                  GROUP BY m.id, m.valor_medicao
                ) sub
@@ -1133,7 +1151,7 @@ router.post('/:id/chat', auth, perm('cronogramaIA'), async (req, res) => {
            LEFT JOIN contratos_atividades ca ON ca.contrato_id = c.id
            LEFT JOIN atividades_cronograma a ON a.id = ca.atividade_id AND a.cronograma_id = $1
            LEFT JOIN medicoes m ON m.contrato_id = c.id
-             AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+             AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
              AND m.tipo IN ('Normal','Avanco_Fisico')
            LEFT JOIN LATERAL (
              SELECT SUM(COALESCE(NULLIF(sub.val_itens,0), sub.valor_medicao, 0)) AS val_fis
@@ -1151,7 +1169,7 @@ router.post('/:id/chat', auth, perm('cronogramaIA'), async (req, res) => {
                JOIN medicao_itens mi ON mi.medicao_id = mm.id
                LEFT JOIN contrato_itens ci ON ci.id = mi.contrato_item_id
                WHERE mm.contrato_id = c.id
-                 AND mm.status IN ('Aprovado','Em Assinatura','Concluído')
+                 AND mm.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
                  AND mm.tipo IN ('Normal','Avanco_Fisico')
                GROUP BY mm.id, mm.valor_medicao
              ) sub

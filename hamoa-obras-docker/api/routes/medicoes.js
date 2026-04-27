@@ -17,13 +17,35 @@ const db    = require('../db');
 const auth  = require('../middleware/auth');
 const { perm, checkPerm } = require('../middleware/perm');
 const audit = require('../middleware/audit');
+const { notificarAprovacaoFornecedor, notificarAprovadoresStatusChange, notificarPendenciaAprovacao } = require('../helpers/email');
+const { getObrasPermitidas, obraClause, temAcessoObra } = require('../middleware/obras');
 
 // Upload de evidências — multer grava temp em /app/uploads, depois storage.js replica para S3/GDrive
 const multerStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, '/app/uploads'),
   filename:    (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`),
 });
-const upload = multer({ storage: multerStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+// Extensões e tipos MIME permitidos para evidências
+const ALLOWED_EXT  = new Set(['.jpg','.jpeg','.png','.gif','.webp','.heic','.pdf','.mp4','.mov','.avi','.mkv','.webm','.doc','.docx','.xls','.xlsx','.odt','.ods','.txt','.zip']);
+const ALLOWED_MIME = new Set([
+  'image/jpeg','image/png','image/gif','image/webp','image/heic',
+  'application/pdf',
+  'video/mp4','video/quicktime','video/x-msvideo','video/x-matroska','video/webm',
+  'application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.oasis.opendocument.text','application/vnd.oasis.opendocument.spreadsheet',
+  'text/plain','application/zip',
+]);
+const upload = multer({
+  storage: multerStorage,
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext  = path.extname(file.originalname).toLowerCase();
+    const mime = file.mimetype.toLowerCase().split(';')[0].trim();
+    if (ALLOWED_EXT.has(ext) && ALLOWED_MIME.has(mime)) return cb(null, true);
+    cb(new Error(`Tipo de arquivo não permitido: ${file.originalname} (${mime})`));
+  },
+});
 const storageHelper = require('../helpers/storage');
 const wa = require('../helpers/whatsapp');
 
@@ -43,11 +65,11 @@ async function _syncLBMFromMedicao(medicaoId, contratoId, obraId) {
     // COALESCE(tipo,'Normal') trata medições antigas que tinham tipo NULL
     const pctRes = await db.query(`
       SELECT COALESCE(MAX(pct_total), 0) AS pct_acumulado,
-             COUNT(*) FILTER (WHERE status IN ('Aprovado','Em Assinatura','Concluído')) AS total_aprovadas
+             COUNT(*) FILTER (WHERE status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')) AS total_aprovadas
       FROM medicoes
       WHERE contrato_id = $1
         AND COALESCE(tipo,'Normal') IN ('Normal', 'Avanco_Fisico')
-        AND status IN ('Aprovado', 'Em Assinatura', 'Concluído')
+        AND status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
     `, [contratoId]);
     const pct = Math.min(100, Math.max(0, parseFloat(pctRes.rows[0]?.pct_acumulado) || 0));
     console.log(`[LBM Sync] contrato=${contratoId} obra=${obraId} — pct_acumulado=${pct}% (${pctRes.rows[0]?.total_aprovadas} medições aprovadas)`);
@@ -97,7 +119,7 @@ async function _syncLBMFromMedicao(medicaoId, contratoId, obraId) {
         FROM medicoes
         WHERE contrato_id = ANY($1)
           AND COALESCE(tipo,'Normal') IN ('Normal','Avanco_Fisico')
-          AND status IN ('Aprovado','Em Assinatura','Concluído')
+          AND status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
         GROUP BY contrato_id
       `, [allContratoIds]);
       const pctServ = pctRows.rows.length
@@ -160,6 +182,8 @@ async function _saveMedicaoItens(client, medicao_id, contrato_id, arr, isUpdate,
   }
 
   for (const it of arr) {
+    // Itens avulsos (sem vínculo com contrato_item) não têm validação de saldo
+    // por item — o saldo global do contrato já foi verificado antes de chegar aqui.
     if (!it.contrato_item_id) continue;
     const qtdMes = parseFloat(it.qtd_mes) || 0;
     if (qtdMes <= 0) continue;
@@ -297,6 +321,9 @@ router.get('/', auth, async (req, res) => {
   if (req.query.periodo)    { params.push(req.query.periodo);    q += ` AND m.periodo=$${params.length}`; }
   if (req.query.tipo)       { params.push(req.query.tipo);       q += ` AND m.tipo=$${params.length}`; }
   if (req.query.contrato_id){ params.push(req.query.contrato_id);q += ` AND m.contrato_id=$${params.length}`; }
+  // Restrição de acesso por obra
+  const obrasPermitidas = await getObrasPermitidas(req, db);
+  q += ' ' + obraClause(obrasPermitidas, 'm.obra_id', params);
   q += ' ORDER BY m.criado_em DESC';
   res.json((await db.query(q, params)).rows);
 });
@@ -323,12 +350,12 @@ router.get('/descompasso', auth, async (req, res) => {
       COALESCE(SUM(CASE WHEN m.tipo = 'Adiantamento' AND m.status NOT IN ('Rascunho','Reprovado')
                         THEN m.valor_medicao ELSE 0 END), 0) AS total_adiantado,
       -- % físico acumulado (Normal + Avanco_Fisico) — apenas medições aprovadas
-      COALESCE(MAX(CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+      COALESCE(MAX(CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
                         THEN m.pct_total END), 0) AS pct_fisico_acumulado,
       -- Valor equivalente ao físico executado
       CASE WHEN c.valor_total > 0
            THEN ROUND(c.valor_total * COALESCE(MAX(
-             CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+             CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
                   THEN m.pct_total END), 0) / 100, 2)
            ELSE 0 END AS valor_fisico_executado,
       -- Descompasso = financeiro pago - valor físico executado
@@ -337,7 +364,7 @@ router.get('/descompasso', auth, async (req, res) => {
              COALESCE(SUM(CASE WHEN m.tipo IN ('Normal','Adiantamento') AND m.status NOT IN ('Rascunho','Reprovado')
                                THEN m.valor_medicao ELSE 0 END), 0)
              - c.valor_total * COALESCE(MAX(
-                 CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status IN ('Aprovado','Em Assinatura','Concluído')
+                 CASE WHEN m.tipo IN ('Normal','Avanco_Fisico') AND m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
                       THEN m.pct_total END), 0) / 100,
            2)
            ELSE 0 END AS descompasso
@@ -502,6 +529,13 @@ router.post('/integrar-erp', auth, perm('integrarErp'), async (req, res) => {
       await audit(req, 'integrar_erp', 'medicao', id,
         `Medição "${m.codigo}" integrada ao ERP — obra ${m.obra_codigo} · contrato ${m.contrato_numero} · R$ ${m.valor_medicao}`);
 
+      // Notifica aprovadores que a medição foi integrada ao ERP
+      notificarAprovadoresStatusChange(
+        id, 'Integrado ERP', 'integrado_erp', 'Financeiro',
+        req.user?.nome || req.user?.login || 'sistema',
+        null, db
+      ).catch(e => console.warn('[ERP] Falha ao notificar aprovadores sobre integração ERP:', e.message));
+
       resultados.push({ id, status: 'ok', codigo: m.codigo, erp_resp: erpJson });
     } catch (e) {
       resultados.push({ id, status: 'erro', motivo: e.message });
@@ -535,6 +569,11 @@ router.get('/:id', auth, async (req, res) => {
     WHERE m.id = $1`, [req.params.id]);
   if (!r.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
   const med = r.rows[0];
+
+  // Restrição de acesso por obra
+  const _obras = await getObrasPermitidas(req, db);
+  if (!temAcessoObra(_obras, med.obra_id))
+    return res.status(403).json({ error: 'Acesso negado a esta medição.' });
 
   const execAnteriorR = await db.query(`
     SELECT COALESCE(SUM(mi.valor_item), 0) AS valor_executado
@@ -616,16 +655,35 @@ router.post('/', auth, perm('criarMedicao'), async (req, res) => {
       return s + qtdMes * vun;
     }, 0);
     valor_medicao = parseFloat(valor_medicao.toFixed(2));
-    // Acumulado financeiro (Normal+Adt aprovados anteriores + este)
-    const acumR = await db.query(`
-      SELECT COALESCE(SUM(mi.valor_item), 0) AS total
-      FROM medicao_itens mi
-      JOIN medicoes m ON m.id = mi.medicao_id
-      WHERE m.contrato_id=$1
-        AND COALESCE(m.tipo,'Normal') IN ('Normal','Adiantamento')
-        AND m.status NOT IN ('Rascunho','Reprovado')
+    // ── Valida e calcula saldo global do contrato ─────────────────
+    // Usa m.valor_medicao direto da tabela medicoes (não medicao_itens)
+    // para garantir que itens avulsos (sem contrato_item_id) também sejam contados.
+    const contSaldoR = await db.query(`
+      SELECT c.valor_total,
+             COALESCE((
+               SELECT SUM(m2.valor_medicao)
+                 FROM medicoes m2
+                WHERE m2.contrato_id = c.id
+                  AND COALESCE(m2.tipo,'Normal') IN ('Normal','Adiantamento')
+                  AND m2.status NOT IN ('Rascunho','Reprovado')
+             ), 0) AS total_financeiro_anterior
+        FROM contratos c WHERE c.id = $1
     `, [contrato_id]);
-    valor_acumulado = parseFloat(acumR.rows[0].total) + valor_medicao;
+
+    const contratoValorTotal      = parseFloat(contSaldoR.rows[0]?.valor_total)               || 0;
+    const totalFinanceiroAnterior = parseFloat(contSaldoR.rows[0]?.total_financeiro_anterior)  || 0;
+    valor_acumulado = parseFloat((totalFinanceiroAnterior + valor_medicao).toFixed(2));
+
+    if (contratoValorTotal > 0 && valor_acumulado > contratoValorTotal + 0.01) {
+      const saldoDisp = parseFloat((contratoValorTotal - totalFinanceiroAnterior).toFixed(2));
+      const fmtBR = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return res.status(422).json({
+        error: `Saldo insuficiente no contrato. ` +
+               `Valor da medição: R$ ${fmtBR(valor_medicao)} · ` +
+               `Saldo disponível: R$ ${fmtBR(saldoDisp)} · ` +
+               `Valor total do contrato: R$ ${fmtBR(contratoValorTotal)}.`
+      });
+    }
   }
 
   const statusFinal = status || 'Rascunho';
@@ -709,17 +767,18 @@ router.post('/', auth, perm('criarMedicao'), async (req, res) => {
       `Medição "${row.codigo}" criada — valor: R$ ${Number(row.valor_medicao).toLocaleString('pt-BR',{minimumFractionDigits:2})} — status: ${row.status}`,
       { tipo: row.tipo, periodo: row.periodo });
 
-    // Notifica aprovadores via WhatsApp quando lançada diretamente para aprovação
+    // Notifica aprovadores por e-mail quando lançada diretamente para aprovação
     if (row.status && row.status.startsWith('Aguardando')) {
       const medCompleta = await db.query(`
-        SELECT m.*, o.nome AS obra_nome, f.razao_social AS fornecedor_nome
+        SELECT m.*, o.nome AS obra_nome, e.razao_social AS empresa_nome, f.razao_social AS fornecedor_nome
           FROM medicoes m
-          JOIN obras o ON o.id = m.obra_id
+          JOIN obras o    ON o.id = m.obra_id
+          JOIN empresas e ON e.id = o.empresa_id
           JOIN fornecedores f ON f.id = m.fornecedor_id
          WHERE m.id = $1`, [row.id]);
       if (medCompleta.rows[0]) {
-        wa.notificarAprovadores(medCompleta.rows[0]).catch(e =>
-          console.warn('[WhatsApp] Falha ao notificar aprovadores na criação:', e.message)
+        notificarPendenciaAprovacao(medCompleta.rows[0], db).catch(e =>
+          console.warn('[email] Falha ao notificar aprovadores na criação:', e.message)
         );
       }
     }
@@ -750,12 +809,92 @@ router.put('/:id', auth, perm('criarMedicao'), async (req, res) => {
 
   const { descricao, status, itens, pct_anterior, pct_mes, pct_total, contrato_id } = req.body;
   const arr             = Array.isArray(itens) ? itens : [];
+  const cid             = contrato_id || m.rows[0].contrato_id;
   const valor_medicao   = arr.length
     ? arr.reduce((s, it) => s + (parseFloat(it.qtd_mes)||0) * (parseFloat(it.valor_unitario)||0), 0)
     : parseFloat(m.rows[0].valor_medicao);
   const valor_acumulado = arr.length
     ? arr.reduce((s, it) => s + (parseFloat(it.qtd_acumulada)||0) * (parseFloat(it.valor_unitario)||0), 0)
     : parseFloat(m.rows[0].valor_acumulado);
+
+  // ── Valida saldo do contrato ao submeter para aprovação ──────────
+  // Ao mover de Rascunho → Aguardando, inclui TODAS as medições do contrato
+  // (exceto Reprovadas e a própria medição sendo submetida) para bloquear
+  // o cenário de dois Rascunhos simultâneos que juntos estouram o saldo.
+  const tipoAtual = m.rows[0].tipo || 'Normal';
+  if (status && status.startsWith('Aguardando') && ['Normal','Adiantamento'].includes(tipoAtual)) {
+    const saldoChkR = await db.query(`
+      SELECT c.valor_total,
+             COALESCE((
+               SELECT SUM(m2.valor_medicao)
+                 FROM medicoes m2
+                WHERE m2.contrato_id = c.id
+                  AND m2.id <> $2
+                  AND COALESCE(m2.tipo,'Normal') IN ('Normal','Adiantamento')
+                  AND m2.status NOT IN ('Reprovado')
+             ), 0) AS total_outros
+        FROM contratos c WHERE c.id = $1
+    `, [cid, req.params.id]);
+
+    const contratoVT  = parseFloat(saldoChkR.rows[0]?.valor_total)  || 0;
+    const totalOutros = parseFloat(saldoChkR.rows[0]?.total_outros)  || 0;
+    const projetado   = parseFloat((totalOutros + valor_medicao).toFixed(2));
+
+    if (contratoVT > 0 && projetado > contratoVT + 0.01) {
+      const saldoDisp = parseFloat((contratoVT - totalOutros).toFixed(2));
+      const fmtBR = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return res.status(422).json({
+        error: `Saldo insuficiente para submeter esta medição. ` +
+               `Valor: R$ ${fmtBR(valor_medicao)} · ` +
+               `Saldo disponível: R$ ${fmtBR(saldoDisp)} · ` +
+               `Valor total do contrato: R$ ${fmtBR(contratoVT)}. ` +
+               `Pode haver outro Rascunho em aberto comprometendo o saldo.`
+      });
+    }
+  }
+
+  // ── Recalcula pct no backend ao submeter rascunho para aprovação ───────────
+  // Evita aceitar percentuais adulterados pelo frontend quando o status muda de
+  // Rascunho → Aguardando. Em edições que permanecem como Rascunho, usa os
+  // valores enviados (ainda é rascunho, sem impacto no fluxo de aprovação).
+  let pct_ant_final = parseFloat(pct_anterior) || 0;
+  let pct_mes_final = parseFloat(pct_mes)      || 0;
+  let pct_tot_final = parseFloat(pct_total)    || 0;
+
+  if (status && status.startsWith('Aguardando') && tipoAtual !== 'Adiantamento') {
+    const contR = await db.query('SELECT valor_total FROM contratos WHERE id=$1', [cid]);
+    const contVal = parseFloat(contR.rows[0]?.valor_total) || 0;
+    if (contVal > 0) {
+      const prevR = await db.query(`
+        SELECT COALESCE(SUM(
+          CASE WHEN COALESCE(m.tipo,'Normal') = 'Normal'        THEN mi.valor_item
+               WHEN COALESCE(m.tipo,'Normal') = 'Avanco_Fisico' THEN mi.qtd_mes * mi.valor_unitario
+               ELSE 0 END
+        ), 0) AS prev_fisico
+        FROM medicao_itens mi
+        JOIN medicoes m ON m.id = mi.medicao_id
+        WHERE m.contrato_id = $1
+          AND m.id <> $2
+          AND COALESCE(m.tipo,'Normal') IN ('Normal','Avanco_Fisico')
+          AND m.status NOT IN ('Rascunho','Reprovado')
+      `, [cid, req.params.id]);
+      const prevFisico = parseFloat(prevR.rows[0]?.prev_fisico) || 0;
+
+      let thisPhysValue = 0;
+      if (tipoAtual === 'Normal') {
+        thisPhysValue = valor_medicao;
+      } else if (tipoAtual === 'Avanco_Fisico' && arr.length) {
+        for (const it of arr) {
+          if (!it.contrato_item_id) continue;
+          const ciR = await db.query('SELECT valor_unitario FROM contrato_itens WHERE id=$1', [it.contrato_item_id]);
+          thisPhysValue += (parseFloat(it.qtd_mes) || 0) * (parseFloat(ciR.rows[0]?.valor_unitario) || 0);
+        }
+      }
+      pct_ant_final = parseFloat(Math.min(100, prevFisico / contVal * 100).toFixed(2));
+      pct_mes_final = parseFloat(Math.min(100 - pct_ant_final, thisPhysValue / contVal * 100).toFixed(2));
+      pct_tot_final = parseFloat(Math.min(100, pct_ant_final + pct_mes_final).toFixed(2));
+    }
+  }
 
   const client = await db.connect();
   try {
@@ -765,11 +904,10 @@ router.put('/:id', auth, perm('criarMedicao'), async (req, res) => {
          descricao=$1,status=$2,pct_anterior=$3,pct_mes=$4,pct_total=$5,
          valor_medicao=$6,valor_acumulado=$7
        WHERE id=$8 RETURNING *`,
-      [descricao, status, pct_anterior||0, pct_mes||0, pct_total||0,
+      [descricao, status, pct_ant_final, pct_mes_final, pct_tot_final,
        parseFloat(valor_medicao.toFixed(2)), parseFloat(valor_acumulado.toFixed(2)), req.params.id]
     );
     if (arr.length) {
-      const cid = contrato_id || m.rows[0].contrato_id;
       await _saveMedicaoItens(client, parseInt(req.params.id), cid, arr, parseInt(req.params.id));
     }
     await client.query('COMMIT');
@@ -777,17 +915,18 @@ router.put('/:id', auth, perm('criarMedicao'), async (req, res) => {
     await audit(req, 'editar', 'medicao', row.id,
       `Medição "${row.codigo}" atualizada — status: ${row.status}`);
 
-    // Notifica aprovadores via WhatsApp quando submetida para aprovação
+    // Notifica aprovadores por e-mail quando submetida para aprovação
     if (row.status && row.status.startsWith('Aguardando')) {
       const medCompleta = await db.query(`
-        SELECT m.*, o.nome AS obra_nome, f.razao_social AS fornecedor_nome
+        SELECT m.*, o.nome AS obra_nome, e.razao_social AS empresa_nome, f.razao_social AS fornecedor_nome
           FROM medicoes m
-          JOIN obras o ON o.id = m.obra_id
+          JOIN obras o    ON o.id = m.obra_id
+          JOIN empresas e ON e.id = o.empresa_id
           JOIN fornecedores f ON f.id = m.fornecedor_id
          WHERE m.id = $1`, [row.id]);
       if (medCompleta.rows[0]) {
-        wa.notificarAprovadores(medCompleta.rows[0]).catch(e =>
-          console.warn('[WhatsApp] Falha ao notificar aprovadores na submissão:', e.message)
+        notificarPendenciaAprovacao(medCompleta.rows[0], db).catch(e =>
+          console.warn('[email] Falha ao notificar aprovadores na submissão:', e.message)
         );
       }
     }
@@ -814,6 +953,22 @@ router.post('/:id/aprovar', auth, async (req, res) => {
   const permKey = `aprovar${nivel}`; // 'aprovarN1' | 'aprovarN2' | 'aprovarN3'
   if (!await checkPerm(req.user?.grupos || [], req.user?.perfil, permKey))
     return res.status(403).json({ error: `Sem permissão para aprovar nível ${nivel}. Contate o administrador.` });
+
+  // Segregação de funções: impede que o mesmo usuário aprove mais de um nível na mesma medição
+  const jaAprovouR = await db.query(
+    `SELECT nivel FROM aprovacoes
+      WHERE medicao_id = $1
+        AND acao = 'aprovado'
+        AND LOWER(usuario) = LOWER($2)`,
+    [id, req.user.nome]
+  );
+  if (jaAprovouR.rows.length > 0) {
+    const niveisAnteriores = jaAprovouR.rows.map(r => r.nivel).join(', ');
+    return res.status(403).json({
+      error: `Conflito de segregação de funções: o usuário "${req.user.nome}" já aprovou esta medição no(s) nível(is) ${niveisAnteriores}. O mesmo usuário não pode aprovar múltiplos níveis de alçada.`,
+    });
+  }
+
   await db.query(
     'INSERT INTO aprovacoes(medicao_id,nivel,acao,usuario,comentario) VALUES($1,$2,$3,$4,$5)',
     [id, nivel, 'aprovado', req.user.nome, comentario||'']
@@ -830,17 +985,18 @@ router.post('/:id/aprovar', auth, async (req, res) => {
     `Medição "${med.codigo}" aprovada nível ${nivel} — novo status: ${novoStatus}`,
     { nivel, comentario: comentario || null });
 
-  // Notifica próximo nível via WhatsApp (fire-and-forget)
+  // Notifica próximo nível por e-mail (fire-and-forget)
   if (novoStatus.startsWith('Aguardando')) {
     const medCompleta = await db.query(`
-      SELECT m.*, o.nome AS obra_nome, f.razao_social AS fornecedor_nome
+      SELECT m.*, o.nome AS obra_nome, e.razao_social AS empresa_nome, f.razao_social AS fornecedor_nome
         FROM medicoes m
-        JOIN obras o ON o.id = m.obra_id
+        JOIN obras o    ON o.id = m.obra_id
+        JOIN empresas e ON e.id = o.empresa_id
         JOIN fornecedores f ON f.id = m.fornecedor_id
        WHERE m.id = $1`, [id]);
     if (medCompleta.rows[0]) {
-      wa.notificarAprovadores({ ...medCompleta.rows[0], status: novoStatus }).catch(e =>
-        console.warn('[WhatsApp] Falha ao notificar aprovadores:', e.message)
+      notificarPendenciaAprovacao({ ...medCompleta.rows[0], status: novoStatus }, db).catch(e =>
+        console.warn('[email] Falha ao notificar aprovadores do próximo nível:', e.message)
       );
     }
   }
@@ -850,6 +1006,90 @@ router.post('/:id/aprovar', auth, async (req, res) => {
   if (isFinalAprov && med.contrato_id && med.obra_id) {
     _syncLBMFromMedicao(id, med.contrato_id, med.obra_id);   // fire-and-forget intencional
   }
+
+  // ── Notificação email ao fornecedor após aprovação final ────────────────────
+  // Dispara apenas quando status vai para "Aprovado" (sem assinatura eletrônica).
+  // Quando D4Sign/ClickSign está ativo, status vai para "Em Assinatura" e o e-mail
+  // ao fornecedor só será enviado após o webhook confirmar que todos assinaram ("Assinado").
+  if (novoStatus === 'Aprovado') {
+    (async () => {
+      try {
+        const medDetalhes = await db.query(`
+          SELECT m.id, m.codigo, m.periodo, m.valor_medicao,
+                 COALESCE(m.tipo, 'Normal') AS tipo,
+                 o.nome         AS obra_nome,
+                 e.razao_social AS empresa_nome,
+                 c.numero       AS contrato_numero,
+                 c.valor_total  AS contrato_valor_total,
+                 -- Progresso financeiro: total aprovado/pago no contrato (inclui esta medição)
+                 COALESCE((
+                   SELECT SUM(m2.valor_medicao)
+                     FROM medicoes m2
+                    WHERE m2.contrato_id = m.contrato_id
+                      AND COALESCE(m2.tipo,'Normal') IN ('Normal','Adiantamento')
+                      AND (m2.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
+                           OR m2.id = m.id)
+                 ), 0) AS total_financeiro_aprovado,
+                 -- Progresso físico acumulado (recalculado dos itens, inclui esta medição)
+                 COALESCE(
+                   LEAST(100, ROUND(
+                     COALESCE((
+                       SELECT SUM(
+                         CASE WHEN COALESCE(m2.tipo,'Normal') = 'Normal'
+                              THEN mi2.valor_item
+                              WHEN COALESCE(m2.tipo,'Normal') = 'Avanco_Fisico'
+                              THEN mi2.qtd_mes * mi2.valor_unitario
+                              ELSE 0 END
+                       )
+                         FROM medicao_itens mi2
+                         JOIN medicoes m2 ON m2.id = mi2.medicao_id
+                        WHERE m2.contrato_id = m.contrato_id
+                          AND COALESCE(m2.tipo,'Normal') IN ('Normal','Avanco_Fisico')
+                          AND (m2.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
+                               OR m2.id = m.id)
+                     ), 0)
+                     / NULLIF(c.valor_total, 0) * 100,
+                   2))
+                 , 0) AS pct_fisico_acumulado,
+                 f.id           AS fornecedor_id,
+                 f.razao_social AS fornecedor_nome,
+                 f.email        AS fornecedor_email,
+                 f.email_nf     AS fornecedor_email_nf
+            FROM medicoes m
+            JOIN contratos c   ON c.id = m.contrato_id
+            JOIN obras o       ON o.id = c.obra_id
+            JOIN empresas e    ON e.id = c.empresa_id
+            JOIN fornecedores f ON f.id = m.fornecedor_id
+           WHERE m.id = $1
+        `, [id]);
+        if (medDetalhes.rows[0]) {
+          // Monta URL do portal: prioridade = config → env → auto-detect pelo header do request
+          let portalUrl = process.env.PORTAL_URL || '';
+          try {
+            const notifCfgR = await db.query("SELECT valor FROM configuracoes WHERE chave='notificacoes'");
+            const notifCfg  = notifCfgR.rows[0]?.valor || {};
+            if (notifCfg.portalUrl) portalUrl = notifCfg.portalUrl;
+          } catch (_) {}
+          if (!portalUrl) {
+            // Auto-detecta a partir dos headers do request (funciona com ou sem proxy reverso)
+            const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+            const host  = req.headers['x-forwarded-host']  || req.headers.host || 'localhost';
+            portalUrl   = `${proto}://${host}/portal.html`;
+          }
+          const enviado = await notificarAprovacaoFornecedor(medDetalhes.rows[0], portalUrl);
+          if (enviado) {
+            console.log(`[email] Notificação de aprovação enviada ao fornecedor — medicao=${id} status=${novoStatus} portal=${portalUrl}`);
+          }
+        }
+      } catch (e) {
+        console.warn('[email] Aviso ao enviar e-mail de aprovação ao fornecedor:', e.message);
+      }
+    })();
+  }
+
+  // Notifica aprovadores anteriores sobre a mudança de status (fire-and-forget)
+  notificarAprovadoresStatusChange(id, novoStatus, 'aprovado', nivel, req.user.nome, comentario || '', db)
+    .catch(e => console.warn('[email] Falha ao notificar aprovadores sobre mudança de status:', e.message));
 
   res.json({ ok: true, novoStatus });
 });
@@ -874,6 +1114,11 @@ router.post('/:id/reprovar', auth, async (req, res) => {
   await audit(req, 'reprovar', 'medicao', id,
     `Medição "${m.rows[0].codigo}" reprovada nível ${nivel}`,
     { nivel, motivo });
+
+  // Notifica aprovadores anteriores sobre a reprovação (fire-and-forget)
+  notificarAprovadoresStatusChange(id, 'Reprovado', 'reprovado', nivel, req.user.nome, motivo, db)
+    .catch(e => console.warn('[email] Falha ao notificar aprovadores sobre reprovação:', e.message));
+
   res.json({ ok: true });
 });
 
@@ -1240,9 +1485,11 @@ router.post('/:id/evidencias', auth, perm('criarMedicao'), upload.array('files',
   const medicaoId = parseInt(req.params.id);
   if (!medicaoId) return res.status(400).json({ error: 'ID inválido' });
 
-  // Verifica que a medição existe e pertence a uma obra acessível
-  const mCheck = await db.query('SELECT id FROM medicoes WHERE id=$1', [medicaoId]);
+  // Verifica que a medição existe e está em Rascunho (evidências só podem ser alteradas antes de enviar para aprovação)
+  const mCheck = await db.query('SELECT id, status FROM medicoes WHERE id=$1', [medicaoId]);
   if (!mCheck.rows.length) return res.status(404).json({ error: 'Medição não encontrada' });
+  if (mCheck.rows[0].status !== 'Rascunho')
+    return res.status(422).json({ error: `Não é possível adicionar evidências a uma medição com status "${mCheck.rows[0].status}". Apenas medições em Rascunho podem ser alteradas.` });
 
   const inserted = [];
   for (const file of req.files || []) {
@@ -1311,6 +1558,13 @@ router.delete('/:id/evidencias/:evId', auth, perm('criarMedicao'), async (req, r
   try {
     const medicaoId = parseInt(req.params.id);
     const evId      = parseInt(req.params.evId);
+
+    // Só permite remoção enquanto a medição está em Rascunho
+    const mCheck = await db.query('SELECT status FROM medicoes WHERE id=$1', [medicaoId]);
+    if (!mCheck.rows.length) return res.status(404).json({ error: 'Medição não encontrada' });
+    if (mCheck.rows[0].status !== 'Rascunho')
+      return res.status(422).json({ error: `Não é possível remover evidências de uma medição com status "${mCheck.rows[0].status}".` });
+
     const r = await db.query(
       'SELECT * FROM evidencias WHERE id=$1 AND medicao_id=$2', [evId, medicaoId]);
     if (!r.rows.length) return res.status(404).json({ error: 'Evidência não encontrada' });

@@ -10,12 +10,33 @@ const db     = require('../db');
 const auth   = require('../middleware/auth');
 const { perm } = require('../middleware/perm');
 const audit  = require('../middleware/audit');
+const { getObrasPermitidas, obraClause } = require('../middleware/obras');
 
 router.get('/', auth, async (req, res) => {
-  const q = req.query.empresa_id
-    ? 'SELECT o.*,e.nome_fantasia as empresa_nome FROM obras o JOIN empresas e ON o.empresa_id=e.id WHERE o.empresa_id=$1 ORDER BY o.nome'
-    : 'SELECT o.*,e.nome_fantasia as empresa_nome FROM obras o JOIN empresas e ON o.empresa_id=e.id ORDER BY o.nome';
-  const r = await db.query(q, req.query.empresa_id ? [req.query.empresa_id] : []);
+  const params = [];
+  const conds  = [];
+
+  if (req.query.empresa_id) {
+    params.push(req.query.empresa_id);
+    conds.push(`o.empresa_id=$${params.length}`);
+  }
+
+  // Restrição de acesso por obra
+  const obras = await getObrasPermitidas(req, db);
+  if (obras) {
+    params.push(obras);
+    conds.push(`o.id = ANY($${params.length}::int[])`);
+  }
+
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+  const r = await db.query(
+    `SELECT o.*,e.nome_fantasia as empresa_nome
+       FROM obras o
+       JOIN empresas e ON o.empresa_id=e.id
+       ${where}
+       ORDER BY o.nome`,
+    params
+  );
   res.json(r.rows);
 });
 

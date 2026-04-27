@@ -13,6 +13,7 @@ const db      = require('../db');
 const auth    = require('../middleware/auth');
 const { perm } = require('../middleware/perm');
 const { uploadMem, _iaGetKey, _iaFileToParts, _iaCall, _parseDate } = require('../helpers/ia');
+const { getObrasPermitidas, obraClause } = require('../middleware/obras');
 
 // ── Helper interno: salva itens de contrato (delete + re-insert) ──
 async function _saveContratoItens(client, contrato_id, itens) {
@@ -113,9 +114,31 @@ router.get('/', auth, async (req, res) => {
   const conditions = [];
   if (req.query.obra_id)       { params.push(req.query.obra_id);       conditions.push(`c.obra_id=$${params.length}`); }
   if (req.query.fornecedor_id) { params.push(req.query.fornecedor_id); conditions.push(`c.fornecedor_id=$${params.length}`); }
+
+  // Restrição de acesso por obra
+  const obras = await getObrasPermitidas(req, db);
+  if (obras) {
+    params.push(obras);
+    conditions.push(`c.obra_id = ANY($${params.length}::int[])`);
+  }
   if (req.query.disponivel === '1') {
     conditions.push(`c.status = 'Vigente'`);
-    conditions.push(`(c.valor_total = 0 OR COALESCE(ex.valor_executado,0) < c.valor_total)`);
+    if (req.query.tipo === 'Avanco_Fisico') {
+      // Avanço Físico: exibe apenas contratos com adiantamentos pendentes de confirmação física
+      conditions.push(`EXISTS (
+        SELECT 1
+          FROM medicao_itens mi2
+          JOIN medicoes m2 ON m2.id = mi2.medicao_id
+         WHERE m2.contrato_id = c.id
+           AND m2.status NOT IN ('Rascunho','Reprovado')
+         GROUP BY mi2.contrato_item_id
+        HAVING SUM(CASE WHEN COALESCE(m2.tipo,'Normal') = 'Adiantamento'  THEN mi2.qtd_mes ELSE 0 END)
+             > SUM(CASE WHEN COALESCE(m2.tipo,'Normal') = 'Avanco_Fisico' THEN mi2.qtd_mes ELSE 0 END)
+      )`);
+    } else {
+      // Normal / Adiantamento: exibe apenas contratos com saldo financeiro disponível
+      conditions.push(`(c.valor_total = 0 OR COALESCE(adt.total_financeiro,0) < c.valor_total)`);
+    }
   }
   const where = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
   res.json((await db.query(baseQ + where + ' ORDER BY c.numero', params)).rows);
@@ -213,10 +236,25 @@ router.get('/:id/acumulados', auth, async (req, res) => {
     ? parseFloat(Math.min(100, (totalValAcum / totalValCont) * 100).toFixed(2))
     : parseFloat(cont.pct_executado) || 0;
 
+  // Saldo financeiro real: direto da tabela medicoes (inclui itens avulsos)
+  // É a fonte de verdade para bloquear novas medições que ultrapassem o contrato.
+  const saldoR = await db.query(`
+    SELECT COALESCE(SUM(m.valor_medicao), 0) AS total_financeiro
+      FROM medicoes m
+     WHERE m.contrato_id = $1
+       AND COALESCE(m.tipo,'Normal') IN ('Normal','Adiantamento')
+       AND m.status NOT IN ('Rascunho','Reprovado')
+  `, [contId]);
+  const totalFinanceiro      = parseFloat(saldoR.rows[0]?.total_financeiro) || 0;
+  const contratoValorTotal   = parseFloat(cont.valor_total) || 0;
+  const saldoFinanceiroGlobal = Math.max(0, parseFloat((contratoValorTotal - totalFinanceiro).toFixed(2)));
+
   res.json({
-    contrato_id:   parseInt(contId),
-    valor_total:   parseFloat(cont.valor_total) || 0,
-    pct_executado: pctGeral,
+    contrato_id:             parseInt(contId),
+    valor_total:             contratoValorTotal,
+    pct_executado:           pctGeral,
+    total_financeiro:        totalFinanceiro,
+    saldo_financeiro_global: saldoFinanceiroGlobal,
     itens,
   });
 });

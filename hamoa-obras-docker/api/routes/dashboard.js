@@ -1,25 +1,62 @@
 /**
  * CONSTRUTIVO OBRAS — Rota do Dashboard
  * GET /api/dashboard
- * Retorna estatísticas gerais, carteira de contratos e progresso por contrato.
- * Apenas contratos com ao menos uma medição lançada aparecem no painel.
  */
 const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
+const { getObrasPermitidas, obraClause } = require('../middleware/obras');
 
 router.get('/', auth, async (req, res) => {
   const periodo = new Date().toISOString().slice(0, 7);
+  const obras   = await getObrasPermitidas(req, db);
+
+  // Cláusula de filtro de obra para medições (via JOIN com contratos/obras)
+  const mParams  = [periodo];
+  const mClause  = obraClause(obras, 'm.obra_id', mParams);
+
+  const agParams = [];
+  const agClause = obraClause(obras, 'm.obra_id', agParams);
+
+  const apParams = [];
+  const apClause = obraClause(obras, 'm.obra_id', apParams);
+
+  const asParams = [];
+  const asClause = obraClause(obras, 'm.obra_id', asParams);
+
+  const vmParams = [periodo];
+  const vmClause = obraClause(obras, 'm.obra_id', vmParams);
+
+  // Cláusula para contratos (filtro por obra diretamente)
+  const cParams = [];
+  const cClause = obraClause(obras, 'c.obra_id', cParams);
 
   const [doMes, aguardando, aprovadas, assinatura, valorMes, totaisContratos, progressoContratos] =
     await Promise.all([
-      db.query('SELECT COUNT(*) FROM medicoes WHERE periodo=$1', [periodo]),
-      db.query("SELECT COUNT(*) FROM medicoes WHERE status IN ('Aguardando N1','Aguardando N2','Aguardando N3')"),
-      db.query("SELECT COUNT(*) FROM medicoes WHERE status='Aprovado'"),
-      db.query("SELECT COUNT(*) FROM medicoes WHERE status='Em Assinatura'"),
-      db.query('SELECT COALESCE(SUM(valor_medicao),0) AS total FROM medicoes WHERE periodo=$1', [periodo]),
+      db.query(
+        `SELECT COUNT(*) FROM medicoes m WHERE periodo=$1 ${mClause}`,
+        mParams
+      ),
+      db.query(
+        `SELECT COUNT(*) FROM medicoes m
+          WHERE m.status IN ('Aguardando N1','Aguardando N2','Aguardando N3') ${agClause}`,
+        agParams
+      ),
+      db.query(
+        `SELECT COUNT(*) FROM medicoes m WHERE m.status='Aprovado' ${apClause}`,
+        apParams
+      ),
+      db.query(
+        `SELECT COUNT(*) FROM medicoes m WHERE m.status='Em Assinatura' ${asClause}`,
+        asParams
+      ),
+      db.query(
+        `SELECT COALESCE(SUM(m.valor_medicao),0) AS total FROM medicoes m
+          WHERE m.periodo=$1 ${vmClause}`,
+        vmParams
+      ),
 
-      // Totalizador — apenas contratos com ao menos uma medição lançada
+      // Totalizador
       db.query(`
         SELECT
           COUNT(c.id)                         AS total_contratos,
@@ -35,37 +72,43 @@ router.get('/', auth, async (req, res) => {
         ) ex ON ex.contrato_id = c.id
         WHERE c.status = 'Vigente'
           AND EXISTS (SELECT 1 FROM medicoes WHERE contrato_id = c.id)
-      `),
+          ${cClause}
+      `, cParams),
 
-      // Progresso por contrato (até 20, do mais avançado ao menos)
-      db.query(`
-        SELECT
-          c.id, c.numero, c.objeto, c.valor_total,
-          o.nome AS obra_nome,
-          COALESCE(NULLIF(f.nome_fantasia,''), f.razao_social) AS fornecedor_nome,
-          COALESCE(ex.valor_executado, 0)::NUMERIC(15,2) AS valor_executado,
-          CASE WHEN c.valor_total > 0
-               THEN LEAST(100, ROUND(COALESCE(ex.valor_executado,0) / c.valor_total * 100, 2))
-               ELSE 0 END AS pct_executado
-        FROM contratos c
-        JOIN obras        o ON o.id = c.obra_id
-        JOIN fornecedores f ON f.id = c.fornecedor_id
-        LEFT JOIN (
-          SELECT m.contrato_id, SUM(mi.valor_item) AS valor_executado
-          FROM medicao_itens mi
-          JOIN medicoes m ON m.id = mi.medicao_id
-          WHERE m.status NOT IN ('Rascunho','Reprovado')
-          GROUP BY m.contrato_id
-        ) ex ON ex.contrato_id = c.id
-        WHERE c.status = 'Vigente'
-          AND EXISTS (SELECT 1 FROM medicoes WHERE contrato_id = c.id)
-        ORDER BY pct_executado DESC, c.valor_total DESC
-        LIMIT 20
-      `),
+      // Progresso por contrato
+      (() => {
+        const p2 = [...cParams];
+        const cl2 = obraClause(obras, 'c.obra_id', p2);
+        return db.query(`
+          SELECT
+            c.id, c.numero, c.objeto, c.valor_total,
+            o.nome AS obra_nome,
+            COALESCE(NULLIF(f.nome_fantasia,''), f.razao_social) AS fornecedor_nome,
+            COALESCE(ex.valor_executado, 0)::NUMERIC(15,2) AS valor_executado,
+            CASE WHEN c.valor_total > 0
+                 THEN LEAST(100, ROUND(COALESCE(ex.valor_executado,0) / c.valor_total * 100, 2))
+                 ELSE 0 END AS pct_executado
+          FROM contratos c
+          JOIN obras        o ON o.id = c.obra_id
+          JOIN fornecedores f ON f.id = c.fornecedor_id
+          LEFT JOIN (
+            SELECT m.contrato_id, SUM(mi.valor_item) AS valor_executado
+            FROM medicao_itens mi
+            JOIN medicoes m ON m.id = mi.medicao_id
+            WHERE m.status NOT IN ('Rascunho','Reprovado')
+            GROUP BY m.contrato_id
+          ) ex ON ex.contrato_id = c.id
+          WHERE c.status = 'Vigente'
+            AND EXISTS (SELECT 1 FROM medicoes WHERE contrato_id = c.id)
+            ${cl2}
+          ORDER BY pct_executado DESC, c.valor_total DESC
+          LIMIT 20
+        `, p2);
+      })(),
     ]);
 
   const t           = totaisContratos.rows[0];
-  const valTotCart  = parseFloat(t.valor_total_carteira)   || 0;
+  const valTotCart  = parseFloat(t.valor_total_carteira)    || 0;
   const valExecCart = parseFloat(t.valor_executado_carteira) || 0;
   const pctCarteira = valTotCart > 0
     ? parseFloat(Math.min(100, (valExecCart / valTotCart * 100)).toFixed(2))
@@ -77,12 +120,10 @@ router.get('/', auth, async (req, res) => {
     aprovadas:  parseInt(aprovadas.rows[0].count),
     assinatura: parseInt(assinatura.rows[0].count),
     valorMes:   parseFloat(valorMes.rows[0].total),
-    // Carteira
     totalContratos:         parseInt(t.total_contratos) || 0,
     valorTotalCarteira:     valTotCart,
     valorExecutadoCarteira: valExecCart,
     pctCarteira,
-    // Progresso individual
     progressoContratos: progressoContratos.rows.map(c => ({
       id:              c.id,
       numero:          c.numero,

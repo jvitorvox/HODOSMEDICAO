@@ -63,6 +63,16 @@ async function _processarAprovacao(medicao, nivel, acao, usuario, comentario) {
 
 // ── Webhook — recebe mensagens da Evolution API ───────────────────
 router.post('/webhook', async (req, res) => {
+  // Validação de API key (configurado em WA_WEBHOOK_SECRET no .env)
+  const webhookSecret = process.env.WA_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const provided = req.headers['x-api-key'] || req.headers['apikey'] || req.query.apikey || '';
+    if (provided !== webhookSecret) {
+      console.warn('[WhatsApp webhook] API key inválida — requisição rejeitada.');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+  }
+
   // Responde imediatamente (Evolution API exige resposta rápida)
   res.json({ ok: true });
 

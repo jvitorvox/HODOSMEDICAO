@@ -30,8 +30,14 @@ const Perm = {
   /** Resolve as permissões efetivas a partir dos grupos do usuário e do mapa de permissões */
   resolve(grupos, permsMap) {
     const resolved = {};
+    // Normaliza chaves do mapa para lowercase — evita falha por diferença de case
+    // entre o nome do grupo cadastrado nas permissões e o grupo vindo do JWT/AD.
+    const normalizedMap = {};
+    for (const [g, v] of Object.entries(permsMap || {})) {
+      normalizedMap[g.toLowerCase()] = v;
+    }
     this._keys.forEach(k => {
-      resolved[k] = grupos.some(g => permsMap[g]?.[k] === true);
+      resolved[k] = grupos.some(g => normalizedMap[g.toLowerCase()]?.[k] === true);
     });
     State.userPerms = resolved;
   },

@@ -266,13 +266,41 @@ const Configs = {
       </div></div>
     </div>
 
-    <!-- ── Ativação ───────────────────────────────────────────── -->
+    <!-- ── Fluxo pós-aprovação N3 ──────────────────────────────── -->
     <div class="fsec">
-      <div class="fsec-title">ATIVAÇÃO</div>
-      <label class="sw" id="sw-assin-ativo" onclick="this.querySelector('.sw-tr').classList.toggle('on')">
-        <div class="sw-tr ${c.ativo?'on':''}"><div class="sw-th"></div></div>
-        Ativar envio automático ao fornecedor após aprovação N3
-      </label>
+      <div class="fsec-title">FLUXO PÓS-APROVAÇÃO N3</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:14px">
+        Defina o que acontece automaticamente quando a medição é aprovada em todas as alçadas (N3).
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+
+        <div style="padding:14px 16px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface)">
+          <label class="sw" id="sw-assin-ativo" onclick="this.querySelector('.sw-tr').classList.toggle('on')" style="align-items:flex-start;gap:12px">
+            <div class="sw-tr ${c.ativo?'on':''}" style="margin-top:2px"><div class="sw-th"></div></div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)">🖊 Assinatura Digital</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:3px">
+                Envia o documento para assinatura eletrônica (${prov}) automaticamente após aprovação N3.
+                O status da medição muda para <b>Em Assinatura</b>.
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <div style="padding:14px 16px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface)">
+          <label class="sw" id="sw-assin-email" onclick="this.querySelector('.sw-tr').classList.toggle('on')" style="align-items:flex-start;gap:12px">
+            <div class="sw-tr ${c.notificacaoEmail?'on':''}" style="margin-top:2px"><div class="sw-th"></div></div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)">📧 Notificação Email ao Fornecedor</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:3px">
+                Envia um e-mail ao fornecedor informando que a medição foi aprovada, com os detalhes
+                (código, obra, período, valor) e instrução para acessar o portal e enviar a Nota Fiscal.
+              </div>
+            </div>
+          </label>
+        </div>
+
+      </div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:16px">
@@ -315,7 +343,11 @@ const Configs = {
 
   async _saveAssinatura() {
     const prov = H.el('cfg-assin-prov')?.value || 'ClickSign';
-    let data = { provedor: prov, ativo: !!H.el('sw-assin-ativo')?.querySelector('.sw-tr.on') };
+    let data = {
+      provedor: prov,
+      ativo: !!H.el('sw-assin-ativo')?.querySelector('.sw-tr.on'),
+      notificacaoEmail: !!H.el('sw-assin-email')?.querySelector('.sw-tr.on'),
+    };
 
     if (prov === 'ClickSign') {
       const token = H.el('cfg-assin-token')?.value.trim();
@@ -373,6 +405,12 @@ const Configs = {
           ['cronogramaEditar',    'Importar / Editar Cronograma'],
           ['cronogramaVinculos',  'Gerenciar Vínculos Contrato × WBS'],
           ['cronogramaIA',        'Usar Construv IA (chat)'],
+        ],
+      },
+      {
+        label: '💰 Financeiro',
+        itens: [
+          ['financeiro', 'Tela Financeiro (NFs, Backoffice, Pago/ERP)'],
         ],
       },
       {
@@ -447,6 +485,8 @@ const Configs = {
       // Cronograma
       cronograma: false, cronogramaEditar: false,
       cronogramaVinculos: false, cronogramaIA: false,
+      // Financeiro
+      financeiro: false,
       // Administração
       cadastros: false, alcadas: false, configuracoes: false,
     };
@@ -459,6 +499,7 @@ const Configs = {
       'dashboard', 'acompanhamento',
       'verMedicoes', 'criarMedicao', 'aprovarN1', 'aprovarN2', 'aprovarN3', 'enviarAssinatura', 'integrarErp',
       'cronograma', 'cronogramaEditar', 'cronogramaVinculos', 'cronogramaIA',
+      'financeiro',
       'cadastros', 'alcadas', 'configuracoes',
     ];
     Object.keys(perms).forEach(g => { telas.forEach(t => { const el = document.getElementById(`perm-${g}-${t}`); if(el) perms[g][t] = el.checked; }); });
@@ -478,12 +519,22 @@ const Configs = {
       <div class="fg"><label class="fl">Senha SMTP</label><input class="fi" type="password" id="cfg-smtp-pass" placeholder="••••••••"></div>
       <div class="fg cs2"><label class="fl">Remetente (From)</label><input class="fi" id="cfg-smtp-remetente" value="${c.remetente||''}"></div>
     </div></div>
+    <div class="fsec"><div class="fsec-title">PORTAL DO FORNECEDOR</div>
+    <div class="fgrid">
+      <div class="fg cs2">
+        <label class="fl">URL do Portal <span style="font-weight:400;color:var(--text3)">(incluída nos e-mails enviados ao fornecedor)</span></label>
+        <input class="fi" id="cfg-portal-url" value="${c.portalUrl||''}" placeholder="https://obras.suaempresa.com.br/portal.html">
+        <div style="font-size:11px;color:var(--text3);margin-top:4px">
+          Se não preenchida, o sistema detecta automaticamente pela URL de acesso ao sistema.
+        </div>
+      </div>
+    </div></div>
     <div style="display:flex;gap:10px;margin-top:16px">
       <button class="btn btn-a" onclick="Configs._saveNotif()">💾 Salvar</button>
     </div>`;
   },
   async _saveNotif() {
-    const data = { smtpHost:H.el('cfg-smtp-host').value, smtpPorta:parseInt(H.el('cfg-smtp-porta').value)||587, smtpUser:H.el('cfg-smtp-user').value, smtpPass:H.el('cfg-smtp-pass').value, remetente:H.el('cfg-smtp-remetente').value, tls:true };
+    const data = { smtpHost:H.el('cfg-smtp-host').value, smtpPorta:parseInt(H.el('cfg-smtp-porta').value)||587, smtpUser:H.el('cfg-smtp-user').value, smtpPass:H.el('cfg-smtp-pass').value, remetente:H.el('cfg-smtp-remetente').value, tls:true, portalUrl:(H.el('cfg-portal-url').value||'').trim() };
     try { await API.saveConfig('notificacoes', data); UI.toast('Configurações de notificação salvas','success'); } catch(e){UI.toast('Erro: '+e.message,'error');}
   },
 
@@ -808,6 +859,10 @@ const Configs = {
     const u = id ? (this._usuariosData.find(x=>x.id===id) || await API.usuario(id).catch(()=>null)) : null;
     const grupos = this._gruposDisponiveis || [];
 
+    // Carrega lista de obras para o seletor de restrição
+    let obrasDisponiveis = [];
+    try { obrasDisponiveis = await API.obras(); } catch {}
+
     H.el('usr-modal-title').textContent = id ? `✏ EDITAR USUÁRIO · ${u?.nome||u?.login||''}` : '👤 NOVO USUÁRIO';
 
     const perfis = ['N1','N2','N3','ADM'];
@@ -820,6 +875,17 @@ const Configs = {
           </label>`;
         }).join('')
       : '<div style="color:var(--muted);font-size:12px">Nenhum grupo AD configurado. Configure em Permissões por Grupo AD.</div>';
+
+    const obrasPermitidas = (u?.obras_permitidas || []).map(Number);
+    const obrasHtml = obrasDisponiveis.length
+      ? obrasDisponiveis.map(o => {
+          const sel = obrasPermitidas.includes(o.id);
+          return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;padding:4px 0">
+            <input type="checkbox" class="usr-obra-chk" value="${o.id}" ${sel?'checked':''} style="accent-color:var(--accent)">
+            ${H.esc(o.nome)}
+          </label>`;
+        }).join('')
+      : '<div style="color:var(--muted);font-size:12px">Nenhuma obra cadastrada.</div>';
 
     H.el('usr-modal-body').innerHTML = `
       <div class="fgrid">
@@ -871,6 +937,16 @@ const Configs = {
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:2px 16px;margin-top:8px;max-height:200px;overflow-y:auto;padding:4px">
           ${gruposHtml}
         </div>
+      </div>
+      <div class="divider"></div>
+      <div class="fsec">
+        <div class="fsec-title">RESTRIÇÃO DE OBRAS</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+          Deixe em branco para acesso a todas as obras. Selecione uma ou mais obras para restringir a visão do usuário.
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:2px 16px;max-height:200px;overflow-y:auto;padding:4px">
+          ${obrasHtml}
+        </div>
       </div>`;
 
     UI.openModal('modal-usuario');
@@ -884,12 +960,13 @@ const Configs = {
     const telefone = H.el('usr-telefone')?.value.trim();
     const perfil   = H.el('usr-perfil')?.value;
     const ativo    = !!H.el('usr-ativo-sw')?.querySelector('.sw-tr.on');
-    const grupos_ad = [...(document.querySelectorAll('.usr-grupo-chk:checked')||[])].map(el=>el.value);
+    const grupos_ad       = [...(document.querySelectorAll('.usr-grupo-chk:checked')||[])].map(el=>el.value);
+    const obras_permitidas = [...(document.querySelectorAll('.usr-obra-chk:checked')||[])].map(el=>parseInt(el.value));
     const senha  = H.el('usr-senha')?.value || undefined;
 
     if (!id && !login) { UI.toast('Login é obrigatório','error'); return; }
 
-    const payload = { nome: nome||undefined, email: email||undefined, telefone: telefone||null, perfil, grupos_ad, ativo };
+    const payload = { nome: nome||undefined, email: email||undefined, telefone: telefone||null, perfil, grupos_ad, obras_permitidas, ativo };
     if (!id) { payload.login = login; if (senha) payload.senha = senha; }
 
     try {

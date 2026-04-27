@@ -7,20 +7,19 @@ const router = require('express').Router();
 const db     = require('../db');
 const auth   = require('../middleware/auth');
 
-// Somente ADM pode ver o log completo; outros usuários veem apenas seus próprios registros
+// Somente ADM pode ver o log de auditoria
 router.get('/', auth, async (req, res) => {
   try {
-    const isAdm   = req.user?.perfil === 'ADM';
+    if (req.user?.perfil !== 'ADM')
+      return res.status(403).json({ error: 'Acesso restrito a administradores.' });
+
     const { entidade, acao, usuario_login, data_inicio, data_fim, limit = 200, offset = 0 } = req.query;
 
     const conds  = [];
     const params = [];
     const p = (v) => { params.push(v); return `$${params.length}`; };
 
-    if (!isAdm) {
-      // Usuário comum: apenas seus próprios registros
-      conds.push(`usuario_id = ${p(req.user.id)}`);
-    } else if (usuario_login) {
+    if (usuario_login) {
       conds.push(`usuario_login ILIKE ${p('%' + usuario_login + '%')}`);
     }
 
