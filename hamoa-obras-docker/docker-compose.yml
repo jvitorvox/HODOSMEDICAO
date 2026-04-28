@@ -94,8 +94,8 @@ services:
       POSTGRES_USER: ${DB_USER:-construtivo}
       POSTGRES_PASSWORD: ${DB_PASS:-construtivo@2025}
       PGDATA: /var/lib/postgresql/data/pgdata
-    # ports:                   # ⚠️ NÃO expor em produção — acesso somente pela rede Docker interna
-    #   - "5432:5432"        # descomente APENAS para manutenção local temporária
+    ports:
+      - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
