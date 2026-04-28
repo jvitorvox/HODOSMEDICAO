@@ -37,8 +37,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      DB_HOST: construtivo-db
-      DB_PORT: 5432
+      DB_HOST: ${DB_HOST:-construtivo-db}
+      DB_PORT: ${DB_PORT:-5432}
       DB_NAME: ${DB_NAME:-construtivo_obras}
       DB_USER: ${DB_USER:-construtivo}
       DB_PASS: ${DB_PASS:-construtivo@2025}
@@ -63,6 +63,8 @@ services:
       ASSINATURA_API_SECRET: ${ASSINATURA_API_SECRET:-}
       # IA - Google Gemini (opcional)
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # CORS - origens permitidas (separadas por virgula)
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
     # DNS corporativo: permite resolver hostnames do dominio AD
     dns:
       - ${CORP_DNS:-8.8.8.8}

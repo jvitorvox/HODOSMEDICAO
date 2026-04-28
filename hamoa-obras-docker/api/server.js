@@ -202,7 +202,8 @@ async function runMigrations() {
     `CREATE INDEX IF NOT EXISTS idx_lbm_progresso_servico ON lbm_progresso(servico_id)`,
     `CREATE INDEX IF NOT EXISTS idx_lbm_progresso_local   ON lbm_progresso(local_id)`,
     // v3.7.1 — garante UNIQUE constraint em lbm_progresso para bancos já existentes
-    `ALTER TABLE lbm_progresso ADD CONSTRAINT IF NOT EXISTS lbm_progresso_servico_local_uq UNIQUE(servico_id, local_id)`,
+    `ALTER TABLE lbm_progresso DROP CONSTRAINT IF EXISTS lbm_progresso_servico_local_uq`,
+    `ALTER TABLE lbm_progresso ADD CONSTRAINT lbm_progresso_servico_local_uq UNIQUE(servico_id, local_id)`,
     // v3.7.2 — múltiplos contratos por serviço LBM
     `CREATE TABLE IF NOT EXISTS lbm_servico_contratos (
        id          SERIAL PRIMARY KEY,
