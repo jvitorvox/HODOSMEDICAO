@@ -15,8 +15,10 @@ const db = new Pool({
   user:     process.env.DB_USER || 'construtivo',
   password: process.env.DB_PASS,
   max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  idleTimeoutMillis:        60000,   // fecha conexão ociosa após 60s (antes do firewall agir)
+  connectionTimeoutMillis:  5000,    // timeout ao tentar nova conexão
+  keepAlive:                true,    // envia TCP keepalive para evitar corte silencioso pelo NAT
+  keepAliveInitialDelayMillis: 10000, // começa keepalive após 10s de ociosidade
 });
 
 db.on('error', (err) => console.error('[DB] Pool error:', err));
