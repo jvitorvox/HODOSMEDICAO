@@ -207,13 +207,16 @@ async function _parseXML(filePath) {
 }
 
 // ── Salva atividades em bulk (unnest) — 2 queries para qualquer volume ─────────
+// Retorna array de avisos (warnings) para repassar ao frontend
 async function _saveAtividades(client, cronogramaId, atividades) {
-  if (!atividades.length) return;
+  const avisos = [];
+  if (!atividades.length) return avisos;
 
   // Prepara colunas como arrays paralelos para unnest do PostgreSQL
   const wbss = [], nomes = [], dataInis = [], dataFins = [],
         duracoes = [], niveis = [], pcts = [], ehResumos = [], ordens = [], uids = [], custos = [];
 
+  let semData = 0, semDuracao = 0;
   for (const a of atividades) {
     wbss    .push((a.wbs  || String(a.uid_externo || a.ordem + 1)).slice(0, 50));
     nomes   .push((a.nome || 'Sem nome').slice(0, 500));
@@ -226,7 +229,13 @@ async function _saveAtividades(client, cronogramaId, atividades) {
     ordens  .push(a.ordem        || 0);
     uids    .push(a.uid_externo  || null);
     custos  .push(a.custo_planejado != null ? parseFloat(a.custo_planejado) : null);
+
+    if (!a.data_inicio && !a.data_termino) semData++;
+    if (!a.duracao) semDuracao++;
   }
+
+  if (semData > 0)     avisos.push({ nivel: 'info', msg: `${semData} atividade(s) sem data de início/término` });
+  if (semDuracao > 0)  avisos.push({ nivel: 'info', msg: `${semDuracao} atividade(s) sem duração definida` });
 
   // ── INSERT em bloco único via unnest — 1 roundtrip ao banco ─────────────────
   await client.query(`
@@ -244,7 +253,6 @@ async function _saveAtividades(client, cronogramaId, atividades) {
       duracoes, niveis, pcts, ehResumos, ordens, uids, custos]);
 
   // ── UPDATE parent_id em bloco único via unnest + self-join ──────────────────
-  // Monta arrays apenas para atividades que têm pai
   const childUids = [], parentUids = [];
   for (const a of atividades) {
     if (a.uid_externo && a.parent_uid) {
@@ -265,16 +273,16 @@ async function _saveAtividades(client, cronogramaId, atividades) {
         AND child.cronograma_id = $1
     `, [cronogramaId, childUids, parentUids]);
 
-    // Detecta atividades que ficaram órfãs (parent_uid referencia uid inexistente)
-    const linked = updR.rowCount || 0;
-    if (linked < childUids.length) {
-      console.warn(
-        `[cronograma] ${childUids.length - linked} atividade(s) com parent_uid não encontrado ` +
-        `no cronograma=${cronogramaId} — ficarão com parent_id=NULL. ` +
-        `Pares (child,parent) enviados: ${JSON.stringify(childUids.map((c,i) => [c, parentUids[i]]))}`
-      );
+    const linked  = updR.rowCount || 0;
+    const orfas   = childUids.length - linked;
+    if (orfas > 0) {
+      const msg = `${orfas} atividade(s) ficaram sem hierarquia pai (parent_uid não encontrado no arquivo) — aparecerão no nível raiz da WBS`;
+      console.warn(`[cronograma] ${msg} — cronograma=${cronogramaId}`);
+      avisos.push({ nivel: 'aviso', msg });
     }
   }
+
+  return avisos;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -347,13 +355,17 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
       );
       const cronogramaId = crRes.rows[0].id;
 
-      await _saveAtividades(client, cronogramaId, parsed.atividades);
+      const avisos = await _saveAtividades(client, cronogramaId, parsed.atividades);
 
       await client.query('COMMIT');
 
       await audit(req, 'importar', 'cronograma', cronogramaId,
         `Cronograma "${nome}" v${versao} importado — ${parsed.atividades.length} atividades`,
-        { substituido: !!replaceId, atividades: parsed.atividades.length });
+        { substituido: !!replaceId, atividades: parsed.atividades.length, avisos: avisos.length });
+
+      const resumos   = parsed.atividades.filter(a => a.eh_resumo).length;
+      const folhas    = parsed.atividades.length - resumos;
+      const comCusto  = parsed.atividades.filter(a => a.custo_planejado).length;
 
       res.status(201).json({
         id:          cronogramaId,
@@ -361,8 +373,12 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
         versao,
         substituido: !!replaceId,
         atividades:  parsed.atividades.length,
+        resumos,
+        folhas,
+        comCusto,
         dataInicio:  parsed.dataInicio,
         dataTermino: parsed.dataTermino,
+        avisos,
       });
     } catch (e) {
       try { await client.query('ROLLBACK'); } catch (_) {}
@@ -372,7 +388,32 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
     }
   } catch (err) {
     console.error('[cronogramas/importar]', err);
-    res.status(500).json({ error: err.message || 'Erro ao importar cronograma.' });
+
+    // Categoriza o erro para o frontend exibir dica adequada
+    let tipo = 'erro_geral';
+    let dica  = null;
+    const msg = err.message || '';
+    if (/200 MB|file size|LIMIT_FILE_SIZE/i.test(msg)) {
+      tipo = 'arquivo_grande';
+      dica = 'O arquivo excede o limite de 200 MB. Exporte apenas parte do cronograma no MS Project ou divida em múltiplos arquivos.';
+    } else if (/\.mpp|mpxj|Java/i.test(msg)) {
+      tipo = 'formato_mpp';
+      dica = 'Para importar .mpp, o servidor precisa ter Java instalado. Alternativa: no MS Project, use Arquivo → Salvar Como → XML do Project (*.xml) e importe o .xml.';
+    } else if (/não contém atividades|não pôde ser lido/i.test(msg)) {
+      tipo = 'arquivo_vazio';
+      dica = 'O arquivo parece estar vazio ou corrompido. Verifique se foi exportado corretamente do MS Project.';
+    } else if (/Formato inválido|não suportado/i.test(msg)) {
+      tipo = 'formato_invalido';
+      dica = 'Use arquivos .mpp (MS Project binário) ou .xml (exportação XML do MS Project).';
+    } else if (/ENOENT|cannot read|leitura/i.test(msg)) {
+      tipo = 'leitura_arquivo';
+      dica = 'Falha ao ler o arquivo no servidor. Tente novamente ou verifique se o arquivo não está corrompido.';
+    } else if (/duplicate key|unique constraint/i.test(msg)) {
+      tipo = 'conflito_banco';
+      dica = 'Conflito ao salvar no banco. Se estiver substituindo um cronograma, selecione a opção "Substituir" em vez de importar como novo.';
+    }
+
+    res.status(500).json({ error: msg || 'Erro ao importar cronograma.', tipo, dica });
   } finally {
     if (tmpFile) fs.unlink(tmpFile, () => {});
   }

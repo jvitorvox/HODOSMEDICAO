@@ -886,6 +886,21 @@ const Cronograma = (() => {
     UI.openModal('modal-cron-import');
   }
 
+  // ── Log visual de importação ────────────────────────────────
+  function _logStep(status, icon, msg, style = '') {
+    const line = document.createElement('div');
+    line.style.cssText = `display:flex;align-items:flex-start;gap:7px;font-size:12px;margin-top:5px;${style}`;
+    line.innerHTML = `<span style="flex-shrink:0;margin-top:1px">${icon}</span><span>${H.esc(msg)}</span>`;
+    status.appendChild(line);
+    status.scrollTop = status.scrollHeight;
+  }
+
+  function _logClear(status) {
+    status.innerHTML = '';
+    status.style.cssText = 'display:block;max-height:280px;overflow-y:auto;padding:10px 14px;' +
+      'border:1px solid var(--border);border-radius:var(--r);background:var(--bg2);font-family:monospace';
+  }
+
   async function submitImport() {
     const obraId    = parseInt(H.el('cron-imp-obra')?.value);
     const nome      = H.el('cron-imp-nome')?.value.trim();
@@ -902,37 +917,94 @@ const Cronograma = (() => {
       return;
     }
 
-    const nomeReal = nome || file.name;
+    const nomeReal   = nome || file.name;
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
 
-    status.style.display = 'block';
-    const action = replaceId ? 'Substituindo' : 'Importando';
-    status.innerHTML = `<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2)">
-      <span class="ia-spin">⚙️</span> ${action} <b>${H.esc(file.name)}</b>… analisando atividades e WBS</div>`;
+    _logClear(status);
+    _logStep(status, '📂', `Arquivo: ${file.name} (${fileSizeMB} MB)`);
+    _logStep(status, '⚙️', replaceId ? 'Substituindo cronograma existente…' : 'Iniciando importação…', 'color:var(--text2)');
+
+    // Simula passos visuais durante o upload (não temos SSE, então animamos o log)
+    const steps = [
+      [800,  '📤', 'Enviando arquivo para o servidor…'],
+      [2500, '🔍', `Analisando estrutura ${ext.toUpperCase()} e WBS…`],
+      [5000, '🌲', 'Montando hierarquia de atividades…'],
+    ];
+    const timers = steps.map(([delay, icon, msg]) =>
+      setTimeout(() => _logStep(status, icon, msg, 'color:var(--text2)'), delay)
+    );
 
     try {
       const r = await API.importarCronograma(obraId, nomeReal, file, replaceId);
+      timers.forEach(clearTimeout);
+
+      _logStep(status, '💾', `Salvo no banco de dados — versão v${r.versao}`);
+      _logStep(status, '');  // linha em branco
+
+      // Estatísticas
+      const statLine = [
+        `${r.atividades} atividades totais`,
+        r.resumos   != null ? `${r.resumos} resumos` : null,
+        r.folhas    != null ? `${r.folhas} folhas` : null,
+        r.comCusto  != null && r.comCusto > 0 ? `${r.comCusto} com custo` : null,
+        r.dataInicio  ? `início ${r.dataInicio.slice(0,10)}` : null,
+        r.dataTermino ? `término ${r.dataTermino.slice(0,10)}` : null,
+      ].filter(Boolean).join(' · ');
+      _logStep(status, '📊', statLine, 'color:var(--text2)');
+
+      // Avisos (atividades órfãs, sem data, etc.)
+      if (r.avisos?.length) {
+        _logStep(status, '');
+        for (const av of r.avisos) {
+          const icon = av.nivel === 'aviso' ? '⚠️' : 'ℹ️';
+          const color = av.nivel === 'aviso' ? 'color:#f59e0b' : 'color:var(--text2)';
+          _logStep(status, icon, av.msg, color);
+        }
+      }
+
+      _logStep(status, '');
       const actionDone = replaceId ? '✅ Cronograma substituído com sucesso' : '✅ Cronograma importado com sucesso';
-      status.innerHTML = `<div style="background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);border-radius:var(--r);padding:10px 14px">
-        <div style="font-weight:700;color:var(--green);font-size:12px">${actionDone}</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:4px">${r.atividades} atividades · v${r.versao}</div>
-      </div>`;
+      _logStep(status, '✅', actionDone, 'font-weight:700;color:var(--green)');
+
       UI.toast(`${r.atividades} atividades importadas`, 'success');
 
       setTimeout(async () => {
         UI.closeModal('modal-cron-import');
         _currentObraId = obraId;
-        // Sincroniza select de obra da página principal
         const obraSelEl = H.el('cron-obra');
         if (obraSelEl) obraSelEl.value = String(obraId);
         _collapsed.clear();
         await _loadCronogramas(obraId);
         await selectCronograma(r.id);
-      }, 1200);
+      }, r.avisos?.length ? 2500 : 1200);
+
     } catch (e) {
-      status.innerHTML = `<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:var(--r);padding:10px 14px">
-        <div style="font-weight:700;color:var(--red);font-size:12px">❌ Erro na importação</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:4px">${H.esc(e.message)}</div>
-      </div>`;
+      timers.forEach(clearTimeout);
+
+      const errMsg = e.message || 'Erro desconhecido';
+
+      // e.dica vem da API quando o erro é categorizado; fallback por texto
+      let dica = e.dica || null;
+      if (!dica) {
+        if (/200 MB|file size/i.test(errMsg))
+          dica = 'Reduza o arquivo exportando apenas parte do cronograma no MS Project.';
+        else if (/\.mpp|mpxj|Java/i.test(errMsg))
+          dica = 'Alternativa: Arquivo → Salvar Como → XML do Project (*.xml) no MS Project.';
+        else if (/413|too large/i.test(errMsg))
+          dica = 'O arquivo excedeu o limite do servidor (200 MB) ou do proxy Cloudflare (100 MB).';
+        else if (/timeout|ETIMEDOUT|504/i.test(errMsg))
+          dica = 'O servidor demorou muito para processar. Tente um arquivo menor ou em horário de menor uso.';
+        else if (/Failed to fetch|NetworkError/i.test(errMsg))
+          dica = 'Verifique sua conexão com a rede e tente novamente.';
+      }
+
+      _logStep(status, '');
+      _logStep(status, '❌', 'Importação falhou', 'font-weight:700;color:var(--red)');
+      _logStep(status, '▸', errMsg, 'color:var(--red)');
+      if (dica) {
+        _logStep(status, '');
+        _logStep(status, '💡', `Dica: ${dica}`, 'color:#f59e0b;font-style:italic');
+      }
     }
   }
 

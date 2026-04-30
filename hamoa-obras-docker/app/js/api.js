@@ -160,7 +160,13 @@ const API = (() => {
         body: fd,
       }).then(async r => {
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        if (!r.ok) {
+          // Preserva dica e tipo junto da mensagem de erro para o frontend exibir
+          const err = new Error(d.error || `HTTP ${r.status}`);
+          err.dica  = d.dica  || null;
+          err.tipo  = d.tipo  || null;
+          throw err;
+        }
         return d;
       });
     },
