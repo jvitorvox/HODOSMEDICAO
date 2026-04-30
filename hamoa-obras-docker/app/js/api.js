@@ -147,7 +147,8 @@ const API = (() => {
         setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
       });
     },
-    importarCronograma: (obraId, nome, file, replaceId) => {
+    // Upload direto (arquivos pequenos, sem Cloudflare blocking)
+    _importarCronogramaDireto: (obraId, nome, file, replaceId) => {
       const fd = new FormData();
       fd.append('arquivo', file);
       fd.append('obra_id', obraId);
@@ -161,14 +162,78 @@ const API = (() => {
       }).then(async r => {
         const d = await r.json().catch(() => ({}));
         if (!r.ok) {
-          // Preserva dica e tipo junto da mensagem de erro para o frontend exibir
           const err = new Error(d.error || `HTTP ${r.status}`);
-          err.dica  = d.dica  || null;
-          err.tipo  = d.tipo  || null;
+          err.dica = d.dica || null;
+          err.tipo = d.tipo || null;
           throw err;
         }
         return d;
       });
+    },
+
+    // Upload chunked (divide arquivo em pedaços de 45 MB para bypassar Cloudflare)
+    // onProgress(chunkIndex, totalChunks) é chamado após cada chunk enviado
+    importarCronograma: async (obraId, nome, file, replaceId, onProgress) => {
+      const CHUNK_SIZE = 45 * 1024 * 1024; // 45 MB por chunk
+
+      // Arquivo pequeno: upload direto sem chunks
+      if (file.size <= CHUNK_SIZE) {
+        return API._importarCronogramaDireto(obraId, nome, file, replaceId);
+      }
+
+      // Arquivo grande: divide em chunks
+      const token       = _getToken();
+      const headers     = token ? { Authorization: `Bearer ${token}` } : {};
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      const uploadId    = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+      // Envia cada chunk sequencialmente
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end   = Math.min(start + CHUNK_SIZE, file.size);
+        const blob  = file.slice(start, end);
+
+        const fd = new FormData();
+        fd.append('chunk',        blob, file.name);
+        fd.append('uploadId',     uploadId);
+        fd.append('chunkIndex',   String(i));
+        fd.append('totalChunks',  String(totalChunks));
+        if (i === 0) fd.append('originalName', file.name);
+
+        const r = await fetch('/api/cronogramas/chunk', {
+          method: 'POST',
+          headers,
+          body: fd,
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const err = new Error(d.error || `Erro no chunk ${i + 1}: HTTP ${r.status}`);
+          err.dica = d.dica || null;
+          throw err;
+        }
+        if (onProgress) onProgress(i + 1, totalChunks);
+      }
+
+      // Todos os chunks enviados — dispara o processamento
+      const fd = new FormData();
+      fd.append('uploadId',  uploadId);
+      fd.append('obra_id',   obraId);
+      fd.append('nome',      nome);
+      if (replaceId) fd.append('replace_id', replaceId);
+
+      const r = await fetch('/api/cronogramas/importar', {
+        method: 'POST',
+        headers,
+        body: fd,
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const err = new Error(d.error || `HTTP ${r.status}`);
+        err.dica = d.dica || null;
+        err.tipo = d.tipo || null;
+        throw err;
+      }
+      return d;
     },
 
     // ── Atividades vinculadas ao contrato ────────────────────────

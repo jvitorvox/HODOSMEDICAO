@@ -917,25 +917,51 @@ const Cronograma = (() => {
       return;
     }
 
-    const nomeReal   = nome || file.name;
-    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+    const nomeReal    = nome || file.name;
+    const fileSizeMB  = (file.size / (1024 * 1024)).toFixed(1);
+    const CHUNK_MB    = 45;
+    const isChunked   = file.size > CHUNK_MB * 1024 * 1024;
+    const totalChunks = isChunked ? Math.ceil(file.size / (CHUNK_MB * 1024 * 1024)) : 1;
 
     _logClear(status);
     _logStep(status, '📂', `Arquivo: ${file.name} (${fileSizeMB} MB)`);
+    if (isChunked) {
+      _logStep(status, '✂️', `Arquivo grande — será enviado em ${totalChunks} partes de ${CHUNK_MB} MB para bypassar o limite do proxy`, 'color:var(--text2)');
+    }
     _logStep(status, '⚙️', replaceId ? 'Substituindo cronograma existente…' : 'Iniciando importação…', 'color:var(--text2)');
 
-    // Simula passos visuais durante o upload (não temos SSE, então animamos o log)
-    const steps = [
-      [800,  '📤', 'Enviando arquivo para o servidor…'],
-      [2500, '🔍', `Analisando estrutura ${ext.toUpperCase()} e WBS…`],
-      [5000, '🌲', 'Montando hierarquia de atividades…'],
-    ];
-    const timers = steps.map(([delay, icon, msg]) =>
-      setTimeout(() => _logStep(status, icon, msg, 'color:var(--text2)'), delay)
-    );
+    // Linha de progresso de chunks (atualizada dinamicamente)
+    let chunkLogEl = null;
+    if (isChunked) {
+      chunkLogEl = document.createElement('div');
+      chunkLogEl.style.cssText = 'display:flex;align-items:flex-start;gap:7px;font-size:12px;margin-top:5px;color:var(--text2)';
+      chunkLogEl.innerHTML = `<span style="flex-shrink:0;margin-top:1px">📤</span><span>Enviando parte 1 de ${totalChunks}…</span>`;
+      status.appendChild(chunkLogEl);
+    }
+
+    // Timers para simular progresso nas etapas de análise (após upload)
+    const timers = [];
+    if (!isChunked) {
+      timers.push(setTimeout(() => _logStep(status, '📤', 'Enviando arquivo para o servidor…', 'color:var(--text2)'), 800));
+      timers.push(setTimeout(() => _logStep(status, '🔍', `Analisando estrutura ${ext.toUpperCase()} e WBS…`, 'color:var(--text2)'), 2500));
+      timers.push(setTimeout(() => _logStep(status, '🌲', 'Montando hierarquia de atividades…', 'color:var(--text2)'), 5000));
+    }
+
+    const onChunkProgress = (sent, total) => {
+      if (chunkLogEl) {
+        const pct = Math.round((sent / total) * 100);
+        const bar = '█'.repeat(Math.round(pct / 5)) + '░'.repeat(20 - Math.round(pct / 5));
+        chunkLogEl.innerHTML = `<span style="flex-shrink:0;margin-top:1px">📤</span><span>Enviando parte ${sent} de ${total} — ${pct}% [${bar}]</span>`;
+        if (sent === total) {
+          chunkLogEl.innerHTML = `<span style="flex-shrink:0;margin-top:1px">📤</span><span>Todas as partes enviadas! Processando no servidor…</span>`;
+          _logStep(status, '🔍', `Analisando estrutura ${ext.toUpperCase()} e WBS…`, 'color:var(--text2)');
+          _logStep(status, '🌲', 'Montando hierarquia de atividades…', 'color:var(--text2)');
+        }
+      }
+    };
 
     try {
-      const r = await API.importarCronograma(obraId, nomeReal, file, replaceId);
+      const r = await API.importarCronograma(obraId, nomeReal, file, replaceId, onChunkProgress);
       timers.forEach(clearTimeout);
 
       _logStep(status, '💾', `Salvo no banco de dados — versão v${r.versao}`);

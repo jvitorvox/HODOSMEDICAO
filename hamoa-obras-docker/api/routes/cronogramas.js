@@ -31,6 +31,28 @@ const upload = multer({
   },
 });
 
+// ── Multer para chunks binários (sem validação de extensão) ──
+const uploadChunk = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 60 * 1024 * 1024 }, // 60 MB por chunk
+});
+
+// ── Estado dos uploads em chunks (em memória) ─────────────────
+// Map: uploadId → { total, received: Set, tmpDir, originalName, createdAt }
+const _chunks = new Map();
+
+// Limpeza automática de uploads abandonados (> 2 horas)
+setInterval(() => {
+  const limite = Date.now() - 2 * 60 * 60 * 1000;
+  for (const [id, state] of _chunks) {
+    if (state.createdAt < limite) {
+      try { fs.rmSync(state.tmpDir, { recursive: true, force: true }); } catch (_) {}
+      _chunks.delete(id);
+      console.log(`[chunk] Upload abandonado removido: ${id}`);
+    }
+  }
+}, 30 * 60 * 1000); // roda a cada 30 min
+
 // ── Parser de arquivo MPP (MS Project binário) via mpxj ───────
 // mpxj é um pacote OPCIONAL (requer Java instalado no servidor).
 // Se não estiver disponível, retorna erro orientando exportar como XML.
@@ -286,6 +308,89 @@ async function _saveAtividades(client, cronogramaId, atividades) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ROTA: POST /chunk  — recebe um pedaço do arquivo
+// Usado pelo frontend para bypassar o limite de 100 MB do Cloudflare.
+// Cada chunk chega como multipart com os campos:
+//   uploadId      — UUID gerado pelo cliente (identifica o upload)
+//   chunkIndex    — índice do chunk (0-based)
+//   totalChunks   — total de chunks
+//   originalName  — nome original do arquivo (só no primeiro chunk)
+//   chunk         — dados binários do pedaço
+// ═══════════════════════════════════════════════════════════════
+router.post('/chunk', auth, perm('cronogramaEditar'), (req, res, next) => {
+  uploadChunk.single('chunk')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  const { uploadId, originalName } = req.body;
+  const chunkIndex  = parseInt(req.body.chunkIndex);
+  const totalChunks = parseInt(req.body.totalChunks);
+
+  if (!uploadId || isNaN(chunkIndex) || isNaN(totalChunks) || totalChunks < 1) {
+    if (req.file) fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: 'uploadId, chunkIndex e totalChunks são obrigatórios.' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'Nenhum chunk enviado.' });
+
+  // Cria estado do upload se for o primeiro chunk
+  if (!_chunks.has(uploadId)) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `cron-chunk-`));
+    _chunks.set(uploadId, {
+      total:        totalChunks,
+      received:     new Set(),
+      tmpDir,
+      originalName: originalName || 'arquivo',
+      createdAt:    Date.now(),
+    });
+  }
+
+  const state     = _chunks.get(uploadId);
+  const chunkPath = path.join(state.tmpDir, `chunk_${String(chunkIndex).padStart(5, '0')}`);
+
+  // Move chunk da pasta temporária do multer para a pasta do upload
+  try {
+    fs.renameSync(req.file.path, chunkPath);
+  } catch (_) {
+    fs.copyFileSync(req.file.path, chunkPath);
+    fs.unlink(req.file.path, () => {});
+  }
+  state.received.add(chunkIndex);
+
+  const received = state.received.size;
+
+  // Ainda faltam chunks
+  if (received < totalChunks) {
+    return res.json({ done: false, received, total: totalChunks });
+  }
+
+  // Todos os chunks chegaram — monta o arquivo final
+  const assembledPath = path.join(state.tmpDir, 'assembled');
+  try {
+    const writeStream = fs.createWriteStream(assembledPath);
+    for (let i = 0; i < totalChunks; i++) {
+      const cp = path.join(state.tmpDir, `chunk_${String(i).padStart(5, '0')}`);
+      const buf = fs.readFileSync(cp);
+      writeStream.write(buf);
+      fs.unlink(cp, () => {});
+    }
+    await new Promise((resolve, reject) => {
+      writeStream.end();
+      writeStream.on('finish', resolve);
+      writeStream.on('error',  reject);
+    });
+    state.assembledPath = assembledPath;
+    console.log(`[chunk] Upload ${uploadId} completo — ${totalChunks} chunks → ${assembledPath}`);
+    return res.json({ done: true, uploadId, received: totalChunks, total: totalChunks });
+  } catch (err) {
+    console.error('[chunk] Erro ao montar arquivo:', err);
+    try { fs.rmSync(state.tmpDir, { recursive: true, force: true }); } catch (_) {}
+    _chunks.delete(uploadId);
+    return res.status(500).json({ error: 'Erro ao montar o arquivo no servidor: ' + err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ROTA: POST /importar
 // ═══════════════════════════════════════════════════════════════
 router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
@@ -299,12 +404,27 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
     next();
   });
 }, async (req, res) => {
-  const tmpFile = req.file?.path;
+  // Suporta dois modos:
+  //   1) Upload direto (multipart/form-data com campo 'arquivo') — arquivos < 100 MB
+  //   2) Upload chunked (campo 'uploadId' referenciando chunks já recebidos) — arquivos grandes
+  let tmpFile      = req.file?.path;
+  let originalName = req.file?.originalname;
+  let chunkState   = null;
+
+  if (req.body.uploadId && !req.file) {
+    chunkState = _chunks.get(req.body.uploadId);
+    if (!chunkState?.assembledPath) {
+      return res.status(400).json({ error: 'Upload chunked não encontrado ou incompleto. Reenvie o arquivo.' });
+    }
+    tmpFile      = chunkState.assembledPath;
+    originalName = chunkState.originalName;
+  }
+
   try {
-    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    if (!tmpFile) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
 
     const obraId    = parseInt(req.body.obra_id);
-    const nome      = (req.body.nome || req.file.originalname).trim().slice(0, 255);
+    const nome      = (req.body.nome || originalName || 'cronograma').trim().slice(0, 255);
     const replaceId = req.body.replace_id ? parseInt(req.body.replace_id) : null;
     if (!obraId) return res.status(400).json({ error: 'obra_id obrigatório.' });
 
@@ -312,7 +432,7 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
     const obraChk = await db.query('SELECT id FROM obras WHERE id=$1', [obraId]);
     if (!obraChk.rows.length) return res.status(404).json({ error: 'Obra não encontrada.' });
 
-    const ext = path.extname(req.file.originalname).toLowerCase();
+    const ext = path.extname(originalName || '').toLowerCase();
     let parsed;
     if (ext === '.mpp') {
       parsed = await _parseMPP(tmpFile);
@@ -347,7 +467,7 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
         `INSERT INTO cronogramas (obra_id, nome, versao, arquivo_nome, data_inicio, data_termino, importado_por)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
         [
-          obraId, nome, versao, req.file.originalname,
+          obraId, nome, versao, originalName,
           parsed.dataInicio  ? parsed.dataInicio.toISOString().slice(0, 10)  : null,
           parsed.dataTermino ? parsed.dataTermino.toISOString().slice(0, 10) : null,
           req.user?.login || 'sistema',
@@ -415,7 +535,13 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
 
     res.status(500).json({ error: msg || 'Erro ao importar cronograma.', tipo, dica });
   } finally {
-    if (tmpFile) fs.unlink(tmpFile, () => {});
+    if (chunkState) {
+      // Limpa pasta do upload chunked
+      try { fs.rmSync(chunkState.tmpDir, { recursive: true, force: true }); } catch (_) {}
+      _chunks.delete(req.body.uploadId);
+    } else if (tmpFile) {
+      fs.unlink(tmpFile, () => {});
+    }
   }
 });
 
