@@ -899,6 +899,14 @@
           <input class="fi" id="eat-pct-real" type="number" min="0" max="100" step="0.1" placeholder="0.0">
         </div>
       </div>
+      <div class="fg">
+        <label class="fl">⏱ Gatilho Suprimentos (dias de antecedência)</label>
+        <input class="fi" id="eat-gatilho" type="number" min="0" placeholder="Ex: 30 — deixe em branco se não aplicável"
+               title="Dias de antecedência necessários para suprimentos acionar a compra antes do início desta atividade">
+        <div style="font-size:10px;color:var(--text3);margin-top:3px">
+          Data-limite de compra = Data início − dias informados. Usado no Coloridão & Controle de Obra.
+        </div>
+      </div>
       <div id="eat-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:var(--r);padding:8px 12px;font-size:11px;color:var(--red);margin-top:4px"></div>
     </div>
     <div class="mf">

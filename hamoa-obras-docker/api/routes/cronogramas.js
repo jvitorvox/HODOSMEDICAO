@@ -451,11 +451,24 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
       await client.query('BEGIN');
 
       let versao;
+      // Mapa uid_externo → gatilho_dias para preservar ao substituir cronograma
+      let gatilhoMap = {};
+
       if (replaceId) {
         // Substituição: pega versão do cronograma anterior e o apaga
         const oldR = await client.query('SELECT versao, obra_id FROM cronogramas WHERE id=$1', [replaceId]);
         if (!oldR.rows.length) return res.status(404).json({ error: 'Cronograma a substituir não encontrado.' });
         versao = oldR.rows[0].versao;
+
+        // Preserva gatilho_dias antes de deletar — indexado por uid_externo (ID único do MS Project)
+        const gatR = await client.query(
+          `SELECT uid_externo, gatilho_dias
+             FROM atividades_cronograma
+            WHERE cronograma_id = $1 AND gatilho_dias IS NOT NULL AND uid_externo IS NOT NULL`,
+          [replaceId]
+        );
+        gatilhoMap = Object.fromEntries(gatR.rows.map(r => [String(r.uid_externo), r.gatilho_dias]));
+
         await client.query('DELETE FROM cronogramas WHERE id=$1', [replaceId]);
       } else {
         // Nova importação: incrementa versão
@@ -476,6 +489,18 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
       const cronogramaId = crRes.rows[0].id;
 
       const avisos = await _saveAtividades(client, cronogramaId, parsed.atividades);
+
+      // Reaplica gatilho_dias nas novas atividades, casando pelo uid_externo do MS Project
+      if (Object.keys(gatilhoMap).length > 0) {
+        for (const [uid, dias] of Object.entries(gatilhoMap)) {
+          await client.query(
+            `UPDATE atividades_cronograma SET gatilho_dias = $1
+              WHERE cronograma_id = $2 AND uid_externo = $3`,
+            [dias, cronogramaId, parseInt(uid)]
+          );
+        }
+        console.log(`[importar] Gatilho restaurado para ${Object.keys(gatilhoMap).length} atividade(s) após substituição.`);
+      }
 
       await client.query('COMMIT');
 
@@ -598,7 +623,7 @@ router.get('/:id/atividades', auth, async (req, res) => {
          a.id, a.cronograma_id, a.parent_id, a.wbs, a.nome,
          a.data_inicio, a.data_termino, a.duracao, a.nivel,
          a.pct_planejado, a.pct_realizado, a.eh_resumo, a.ordem,
-         a.custo_planejado,
+         a.custo_planejado, a.gatilho_dias,
 
          -- ── % calculado pelas medições (join lateral evita subquery duplicada) ──
          med_calc.pct_medicoes,
@@ -1100,10 +1125,16 @@ router.get('/coloridao', auth, async (req, res) => {
     }
 
     // ── 3. Calcula status por grupo (CTE recursiva) ────────────────────────
+    // Lógica de cores por tarefa (sem contrato):
+    //   🔴 vermelho — hoje > data_inicio (atividade já deveria ter iniciado)
+    //   🟡 amarelo  — hoje > (data_inicio - gatilho_dias) E hoje <= data_inicio
+    //   🟢 verde    — hoje <= (data_inicio - gatilho_dias)
+    //   ⚫ cinza    — sem gatilho_dias definido E atividade não iniciou
+    // 🔵 azul — todas as tarefas do grupo têm contrato
     const matrizR = await db.query(
       `WITH RECURSIVE subtree AS (
          -- Âncora: grupos no nível de granularidade solicitado
-         SELECT id, parent_id, cronograma_id, eh_resumo, data_inicio, data_termino,
+         SELECT id, parent_id, cronograma_id, eh_resumo, data_inicio, data_termino, gatilho_dias,
                 id   AS root_id,
                 nome AS root_nome
            FROM atividades_cronograma
@@ -1113,7 +1144,7 @@ router.get('/coloridao', auth, async (req, res) => {
          UNION ALL
 
          -- Recursão: filhos de qualquer nó já na árvore
-         SELECT a.id, a.parent_id, a.cronograma_id, a.eh_resumo, a.data_inicio, a.data_termino,
+         SELECT a.id, a.parent_id, a.cronograma_id, a.eh_resumo, a.data_inicio, a.data_termino, a.gatilho_dias,
                 s.root_id, s.root_nome
            FROM atividades_cronograma a
            JOIN subtree s ON s.id = a.parent_id AND a.cronograma_id = s.cronograma_id
@@ -1122,22 +1153,56 @@ router.get('/coloridao', auth, async (req, res) => {
          s.root_id        AS grupo_id,
          s.root_nome      AS grupo_nome,
          s.cronograma_id,
-         COUNT(s.id)      FILTER (WHERE NOT s.eh_resumo)                                                                                       AS total_tarefas,
-         COUNT(ca.contrato_id) FILTER (WHERE NOT s.eh_resumo)                                                                                  AS com_contrato,
-         SUM(CASE WHEN NOT s.eh_resumo AND ca.contrato_id IS NULL
-                       AND s.data_inicio IS NOT NULL
-                       AND (s.data_inicio::date - CURRENT_DATE) <= 20   THEN 1 ELSE 0 END)                                                     AS vermelho_count,
-         SUM(CASE WHEN NOT s.eh_resumo AND ca.contrato_id IS NULL
-                       AND (s.data_inicio IS NULL OR (s.data_inicio::date - CURRENT_DATE) > 20) THEN 1 ELSE 0 END)                             AS amarelo_count,
+         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo)                          AS total_tarefas,
+         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NOT NULL) AS com_contrato,
+
+         -- Vermelho: sem contrato E atividade já deveria ter iniciado
+         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+                               AND s.data_inicio IS NOT NULL
+                               AND CURRENT_DATE > s.data_inicio::date)       AS vermelho_count,
+
+         -- Amarelo: sem contrato, prazo de gatilho vencido, mas atividade não iniciou
+         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+                               AND s.data_inicio IS NOT NULL
+                               AND CURRENT_DATE <= s.data_inicio::date
+                               AND s.gatilho_dias IS NOT NULL
+                               AND CURRENT_DATE > (s.data_inicio::date - s.gatilho_dias))  AS amarelo_count,
+
+         -- Verde: sem contrato, ainda dentro do prazo de gatilho
+         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+                               AND s.data_inicio IS NOT NULL
+                               AND CURRENT_DATE <= s.data_inicio::date
+                               AND s.gatilho_dias IS NOT NULL
+                               AND CURRENT_DATE <= (s.data_inicio::date - s.gatilho_dias)) AS verde_count,
+
          CASE
-           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo) = 0 THEN 'sem_tarefas'
-           WHEN SUM(CASE WHEN NOT s.eh_resumo AND ca.contrato_id IS NULL
-                              AND s.data_inicio IS NOT NULL
-                              AND (s.data_inicio::date - CURRENT_DATE) <= 20 THEN 1 ELSE 0 END) > 0 THEN 'vermelho'
-           WHEN SUM(CASE WHEN NOT s.eh_resumo AND ca.contrato_id IS NULL
-                              AND (s.data_inicio IS NULL OR (s.data_inicio::date - CURRENT_DATE) > 20) THEN 1 ELSE 0 END) > 0 THEN 'amarelo'
-           ELSE 'verde'
+           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo) = 0
+             THEN 'sem_tarefas'
+           -- Azul: todas as tarefas do grupo têm contrato
+           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL) = 0
+             THEN 'azul'
+           -- Vermelho: alguma tarefa sem contrato com início já vencido
+           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+                                     AND s.data_inicio IS NOT NULL
+                                     AND CURRENT_DATE > s.data_inicio::date) > 0
+             THEN 'vermelho'
+           -- Amarelo: gatilho vencido, mas atividade ainda não iniciou
+           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+                                     AND s.data_inicio IS NOT NULL
+                                     AND CURRENT_DATE <= s.data_inicio::date
+                                     AND s.gatilho_dias IS NOT NULL
+                                     AND CURRENT_DATE > (s.data_inicio::date - s.gatilho_dias)) > 0
+             THEN 'amarelo'
+           -- Verde: dentro do prazo de gatilho
+           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+                                     AND s.data_inicio IS NOT NULL
+                                     AND CURRENT_DATE <= s.data_inicio::date
+                                     AND s.gatilho_dias IS NOT NULL
+                                     AND CURRENT_DATE <= (s.data_inicio::date - s.gatilho_dias)) > 0
+             THEN 'verde'
+           ELSE 'cinza'
          END AS status
+
        FROM subtree s
        LEFT JOIN contratos_atividades ca ON ca.atividade_id = s.id
        GROUP BY s.root_id, s.root_nome, s.cronograma_id
@@ -1174,30 +1239,32 @@ router.get('/coloridao', auth, async (req, res) => {
       // Se já existe (múltiplos cronogramas), usa o pior status
       const existing = matriz[oId][row.grupo_nome];
       const piorStatus = (a, b) => {
-        const rank = { vermelho: 3, amarelo: 2, verde: 1, sem_tarefas: 0 };
+        const rank = { vermelho: 5, amarelo: 4, cinza: 3, verde: 2, azul: 1, sem_tarefas: 0 };
         return (rank[a] || 0) >= (rank[b] || 0) ? a : b;
       };
       if (existing) {
         matriz[oId][row.grupo_nome] = {
           status: piorStatus(existing.status, row.status),
-          total: existing.total + parseInt(row.total_tarefas || 0),
-          com_contrato: existing.com_contrato + parseInt(row.com_contrato || 0),
-          vermelho: existing.vermelho + parseInt(row.vermelho_count || 0),
-          amarelo: existing.amarelo + parseInt(row.amarelo_count || 0),
+          total:        existing.total        + parseInt(row.total_tarefas || 0),
+          com_contrato: existing.com_contrato + parseInt(row.com_contrato  || 0),
+          vermelho:     existing.vermelho     + parseInt(row.vermelho_count || 0),
+          amarelo:      existing.amarelo      + parseInt(row.amarelo_count  || 0),
+          verde:        existing.verde        + parseInt(row.verde_count    || 0),
         };
       } else {
         matriz[oId][row.grupo_nome] = {
-          status: row.status,
-          total:   parseInt(row.total_tarefas || 0),
-          com_contrato: parseInt(row.com_contrato || 0),
-          vermelho: parseInt(row.vermelho_count || 0),
-          amarelo:  parseInt(row.amarelo_count || 0),
+          status:       row.status,
+          total:        parseInt(row.total_tarefas || 0),
+          com_contrato: parseInt(row.com_contrato  || 0),
+          vermelho:     parseInt(row.vermelho_count || 0),
+          amarelo:      parseInt(row.amarelo_count  || 0),
+          verde:        parseInt(row.verde_count    || 0),
         };
       }
     }
 
     // ── 4. KPIs globais ───────────────────────────────────────────────────
-    const kpis = { verde: 0, amarelo: 0, vermelho: 0, sem_tarefas: 0, total: 0 };
+    const kpis = { azul: 0, verde: 0, amarelo: 0, vermelho: 0, cinza: 0, sem_tarefas: 0, total: 0 };
     for (const oId of Object.keys(matriz)) {
       for (const g of Object.keys(matriz[oId])) {
         const st = matriz[oId][g].status;
@@ -1260,7 +1327,7 @@ router.put('/:id', auth, perm('cronogramaEditar'), async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 router.put('/atividades/:id', auth, perm('cronogramaEditar'), async (req, res) => {
   try {
-    const { nome, wbs, data_inicio, data_termino, duracao, pct_planejado, pct_realizado } = req.body;
+    const { nome, wbs, data_inicio, data_termino, duracao, pct_planejado, pct_realizado, gatilho_dias } = req.body;
     const clamp = (v, lo, hi) => v != null ? Math.min(hi, Math.max(lo, parseFloat(v))) : null;
     const r = await db.query(
       `UPDATE atividades_cronograma SET
@@ -1270,7 +1337,8 @@ router.put('/atividades/:id', auth, perm('cronogramaEditar'), async (req, res) =
          data_termino  = COALESCE($4::date, data_termino),
          duracao       = COALESCE($5::int,  duracao),
          pct_planejado = COALESCE($6::numeric, pct_planejado),
-         pct_realizado = COALESCE($7::numeric, pct_realizado)
+         pct_realizado = COALESCE($7::numeric, pct_realizado),
+         gatilho_dias  = $9
        WHERE id = $8 RETURNING *`,
       [
         nome  ? nome.trim().slice(0, 500) : null,
@@ -1281,6 +1349,7 @@ router.put('/atividades/:id', auth, perm('cronogramaEditar'), async (req, res) =
         pct_planejado != null ? clamp(pct_planejado, 0, 100) : null,
         pct_realizado != null ? clamp(pct_realizado, 0, 100) : null,
         parseInt(req.params.id),
+        gatilho_dias != null && gatilho_dias !== '' ? parseInt(gatilho_dias) : null,
       ]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Atividade não encontrada.' });

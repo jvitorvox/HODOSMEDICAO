@@ -1074,6 +1074,7 @@ const Cronograma = (() => {
       'eat-duracao':  at.duracao != null ? String(at.duracao) : '',
       'eat-pct-plan': parseFloat(at.pct_planejado || 0).toFixed(1),
       'eat-pct-real': parseFloat(at.pct_realizado || 0).toFixed(1),
+      'eat-gatilho':  at.gatilho_dias != null ? String(at.gatilho_dias) : '',
     };
     for (const [id, val] of Object.entries(fields)) {
       const el = H.el(id);
@@ -1097,6 +1098,7 @@ const Cronograma = (() => {
     const dur       = H.el('eat-duracao')?.value;
     const pctPlan   = H.el('eat-pct-plan')?.value;
     const pctReal   = H.el('eat-pct-real')?.value;
+    const gatilho   = H.el('eat-gatilho')?.value;
     const errEl     = H.el('eat-error');
 
     if (!nome) {
@@ -1112,6 +1114,7 @@ const Cronograma = (() => {
       duracao:       dur   ? parseInt(dur)         : null,
       pct_planejado: pctPlan != null && pctPlan !== '' ? parseFloat(pctPlan) : null,
       pct_realizado: pctReal != null && pctReal !== '' ? parseFloat(pctReal) : null,
+      gatilho_dias:  gatilho != null && gatilho !== '' ? parseInt(gatilho) : null,
     };
 
     try {
