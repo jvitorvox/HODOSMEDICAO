@@ -459,6 +459,11 @@ textarea.fi{resize:vertical;min-height:80px}
   display:block;font-size:9px;line-height:1;color:var(--text3);
   font-weight:600;margin-top:1px
 }
+.col-cell-verde{
+  position:absolute;bottom:2px;right:2px;
+  font-size:8px;line-height:1;font-weight:700;
+  opacity:.9;pointer-events:none
+}
 
 .col-table tbody tr:hover .col-td-grupo{background:var(--bg2)}
 .col-table tbody tr:hover .col-cell{opacity:.85}

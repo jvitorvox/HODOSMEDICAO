@@ -246,6 +246,10 @@ const API = (() => {
       const qs = new URLSearchParams(Object.entries(params).filter(([,v]) => v != null && v !== '')).toString();
       return req('GET', `/api/cronogramas/coloridao${qs ? '?' + qs : ''}`);
     },
+    coloridaoPendencias: (params = {}) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([,v]) => v != null && v !== '')).toString();
+      return req('GET', `/api/cronogramas/coloridao/pendencias${qs ? '?' + qs : ''}`);
+    },
 
     // ── Usuários ─────────────────────────────────────────────────
     usuarios:             ()       => req('GET',    '/api/usuarios'),

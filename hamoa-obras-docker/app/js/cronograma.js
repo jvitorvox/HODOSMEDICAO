@@ -16,6 +16,7 @@ const Cronograma = (() => {
   let _childMap       = {};          // id → [childId, ...]
   let _editingAtId    = null;        // ID da atividade em edição
   let _vinculosData   = [];          // cache dos contratos para painel de vínculos
+  let _extraFields    = [];          // campos personalizados (campos_extras) vindos do XML
 
   // ── Helpers de formato ─────────────────────────────────────
   function _fmt(v) {
@@ -42,6 +43,43 @@ const Cronograma = (() => {
       if (a.parent_id && m[a.parent_id]) m[a.parent_id].push(a.id);
     }
     return m;
+  }
+
+  // ── Coleta campos personalizados únicos de todas as atividades ─
+  function _computeExtraFields() {
+    const keys = new Set();
+    for (const a of _atividades) {
+      if (a.campos_extras && typeof a.campos_extras === 'object' && !Array.isArray(a.campos_extras)) {
+        for (const k of Object.keys(a.campos_extras)) keys.add(k);
+      }
+    }
+    _extraFields = [...keys].sort();
+
+    // Atualiza o cabeçalho da tabela WBS com as colunas extras
+    const thead = H.el('cron-wbs-thead');
+    if (thead) {
+      const tr = thead.querySelector('tr');
+      if (tr) {
+        // Remove colunas extras anteriores
+        tr.querySelectorAll('.wbs-extra-col').forEach(el => el.remove());
+        // Insere antes da última coluna "Possui Contrato?"
+        const lastTh = tr.lastElementChild;
+        for (const f of _extraFields) {
+          const th = document.createElement('th');
+          th.className = 'wbs-extra-col';
+          th.style.cssText = 'min-width:120px;text-align:center;white-space:nowrap';
+          th.innerHTML = `${H.esc(f)}<div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">campo XML</div>`;
+          tr.insertBefore(th, lastTh);
+        }
+      }
+    }
+
+    // Ajusta largura da tabela: com colunas extras, permite crescer além do container (scroll horizontal)
+    const table = thead.closest('table');
+    if (table) {
+      table.style.width    = _extraFields.length > 0 ? 'max-content' : '100%';
+      table.style.minWidth = '100%';
+    }
   }
 
   // ── Calcula IDs visíveis respeitando _collapsed ──────────────
@@ -174,6 +212,14 @@ const Cronograma = (() => {
     const emptyEl = H.el('cron-empty-state');
     if (wbsEl)   wbsEl.style.display   = 'none';
     if (emptyEl) emptyEl.style.display = '';   // volta ao valor definido no CSS (flex)
+    // Remove colunas extras do thead e restaura largura da tabela
+    _extraFields = [];
+    const thead = H.el('cron-wbs-thead');
+    if (thead) {
+      thead.querySelectorAll('.wbs-extra-col').forEach(el => el.remove());
+      const table = thead.closest('table');
+      if (table) { table.style.width = '100%'; table.style.minWidth = ''; }
+    }
   }
 
   function _showWBS() {
@@ -193,7 +239,7 @@ const Cronograma = (() => {
     if (!tbody) return;
 
     _showWBS();
-    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--text3);padding:20px;text-align:center">Carregando atividades...</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="${11 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">Carregando atividades...</td></tr>`;
 
     try {
       // Busca atividades e dados financeiros em paralelo
@@ -208,9 +254,10 @@ const Cronograma = (() => {
       if (titleEl) titleEl.textContent = cron ? `${cron.nome} (v${cron.versao})` : 'Cronograma';
 
       _childMap = _buildChildMap(_atividades);
+      _computeExtraFields();
 
       if (!_atividades.length) {
-        tbody.innerHTML = '<tr><td colspan="9" style="color:var(--text3);padding:20px;text-align:center">Nenhuma atividade encontrada neste cronograma.</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${11 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">Nenhuma atividade encontrada neste cronograma.</td></tr>`;
         if (countEl) countEl.textContent = '';
         _renderProgressSummary([]);
         return;
@@ -220,7 +267,7 @@ const Cronograma = (() => {
       _renderVinculosPanel();
       _renderWBS();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);padding:20px">${H.esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${11 + _extraFields.length}" style="color:var(--red);padding:20px">${H.esc(e.message)}</td></tr>`;
     }
   }
 
@@ -605,7 +652,7 @@ const Cronograma = (() => {
     }
 
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="9" style="color:var(--text3);padding:20px;text-align:center">${term ? '🔍 Nenhuma atividade encontrada.' : 'Nenhuma atividade.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${11 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">${term ? '🔍 Nenhuma atividade encontrada.' : 'Nenhuma atividade.'}</td></tr>`;
       if (countEl) countEl.textContent = '';
       return;
     }
@@ -772,6 +819,9 @@ const Cronograma = (() => {
       <td class="tc">${_fmtDate(a.data_inicio)}</td>
       <td class="tc">${_fmtDate(a.data_termino)}</td>
       <td class="tc">${a.duracao != null ? a.duracao + 'd' : '—'}</td>
+      <td class="tc" style="font-size:11px;${a.gatilho_dias != null ? 'color:var(--accent);font-weight:600' : 'color:var(--text3)'}">
+        ${a.gatilho_dias != null ? a.gatilho_dias + 'd' : '—'}
+      </td>
       <td class="tc">${_fmt(pctPlan)}</td>
 
       <!-- Coluna: Custo Planejado -->
@@ -795,6 +845,12 @@ const Cronograma = (() => {
         </div>
         ${manHint}
       </td>
+
+      <!-- Colunas: Campos personalizados do XML -->
+      ${_extraFields.map(f => {
+        const val = a.campos_extras && a.campos_extras[f] != null ? String(a.campos_extras[f]) : null;
+        return `<td class="tc wbs-extra-col" style="font-size:11px;color:${val != null ? 'var(--text2)' : 'var(--text3)'};vertical-align:middle">${val != null ? H.esc(val) : '—'}</td>`;
+      }).join('')}
 
       <!-- Coluna: Possui Contrato? -->
       <td class="tc" style="vertical-align:middle">${colContrato}</td>
@@ -1083,6 +1139,28 @@ const Cronograma = (() => {
 
     const err = H.el('eat-error');
     if (err) { err.style.display = 'none'; err.textContent = ''; }
+
+    // Exibe campos personalizados vindos do XML (somente leitura)
+    const extrasWrap = H.el('eat-campos-extras');
+    if (extrasWrap) {
+      const extras = at.campos_extras;
+      if (extras && Object.keys(extras).length > 0) {
+        const rows = Object.entries(extras).map(([k, v]) =>
+          `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px">
+             <span style="color:var(--text3);min-width:140px;flex-shrink:0">${k}</span>
+             <span style="color:var(--text);word-break:break-word">${v}</span>
+           </div>`
+        ).join('');
+        extrasWrap.innerHTML = `
+          <div style="font-size:10px;font-weight:700;letter-spacing:.5px;color:var(--text3);margin-bottom:6px">
+            CAMPOS PERSONALIZADOS (MS PROJECT)
+          </div>
+          ${rows}`;
+        extrasWrap.style.display = '';
+      } else {
+        extrasWrap.style.display = 'none';
+      }
+    }
 
     UI.openModal('modal-cron-edit-at');
   }

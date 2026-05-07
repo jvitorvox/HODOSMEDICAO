@@ -75,11 +75,37 @@ async function _parseMPP(filePath) {
   }
 }
 
+// ── Extrai campos personalizados de uma tarefa mpxj (best-effort) ─────────────
+function _getMpxjExtras(task, customFieldDefs) {
+  const extras = {};
+  try {
+    if (customFieldDefs && customFieldDefs.length) {
+      for (const cf of customFieldDefs) {
+        try {
+          const alias     = cf.getAlias ? cf.getAlias() : null;
+          const fieldType = cf.getFieldType ? cf.getFieldType() : null;
+          if (!alias || !fieldType) continue;
+          const value = task.get ? task.get(fieldType) : null;
+          if (value != null && value !== '') extras[alias] = String(value);
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+  return Object.keys(extras).length > 0 ? extras : null;
+}
+
 // ── Transforma projeto mpxj em array plano de atividades ──────
 function _transformMpxjProject(project) {
   const tasks  = project.getTasks();
   const result = { dataInicio: null, dataTermino: null, atividades: [] };
   let ordem = 0;
+
+  // Tenta carregar definições de campos personalizados
+  let customFieldDefs = [];
+  try {
+    const cfs = project.getCustomFields ? project.getCustomFields() : null;
+    if (cfs) customFieldDefs = Array.from(cfs);
+  } catch (_) {}
 
   for (const t of tasks) {
     // mpxj retorna uma tarefa "raiz" com ID 0 — pular
@@ -98,17 +124,18 @@ function _transformMpxjProject(project) {
     const parentUID = (parent && parent.getID() !== 0) ? parent.getUniqueID() : null;
 
     result.atividades.push({
-      uid_externo:   t.getUniqueID(),
-      parent_uid:    parentUID,
-      wbs:           t.getWBS()            || String(t.getID()),
-      nome:          t.getName()           || '(sem nome)',
-      data_inicio:   start  ? start.toISOString().slice(0, 10)  : null,
-      data_termino:  finish ? finish.toISOString().slice(0, 10) : null,
-      duracao:       durDias,
-      nivel:         t.getOutlineLevel()   || 0,
-      pct_planejado: parseFloat(t.getPercentageComplete()) || 0,
-      eh_resumo:     !!t.getSummary(),
-      ordem:         ordem++,
+      uid_externo:    t.getUniqueID(),
+      parent_uid:     parentUID,
+      wbs:            t.getWBS()               || String(t.getID()),
+      nome:           t.getName()              || '(sem nome)',
+      data_inicio:    start  ? start.toISOString().slice(0, 10)  : null,
+      data_termino:   finish ? finish.toISOString().slice(0, 10) : null,
+      duracao:        durDias,
+      nivel:          t.getOutlineLevel()      || 0,
+      pct_planejado:  parseFloat(t.getPercentageComplete()) || 0,
+      eh_resumo:      !!t.getSummary(),
+      ordem:          ordem++,
+      campos_extras:  _getMpxjExtras(t, customFieldDefs),
     });
   }
   return result;
@@ -122,12 +149,22 @@ async function _parseXML(filePath) {
   // em ~5-20 MB independente do tamanho do arquivo.
   const readline = require('readline');
 
-  // Campos que nos interessam — regex para capturar qualquer um em uma linha
-  const FIELD_RE = /^\s*<(UID|ID|Name|WBS|OutlineNumber|OutlineLevel|Start|Finish|Duration|PercentComplete|Summary|Active|Cost|FixedCost)>(.*?)<\/\1>\s*$/;
+  // Campos padrão capturados por linha simples
+  const FIELD_RE   = /^\s*<(UID|ID|Name|WBS|OutlineNumber|OutlineLevel|Start|Finish|Duration|PercentComplete|Summary|Active|Cost|FixedCost)>(.*?)<\/\1>\s*$/;
+  // Campos dentro de blocos ExtendedAttribute
+  const EXT_RE     = /^\s*<(FieldID|FieldName|Alias|Value)>(.*?)<\/\1>\s*$/;
 
-  const rawTasks = [];
-  let inTask   = false;
-  let current  = null;
+  const rawTasks   = [];
+  const fieldMap   = {}; // FieldID → { name, alias } — mapeado da seção <ExtendedAttributes> do projeto
+
+  let inExtAttrsSection = false; // seção <ExtendedAttributes> de nível projeto
+  let inExtAttrDef      = false; // bloco <ExtendedAttribute> dentro da seção acima
+  let curExtAttrDef     = {};    // campos do bloco atual
+
+  let inTask            = false;
+  let inTaskExtAttr     = false; // bloco <ExtendedAttribute> dentro de <Task>
+  let curTaskExtAttr    = {};    // campos do bloco de atributo da tarefa atual
+  let current           = null;
 
   const rl = readline.createInterface({
     input: fs.createReadStream(filePath, { encoding: 'utf8' }),
@@ -136,9 +173,36 @@ async function _parseXML(filePath) {
 
   for await (const line of rl) {
     const t = line.trim();
+
+    // ── Seção de definição de campos personalizados (nível projeto) ──────────
+    if (t === '<ExtendedAttributes>') { inExtAttrsSection = true; continue; }
+    if (t === '</ExtendedAttributes>') { inExtAttrsSection = false; continue; }
+
+    if (inExtAttrsSection && !inTask) {
+      if (t === '<ExtendedAttribute>') { inExtAttrDef = true; curExtAttrDef = {}; continue; }
+      if (t === '</ExtendedAttribute>') {
+        inExtAttrDef = false;
+        if (curExtAttrDef.FieldID) {
+          fieldMap[curExtAttrDef.FieldID] = {
+            name:     curExtAttrDef.FieldName || curExtAttrDef.FieldID,
+            alias:    curExtAttrDef.Alias ? curExtAttrDef.Alias.trim() : null,
+            hasAlias: !!curExtAttrDef.Alias,
+          };
+        }
+        curExtAttrDef = {};
+        continue;
+      }
+      if (inExtAttrDef) {
+        const m = t.match(EXT_RE);
+        if (m) curExtAttrDef[m[1]] = m[2].trim();
+      }
+      continue;
+    }
+
+    // ── Tarefas ───────────────────────────────────────────────────────────────
     if (t === '<Task>') {
       inTask  = true;
-      current = {};
+      current = { _extras: {} };
       continue;
     }
     if (t === '</Task>') {
@@ -147,9 +211,35 @@ async function _parseXML(filePath) {
       current = null;
       continue;
     }
+
     if (inTask && current) {
-      const m = t.match(FIELD_RE);
-      if (m) current[m[1]] = m[2].trim();
+      // Bloco de campo personalizado dentro da tarefa
+      if (t === '<ExtendedAttribute>') { inTaskExtAttr = true; curTaskExtAttr = {}; continue; }
+      if (t === '</ExtendedAttribute>') {
+        inTaskExtAttr = false;
+        if (curTaskExtAttr.FieldID !== undefined && curTaskExtAttr.Value !== undefined) {
+          const info = fieldMap[curTaskExtAttr.FieldID];
+          const val  = curTaskExtAttr.Value.trim();
+          if (!info?.hasAlias || !val) { curTaskExtAttr = {}; continue; }
+
+          // Campo "Gatilho" → grava direto em gatilho_dias (não em campos_extras)
+          if (info.alias.toLowerCase() === 'gatilho') {
+            const dias = parseInt(val);
+            if (!isNaN(dias) && dias >= 0) current._gatilho_dias = dias;
+          } else {
+            current._extras[info.alias] = val;
+          }
+        }
+        curTaskExtAttr = {};
+        continue;
+      }
+      if (inTaskExtAttr) {
+        const m = t.match(EXT_RE);
+        if (m) curTaskExtAttr[m[1]] = m[2].trim();
+      } else {
+        const m = t.match(FIELD_RE);
+        if (m) current[m[1]] = m[2].trim();
+      }
     }
   }
 
@@ -209,6 +299,8 @@ async function _parseXML(filePath) {
     const _custoRaw = parseFloat(t.Cost) || parseFloat(t.FixedCost) || null;
     const custoRaw = _custoRaw !== null ? Math.round(_custoRaw) / 100 : null;
 
+    const extras = t._extras && Object.keys(t._extras).length > 0 ? t._extras : null;
+
     result.atividades.push({
       uid_externo:    uid,
       parent_uid:     parentUID,
@@ -222,6 +314,8 @@ async function _parseXML(filePath) {
       eh_resumo:      t.Summary === '1',
       ordem:          ordem++,
       custo_planejado: custoRaw,
+      campos_extras:  extras,
+      gatilho_dias:   t._gatilho_dias ?? null,
     });
   }
 
@@ -236,21 +330,28 @@ async function _saveAtividades(client, cronogramaId, atividades) {
 
   // Prepara colunas como arrays paralelos para unnest do PostgreSQL
   const wbss = [], nomes = [], dataInis = [], dataFins = [],
-        duracoes = [], niveis = [], pcts = [], ehResumos = [], ordens = [], uids = [], custos = [];
+        duracoes = [], niveis = [], pcts = [], ehResumos = [],
+        ordens = [], uids = [], custos = [], camposExtras = [], gatilhos = [];
 
   let semData = 0, semDuracao = 0;
   for (const a of atividades) {
-    wbss    .push((a.wbs  || String(a.uid_externo || a.ordem + 1)).slice(0, 50));
-    nomes   .push((a.nome || 'Sem nome').slice(0, 500));
-    dataInis.push(a.data_inicio  || null);
-    dataFins.push(a.data_termino || null);
-    duracoes.push(a.duracao      || null);
-    niveis  .push(a.nivel        || 0);
-    pcts    .push(Math.min(100, Math.max(0, parseFloat(a.pct_planejado) || 0)));
-    ehResumos.push(a.eh_resumo   || false);
-    ordens  .push(a.ordem        || 0);
-    uids    .push(a.uid_externo  || null);
-    custos  .push(a.custo_planejado != null ? parseFloat(a.custo_planejado) : null);
+    wbss        .push((a.wbs  || String(a.uid_externo || a.ordem + 1)).slice(0, 50));
+    nomes       .push((a.nome || 'Sem nome').slice(0, 500));
+    dataInis    .push(a.data_inicio  || null);
+    dataFins    .push(a.data_termino || null);
+    duracoes    .push(a.duracao      || null);
+    niveis      .push(a.nivel        || 0);
+    pcts        .push(Math.min(100, Math.max(0, parseFloat(a.pct_planejado) || 0)));
+    ehResumos   .push(a.eh_resumo    || false);
+    ordens      .push(a.ordem        || 0);
+    uids        .push(a.uid_externo  || null);
+    custos      .push(a.custo_planejado != null ? parseFloat(a.custo_planejado) : null);
+    camposExtras.push(
+      a.campos_extras && Object.keys(a.campos_extras).length > 0
+        ? JSON.stringify(a.campos_extras)
+        : null
+    );
+    gatilhos    .push(a.gatilho_dias != null ? parseInt(a.gatilho_dias) : null);
 
     if (!a.data_inicio && !a.data_termino) semData++;
     if (!a.duracao) semDuracao++;
@@ -263,16 +364,18 @@ async function _saveAtividades(client, cronogramaId, atividades) {
   await client.query(`
     INSERT INTO atividades_cronograma
       (cronograma_id, wbs, nome, data_inicio, data_termino, duracao,
-       nivel, pct_planejado, eh_resumo, ordem, uid_externo, custo_planejado)
+       nivel, pct_planejado, eh_resumo, ordem, uid_externo, custo_planejado, campos_extras, gatilho_dias)
     SELECT $1,
            unnest($2::text[]),    unnest($3::text[]),
            unnest($4::date[]),    unnest($5::date[]),
            unnest($6::int[]),     unnest($7::int[]),
            unnest($8::numeric[]), unnest($9::bool[]),
            unnest($10::int[]),    unnest($11::int[]),
-           unnest($12::numeric[])
+           unnest($12::numeric[]),
+           unnest($13::text[])::jsonb,
+           unnest($14::int[])
   `, [cronogramaId, wbss, nomes, dataInis, dataFins,
-      duracoes, niveis, pcts, ehResumos, ordens, uids, custos]);
+      duracoes, niveis, pcts, ehResumos, ordens, uids, custos, camposExtras, gatilhos]);
 
   // ── UPDATE parent_id em bloco único via unnest + self-join ──────────────────
   const childUids = [], parentUids = [];
@@ -451,8 +554,9 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
       await client.query('BEGIN');
 
       let versao;
-      // Mapa uid_externo → gatilho_dias para preservar ao substituir cronograma
-      let gatilhoMap = {};
+      // Mapas indexados por uid_externo para preservar dados ao substituir cronograma
+      let gatilhoMap   = {}; // uid → gatilho_dias
+      let contratosMap = {}; // uid → [contrato_id, ...]
 
       if (replaceId) {
         // Substituição: pega versão do cronograma anterior e o apaga
@@ -460,7 +564,7 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
         if (!oldR.rows.length) return res.status(404).json({ error: 'Cronograma a substituir não encontrado.' });
         versao = oldR.rows[0].versao;
 
-        // Preserva gatilho_dias antes de deletar — indexado por uid_externo (ID único do MS Project)
+        // Preserva gatilho_dias indexado por uid_externo
         const gatR = await client.query(
           `SELECT uid_externo, gatilho_dias
              FROM atividades_cronograma
@@ -468,6 +572,19 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
           [replaceId]
         );
         gatilhoMap = Object.fromEntries(gatR.rows.map(r => [String(r.uid_externo), r.gatilho_dias]));
+
+        // Preserva vínculos contrato↔atividade indexados por uid_externo
+        const conR = await client.query(
+          `SELECT a.uid_externo, array_agg(ca.contrato_id ORDER BY ca.contrato_id) AS contrato_ids
+             FROM atividades_cronograma a
+             JOIN contratos_atividades ca ON ca.atividade_id = a.id
+            WHERE a.cronograma_id = $1 AND a.uid_externo IS NOT NULL
+            GROUP BY a.uid_externo`,
+          [replaceId]
+        );
+        contratosMap = Object.fromEntries(conR.rows.map(r => [String(r.uid_externo), r.contrato_ids]));
+        if (conR.rows.length > 0)
+          console.log(`[importar] Preservando vínculos de contrato de ${conR.rows.length} atividade(s) antes da substituição.`);
 
         await client.query('DELETE FROM cronogramas WHERE id=$1', [replaceId]);
       } else {
@@ -490,16 +607,40 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
 
       const avisos = await _saveAtividades(client, cronogramaId, parsed.atividades);
 
-      // Reaplica gatilho_dias nas novas atividades, casando pelo uid_externo do MS Project
+      // Reaplica gatilho_dias nas novas atividades, casando pelo uid_externo do MS Project.
+      // Só sobrescreve se a nova importação NÃO trouxe um valor do XML (campo "Gatilho" vazio).
+      // Se o XML já populou gatilho_dias, o valor do XML prevalece sobre o valor anterior.
       if (Object.keys(gatilhoMap).length > 0) {
         for (const [uid, dias] of Object.entries(gatilhoMap)) {
           await client.query(
             `UPDATE atividades_cronograma SET gatilho_dias = $1
-              WHERE cronograma_id = $2 AND uid_externo = $3`,
+              WHERE cronograma_id = $2 AND uid_externo = $3 AND gatilho_dias IS NULL`,
             [dias, cronogramaId, parseInt(uid)]
           );
         }
-        console.log(`[importar] Gatilho restaurado para ${Object.keys(gatilhoMap).length} atividade(s) após substituição.`);
+        console.log(`[importar] Gatilho restaurado (fallback) para atividades sem valor no XML.`);
+      }
+
+      // Restaura vínculos contrato↔atividade pelo uid_externo
+      let contratosRestaurados = 0, contratosOrfaos = 0;
+      if (Object.keys(contratosMap).length > 0) {
+        for (const [uid, contratoIds] of Object.entries(contratosMap)) {
+          const atR = await client.query(
+            `SELECT id FROM atividades_cronograma WHERE cronograma_id=$1 AND uid_externo=$2`,
+            [cronogramaId, parseInt(uid)]
+          );
+          if (!atR.rows.length) { contratosOrfaos += contratoIds.length; continue; }
+          const atividadeId = atR.rows[0].id;
+          for (const contratoId of contratoIds) {
+            await client.query(
+              `INSERT INTO contratos_atividades (contrato_id, atividade_id)
+               VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+              [contratoId, atividadeId]
+            );
+            contratosRestaurados++;
+          }
+        }
+        console.log(`[importar] Vínculos de contrato restaurados: ${contratosRestaurados} OK, ${contratosOrfaos} órfãos (atividade removida do XML).`);
       }
 
       await client.query('COMMIT');
@@ -623,7 +764,7 @@ router.get('/:id/atividades', auth, async (req, res) => {
          a.id, a.cronograma_id, a.parent_id, a.wbs, a.nome,
          a.data_inicio, a.data_termino, a.duracao, a.nivel,
          a.pct_planejado, a.pct_realizado, a.eh_resumo, a.ordem,
-         a.custo_planejado, a.gatilho_dias,
+         a.custo_planejado, a.gatilho_dias, a.campos_extras,
 
          -- ── % calculado pelas medições (join lateral evita subquery duplicada) ──
          med_calc.pct_medicoes,
@@ -1054,6 +1195,145 @@ router.get('/:id/financeiro', auth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ROTA: GET /coloridao/pendencias  — lista de compras priorizada
+// Retorna todas as atividades-folha sem contrato (amarelo/vermelho/cinza)
+// com campos extras relevantes para suprimentos, ordenado por urgência.
+// ═══════════════════════════════════════════════════════════════
+router.get('/coloridao/pendencias', auth, async (req, res) => {
+  try {
+    // obras = null (ADM / sem restrição) ou array de IDs permitidos
+    const obrasPermitidas = await getObrasPermitidas(req, db);
+
+    // Filtros opcionais
+    const params = [];
+    const cronWheres = ['c.ativo IS NOT FALSE'];
+
+    if (req.query.empresa_id) {
+      params.push(parseInt(req.query.empresa_id));
+      cronWheres.push(`e.id = $${params.length}`);
+    }
+    if (req.query.obra_id) {
+      const obraIdFilt = parseInt(req.query.obra_id);
+      if (!obrasPermitidas || obrasPermitidas.includes(obraIdFilt)) {
+        params.push(obraIdFilt);
+        cronWheres.push(`o.id = $${params.length}`);
+      }
+    } else if (obrasPermitidas) {
+      params.push(obrasPermitidas);
+      cronWheres.push(`o.id = ANY($${params.length}::int[])`);
+    }
+    if (req.query.cronograma_id) {
+      params.push(parseInt(req.query.cronograma_id));
+      cronWheres.push(`c.id = $${params.length}`);
+    }
+
+    const cronWhereSQL = 'WHERE ' + cronWheres.join(' AND ');
+
+    // Busca cronogramas: se especificado usa o exato, senão o mais recente por obra
+    const pendSQL = req.query.cronograma_id
+      ? `SELECT c.id, o.id AS obra_id, o.nome AS obra_nome,
+                COALESCE(NULLIF(e.nome_fantasia,''), e.razao_social) AS empresa_nome, e.id AS empresa_id
+           FROM cronogramas c
+           JOIN obras    o ON o.id = c.obra_id
+           JOIN empresas e ON e.id = o.empresa_id
+           ${cronWhereSQL}
+           ORDER BY o.nome`
+      : `SELECT DISTINCT ON (o.id)
+                c.id, o.id AS obra_id, o.nome AS obra_nome,
+                COALESCE(NULLIF(e.nome_fantasia,''), e.razao_social) AS empresa_nome, e.id AS empresa_id
+           FROM cronogramas c
+           JOIN obras    o ON o.id = c.obra_id
+           JOIN empresas e ON e.id = o.empresa_id
+           ${cronWhereSQL}
+           ORDER BY o.id, c.versao DESC`;
+
+    const cronR = await db.query(pendSQL, params);
+
+    if (!cronR.rows.length) return res.json([]);
+
+    const cronIds    = cronR.rows.map(r => r.id);
+    const cronObraMap = Object.fromEntries(cronR.rows.map(r => [r.id, r])); // cron_id → {obra_id, obra_nome, ...}
+
+    // Busca atividades folha sem contrato, com datas
+    const r = await db.query(
+      `SELECT
+         a.id, a.nome, a.wbs, a.cronograma_id,
+         a.data_inicio, a.data_termino, a.duracao,
+         a.gatilho_dias, a.campos_extras,
+         -- Grupo pai mais próximo
+         (SELECT p.nome FROM atividades_cronograma p
+           WHERE p.id = a.parent_id) AS grupo_pai,
+         -- Status calculado
+         CASE
+           WHEN a.data_inicio IS NULL THEN 'cinza'
+           WHEN a.gatilho_dias IS NULL THEN 'cinza'
+           WHEN CURRENT_DATE > a.data_inicio::date THEN 'vermelho'
+           WHEN CURRENT_DATE > (a.data_inicio::date - a.gatilho_dias) THEN 'amarelo'
+           ELSE 'verde'
+         END AS status,
+         -- Dias até o gatilho (negativo = atrasado)
+         CASE
+           WHEN a.gatilho_dias IS NOT NULL AND a.data_inicio IS NOT NULL
+             THEN (a.data_inicio::date - a.gatilho_dias) - CURRENT_DATE
+           ELSE NULL
+         END AS dias_ate_gatilho,
+         -- Data limite de contratação
+         CASE
+           WHEN a.gatilho_dias IS NOT NULL AND a.data_inicio IS NOT NULL
+             THEN (a.data_inicio::date - a.gatilho_dias)::text
+           ELSE NULL
+         END AS data_limite
+       FROM atividades_cronograma a
+      WHERE a.cronograma_id = ANY($1::int[])
+        AND (a.eh_resumo = false OR a.gatilho_dias IS NOT NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM contratos_atividades ca WHERE ca.atividade_id = a.id
+        )
+        AND a.data_inicio IS NOT NULL
+      ORDER BY
+        CASE
+          WHEN CURRENT_DATE > a.data_inicio::date THEN 0
+          WHEN a.gatilho_dias IS NOT NULL
+               AND CURRENT_DATE > (a.data_inicio::date - a.gatilho_dias) THEN 1
+          WHEN a.gatilho_dias IS NOT NULL THEN 2
+          ELSE 3
+        END,
+        dias_ate_gatilho ASC NULLS LAST`,
+      [cronIds]
+    );
+
+    const rows = r.rows.map(row => {
+      const cron   = cronObraMap[row.cronograma_id] || {};
+      const extras = row.campos_extras || {};
+      return {
+        id:               row.id,
+        nome:             row.nome,
+        wbs:              row.wbs,
+        grupo_pai:        row.grupo_pai,
+        obra_id:          cron.obra_id,
+        obra_nome:        cron.obra_nome,
+        empresa_nome:     cron.empresa_nome,
+        data_inicio:      row.data_inicio ? row.data_inicio.toISOString().slice(0,10) : null,
+        data_termino:     row.data_termino ? row.data_termino.toISOString().slice(0,10) : null,
+        gatilho_dias:     row.gatilho_dias,
+        data_limite:      row.data_limite,
+        dias_ate_gatilho: row.dias_ate_gatilho != null ? parseInt(row.dias_ate_gatilho) : null,
+        status:           row.status,
+        responsavel:      extras['Responsável'] || extras['Responsavel'] || null,
+        custo_servico:    extras['Custo do serviço'] || extras['Custo do servico'] || null,
+        encarregado:      extras['Encarregado JMD'] || null,
+        peso:             extras['Peso da Atividade'] || null,
+      };
+    });
+
+    res.json(rows);
+  } catch (err) {
+    console.error('[coloridao/pendencias]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ROTA: GET /coloridao  — heatmap de contratos vs cronograma
 // ═══════════════════════════════════════════════════════════════
 router.get('/coloridao', auth, async (req, res) => {
@@ -1068,26 +1348,47 @@ router.get('/coloridao', auth, async (req, res) => {
       params.push(parseInt(req.query.empresa_id));
       wheres.push(`e.id = $${params.length}`);
     }
-    if (obras) {
+    // Filtro por obra específica (verifica permissão)
+    if (req.query.obra_id) {
+      const obraIdFilt = parseInt(req.query.obra_id);
+      if (!obras || obras.includes(obraIdFilt)) {
+        params.push(obraIdFilt);
+        wheres.push(`o.id = $${params.length}`);
+      }
+    } else if (obras) {
       params.push(obras);
       wheres.push(`o.id = ANY($${params.length}::int[])`);
     }
 
+    // Filtro por cronograma específico (versão)
+    if (req.query.cronograma_id) {
+      params.push(parseInt(req.query.cronograma_id));
+      wheres.push(`c.id = $${params.length}`);
+    }
+
     const whereSQL = wheres.length ? 'WHERE ' + wheres.join(' AND ') : '';
 
-    // ── 1. Busca todos os cronogramas ativos com obra/empresa ──────────────
-    const cronR = await db.query(
-      `SELECT c.id, o.id as obra_id, o.nome as obra_nome,
-              COALESCE(NULLIF(e.nome_fantasia,''), e.razao_social) as empresa_nome, e.id as empresa_id
-         FROM cronogramas c
-         JOIN obras    o ON o.id = c.obra_id
-         JOIN empresas e ON e.id = o.empresa_id
-         ${whereSQL}
-         ORDER BY e.id, o.nome`,
-      params
-    );
+    // ── 1. Busca cronogramas: se cronograma_id especificado, usa esse; senão o mais recente por obra
+    const cronSQL = req.query.cronograma_id
+      ? `SELECT c.id, o.id as obra_id, o.nome as obra_nome,
+                COALESCE(NULLIF(e.nome_fantasia,''), e.razao_social) as empresa_nome, e.id as empresa_id
+           FROM cronogramas c
+           JOIN obras    o ON o.id = c.obra_id
+           JOIN empresas e ON e.id = o.empresa_id
+           ${whereSQL}
+           ORDER BY o.nome`
+      : `SELECT DISTINCT ON (o.id)
+                c.id, o.id as obra_id, o.nome as obra_nome,
+                COALESCE(NULLIF(e.nome_fantasia,''), e.razao_social) as empresa_nome, e.id as empresa_id
+           FROM cronogramas c
+           JOIN obras    o ON o.id = c.obra_id
+           JOIN empresas e ON e.id = o.empresa_id
+           ${whereSQL}
+           ORDER BY o.id, c.versao DESC`;
 
-    if (!cronR.rows.length) return res.json({ obras: [], grupos: [], matriz: {}, kpis: { verde: 0, amarelo: 0, vermelho: 0, sem_tarefas: 0, total: 0 } });
+    const cronR = await db.query(cronSQL, params);
+
+    if (!cronR.rows.length) return res.json({ obras: [], grupos: [], matriz: {}, kpis: { verde: 0, amarelo: 0, vermelho: 0, sem_tarefas: 0, total: 0 }, maxNivel: 0 });
 
     const cronIds = cronR.rows.map(r => r.id);
 
@@ -1098,6 +1399,7 @@ router.get('/coloridao', auth, async (req, res) => {
     // Desce `granDepth` níveis a partir dos grupos de topo (parent_id IS NULL).
     // Usa TODAS as atividades (não só resumo) para garantir a travessia correta.
     let anchorIds;
+    let maxNivel = 0;
     {
       const allR = await db.query(
         `SELECT id, parent_id, eh_resumo
@@ -1107,6 +1409,18 @@ router.get('/coloridao', auth, async (req, res) => {
         [cronIds]
       );
       const all = allR.rows;
+
+      // Calcula profundidade máxima real do cronograma (para o frontend renderizar os botões certos)
+      {
+        let lvl = all.filter(a => a.parent_id === null);
+        while (lvl.length && maxNivel < 5) {
+          const ids = new Set(lvl.map(a => a.id));
+          const next = all.filter(a => a.parent_id !== null && ids.has(a.parent_id));
+          if (!next.length) break;
+          maxNivel++;
+          lvl = next;
+        }
+      }
 
       // Nível 0: atividades sem pai (raízes)
       let currentLevel = all.filter(a => a.parent_id === null);
@@ -1153,48 +1467,56 @@ router.get('/coloridao', auth, async (req, res) => {
          s.root_id        AS grupo_id,
          s.root_nome      AS grupo_nome,
          s.cronograma_id,
-         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo)                          AS total_tarefas,
-         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NOT NULL) AS com_contrato,
+         -- "Rastreável": folha normal OU resumo com gatilho configurado explicitamente
+         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)                          AS total_tarefas,
+         COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL) AND ca.contrato_id IS NOT NULL) AS com_contrato,
 
          -- Vermelho: sem contrato E atividade já deveria ter iniciado
-         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+         COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+                               AND ca.contrato_id IS NULL
                                AND s.data_inicio IS NOT NULL
                                AND CURRENT_DATE > s.data_inicio::date)       AS vermelho_count,
 
          -- Amarelo: sem contrato, prazo de gatilho vencido, mas atividade não iniciou
-         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+         COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+                               AND ca.contrato_id IS NULL
                                AND s.data_inicio IS NOT NULL
                                AND CURRENT_DATE <= s.data_inicio::date
                                AND s.gatilho_dias IS NOT NULL
                                AND CURRENT_DATE > (s.data_inicio::date - s.gatilho_dias))  AS amarelo_count,
 
          -- Verde: sem contrato, ainda dentro do prazo de gatilho
-         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+         COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+                               AND ca.contrato_id IS NULL
                                AND s.data_inicio IS NOT NULL
                                AND CURRENT_DATE <= s.data_inicio::date
                                AND s.gatilho_dias IS NOT NULL
                                AND CURRENT_DATE <= (s.data_inicio::date - s.gatilho_dias)) AS verde_count,
 
          CASE
-           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo) = 0
+           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL) = 0
              THEN 'sem_tarefas'
-           -- Azul: todas as tarefas do grupo têm contrato
-           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL) = 0
+           -- Azul: todas as tarefas rastreáveis têm contrato
+           WHEN COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+                                     AND ca.contrato_id IS NULL) = 0
              THEN 'azul'
            -- Vermelho: alguma tarefa sem contrato com início já vencido
-           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+           WHEN COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+                                     AND ca.contrato_id IS NULL
                                      AND s.data_inicio IS NOT NULL
                                      AND CURRENT_DATE > s.data_inicio::date) > 0
              THEN 'vermelho'
            -- Amarelo: gatilho vencido, mas atividade ainda não iniciou
-           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+           WHEN COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+                                     AND ca.contrato_id IS NULL
                                      AND s.data_inicio IS NOT NULL
                                      AND CURRENT_DATE <= s.data_inicio::date
                                      AND s.gatilho_dias IS NOT NULL
                                      AND CURRENT_DATE > (s.data_inicio::date - s.gatilho_dias)) > 0
              THEN 'amarelo'
            -- Verde: dentro do prazo de gatilho
-           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo AND ca.contrato_id IS NULL
+           WHEN COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+                                     AND ca.contrato_id IS NULL
                                      AND s.data_inicio IS NOT NULL
                                      AND CURRENT_DATE <= s.data_inicio::date
                                      AND s.gatilho_dias IS NOT NULL
@@ -1264,16 +1586,21 @@ router.get('/coloridao', auth, async (req, res) => {
     }
 
     // ── 4. KPIs globais ───────────────────────────────────────────────────
-    const kpis = { azul: 0, verde: 0, amarelo: 0, vermelho: 0, cinza: 0, sem_tarefas: 0, total: 0 };
+    const kpis = { azul: 0, verde: 0, amarelo: 0, vermelho: 0, cinza: 0, sem_tarefas: 0, total: 0,
+                   verde_tarefas: 0, amarelo_tarefas: 0, vermelho_tarefas: 0 };
     for (const oId of Object.keys(matriz)) {
       for (const g of Object.keys(matriz[oId])) {
-        const st = matriz[oId][g].status;
+        const cel = matriz[oId][g];
+        const st  = cel.status;
         kpis[st] = (kpis[st] || 0) + 1;
         kpis.total++;
+        kpis.verde_tarefas    += (cel.verde    || 0);
+        kpis.amarelo_tarefas  += (cel.amarelo  || 0);
+        kpis.vermelho_tarefas += (cel.vermelho || 0);
       }
     }
 
-    res.json({ obras: obras_list, grupos, matriz, kpis, nivelAtual: granDepth });
+    res.json({ obras: obras_list, grupos, matriz, kpis, nivelAtual: granDepth, maxNivel });
   } catch (e) {
     console.error('[coloridao]', e);
     res.status(500).json({ error: e.message });

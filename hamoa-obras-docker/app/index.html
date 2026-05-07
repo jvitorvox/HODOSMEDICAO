@@ -244,13 +244,17 @@
           <!-- Tabela WBS com scroll independente -->
           <div id="cron-wbs-scroll">
             <table class="wbs-table">
-              <thead>
+              <thead id="cron-wbs-thead">
                 <tr>
                   <th style="min-width:260px">Atividade</th>
                   <th style="width:58px;text-align:center">WBS</th>
                   <th style="width:86px;text-align:center">Início</th>
                   <th style="width:86px;text-align:center">Término</th>
                   <th style="width:48px;text-align:center">Dur.</th>
+                  <th style="width:72px;text-align:center">
+                    Gatilho
+                    <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">dias antes</div>
+                  </th>
                   <th style="width:76px;text-align:center">Planejado</th>
                   <th style="width:120px;text-align:right">
                     Custo Plan. (R$)
@@ -383,51 +387,92 @@
             <div class="ps">Cobertura de contratos sobre os grupos do cronograma — por obra e fase</div>
           </div>
           <div class="ph-right">
-            <button class="btn btn-o btn-sm" onclick="Coloridao.load()">↻ Atualizar</button>
+            <div style="display:flex;gap:4px;margin-right:8px">
+              <button id="col-tab-heatmap" onclick="Coloridao.switchAba('heatmap')">🗺️ Heatmap</button>
+              <button id="col-tab-lista"   onclick="Coloridao.switchAba('lista')">📋 Lista de Compras</button>
+            </div>
+            <button class="btn btn-o btn-sm" onclick="Coloridao.refresh()">↻ Atualizar</button>
           </div>
         </div>
 
-        <!-- Filtros -->
-        <div class="tc" style="margin-bottom:14px">
-          <div style="padding:12px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;border-bottom:1px solid var(--border)">
+        <!-- ─── FILTRO COMPARTILHADO: Empresa → Obra → Cronograma ─── -->
+        <div class="tc" style="margin-bottom:0">
+          <div style="padding:10px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;border-bottom:1px solid var(--border);background:var(--bg2)">
             <span style="font-size:11px;font-weight:600;color:var(--text3);letter-spacing:.5px">FILTRAR:</span>
-            <select class="sel" id="col-f-empresa" onchange="Coloridao.load()" style="min-width:180px">
+            <select class="sel" id="col-f-empresa" onchange="Coloridao.onEmpresaChange()" style="min-width:170px">
               <option value="">Todas as empresas</option>
             </select>
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text2)">
-              <input type="checkbox" id="col-f-criticos" onchange="Coloridao.load()" style="cursor:pointer">
-              Apenas críticos (🔴)
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text2)">
-              <input type="checkbox" id="col-f-sem-contrato" onchange="Coloridao.load()" style="cursor:pointer">
-              Sem contrato (🔴+🟡)
-            </label>
-            <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-              <span style="font-size:11px;font-weight:600;color:var(--text3);letter-spacing:.5px">GRANULARIDADE:</span>
-              <div style="display:flex;gap:4px" id="col-gran-btns">
-                <button id="col-gran-0" onclick="Coloridao.setNivel(0)" class="col-gran-btn col-gran-active">Macro</button>
-                <button id="col-gran-1" onclick="Coloridao.setNivel(1)" class="col-gran-btn">Nível 2</button>
-                <button id="col-gran-2" onclick="Coloridao.setNivel(2)" class="col-gran-btn">Nível 3</button>
-                <button id="col-gran-3" onclick="Coloridao.setNivel(3)" class="col-gran-btn">Nível 4</button>
+            <select class="sel" id="col-f-obra" onchange="Coloridao.onObraChange()" style="min-width:200px">
+              <option value="">Todas as obras</option>
+            </select>
+            <select class="sel" id="col-f-cron" onchange="Coloridao.onCronChange()" style="min-width:220px">
+              <option value="">Versão mais recente</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- ─── PAINEL: HEATMAP ─── -->
+        <div id="col-panel-heatmap">
+
+          <!-- Sub-controles do heatmap -->
+          <div class="tc" style="margin-bottom:14px">
+            <div style="padding:8px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px;border-bottom:1px solid var(--border)">
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text2)">
+                <input type="checkbox" id="col-f-criticos" onchange="Coloridao.load()" style="cursor:pointer">
+                Apenas críticos (🔴)
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;color:var(--text2)">
+                <input type="checkbox" id="col-f-sem-contrato" onchange="Coloridao.load()" style="cursor:pointer">
+                Sem contrato (🔴+🟡)
+              </label>
+              <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-size:11px;font-weight:600;color:var(--text3);letter-spacing:.5px">GRANULARIDADE:</span>
+                <div style="display:flex;gap:4px" id="col-gran-btns">
+                  <button id="col-gran-0" onclick="Coloridao.setNivel(0)" class="col-gran-btn col-gran-active">Macro</button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Loading -->
-        <div id="col-loading" style="display:none;justify-content:center;align-items:center;padding:60px;gap:12px;color:var(--text3)">
-          <div class="spin"></div> Carregando dados...
-        </div>
-
-        <div id="col-content">
-          <!-- KPIs -->
-          <div id="col-kpis" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"></div>
-
-          <!-- Heatmap -->
-          <div class="tc">
-            <div id="col-heatmap"></div>
+          <!-- Loading -->
+          <div id="col-loading" style="display:none;justify-content:center;align-items:center;padding:60px;gap:12px;color:var(--text3)">
+            <div class="spin"></div> Carregando dados...
           </div>
-        </div>
+
+          <div id="col-content">
+            <div id="col-kpis" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px"></div>
+            <div class="tc">
+              <div id="col-heatmap"></div>
+            </div>
+          </div>
+
+        </div><!-- /col-panel-heatmap -->
+
+        <!-- ─── PAINEL: LISTA DE COMPRAS ─── -->
+        <div id="col-panel-lista" style="display:none">
+
+          <!-- Sub-filtros da lista (status + responsável) -->
+          <div class="tc" style="margin-bottom:14px">
+            <div style="padding:8px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;border-bottom:1px solid var(--border)">
+              <select class="sel" id="col-lista-f-status" onchange="Coloridao.onFiltroLista()" style="min-width:150px">
+                <option value="">Todos os status</option>
+                <option value="vermelho">🔴 Crítico</option>
+                <option value="amarelo">🟡 Atenção</option>
+                <option value="verde">🟢 No prazo</option>
+                <option value="cinza">⚫ Sem gatilho</option>
+              </select>
+              <select class="sel" id="col-lista-f-resp" onchange="Coloridao.onFiltroLista()" style="min-width:170px">
+                <option value="">Todos responsáveis</option>
+              </select>
+              <button class="btn btn-o btn-sm" onclick="Coloridao.limparFiltrosLista()">✕ Limpar</button>
+              <button class="btn btn-sm" onclick="Coloridao.exportarCSV()" style="margin-left:auto">⬇ Exportar CSV</button>
+            </div>
+          </div>
+
+          <div id="col-lista-body"></div>
+
+        </div><!-- /col-panel-lista -->
+
       </div>
 
     </div>
@@ -907,6 +952,7 @@
           Data-limite de compra = Data início − dias informados. Usado no Coloridão & Controle de Obra.
         </div>
       </div>
+      <div id="eat-campos-extras" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-top:4px"></div>
       <div id="eat-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:var(--r);padding:8px 12px;font-size:11px;color:var(--red);margin-top:4px"></div>
     </div>
     <div class="mf">
