@@ -621,6 +621,16 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
         console.log(`[importar] Gatilho restaurado (fallback) para atividades sem valor no XML.`);
       }
 
+      // Garante que toda atividade sem gatilho_dias definido (nem no XML nem no cronograma anterior)
+      // receba o valor 0 — disparo imediato no dia de início.
+      const zeroRes = await client.query(
+        `UPDATE atividades_cronograma SET gatilho_dias = 0
+          WHERE cronograma_id = $1 AND gatilho_dias IS NULL`,
+        [cronogramaId]
+      );
+      if (zeroRes.rowCount > 0)
+        console.log(`[importar] ${zeroRes.rowCount} atividade(s) sem gatilho receberam gatilho_dias = 0.`);
+
       // Restaura vínculos contrato↔atividade pelo uid_externo
       let contratosRestaurados = 0, contratosOrfaos = 0;
       if (Object.keys(contratosMap).length > 0) {
