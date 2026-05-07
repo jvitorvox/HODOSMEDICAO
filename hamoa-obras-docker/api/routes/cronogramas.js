@@ -165,6 +165,13 @@ async function _parseXML(filePath) {
   let inTaskExtAttr     = false; // bloco <ExtendedAttribute> dentro de <Task>
   let curTaskExtAttr    = {};    // campos do bloco de atributo da tarefa atual
   let current           = null;
+  // Subelementos de <Task> que contêm <Start>/<Finish> próprios (TimephasedData,
+  // Baseline, etc.) e NÃO devem sobrescrever os campos diretos da tarefa.
+  // Usamos um contador de profundidade para suportar aninhamento.
+  let inTaskSubBlock    = 0;
+  // Tags de abertura de subblocos a ignorar (além de ExtendedAttribute já tratado)
+  const SUB_OPEN  = new Set(['<Baseline>','<TimephasedData>','<PredecessorLink>','<ResourceAssignment>']);
+  const SUB_CLOSE = new Set(['</Baseline>','</TimephasedData>','</PredecessorLink>','</ResourceAssignment>']);
 
   const rl = readline.createInterface({
     input: fs.createReadStream(filePath, { encoding: 'utf8' }),
@@ -201,19 +208,28 @@ async function _parseXML(filePath) {
 
     // ── Tarefas ───────────────────────────────────────────────────────────────
     if (t === '<Task>') {
-      inTask  = true;
-      current = { _extras: {} };
+      inTask         = true;
+      inTaskSubBlock = 0;
+      current        = { _extras: {} };
       continue;
     }
     if (t === '</Task>') {
-      inTask = false;
+      inTask         = false;
+      inTaskSubBlock = 0;
       if (current) rawTasks.push(current);
       current = null;
       continue;
     }
 
     if (inTask && current) {
-      // Bloco de campo personalizado dentro da tarefa
+      // Subblocos que contêm <Start>/<Finish> próprios — incrementa/decrementa profundidade
+      if (SUB_OPEN.has(t))  { inTaskSubBlock++; continue; }
+      if (SUB_CLOSE.has(t)) { inTaskSubBlock = Math.max(0, inTaskSubBlock - 1); continue; }
+
+      // Dentro de subbloco: ignora tudo (exceto ExtendedAttribute já tratado abaixo)
+      if (inTaskSubBlock > 0) continue;
+
+      // Bloco de campo personalizado dentro da tarefa (nível direto)
       if (t === '<ExtendedAttribute>') { inTaskExtAttr = true; curTaskExtAttr = {}; continue; }
       if (t === '</ExtendedAttribute>') {
         inTaskExtAttr = false;
