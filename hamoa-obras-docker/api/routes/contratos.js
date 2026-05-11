@@ -368,7 +368,7 @@ Retorne SOMENTE o objeto JSON abaixo (sem markdown, sem explicações, sem texto
     "data_inicio": "Data de início/vigência inicial do contrato — retorne EXATAMENTE como aparece no documento (ex: '15/03/2024', '15 de março de 2024', '2024-03-15') — null se não encontrado",
     "data_termino": "Data de término/fim de vigência do contrato — retorne EXATAMENTE como aparece no documento (ex: '14/03/2025', '14 de março de 2025', '2025-03-14') — null se não encontrado",
     "observacoes": "Informações relevantes adicionais (prazo de execução, local de obra, condições especiais) — null se não encontrado",
-    "wbs_codes": ["1.3.12", "2.4.1"]
+    "wbs_codes": ["01.03.19.03", "01.03.19.03.01", "01.03.19.04"]
   },
   "fornecedor": {
     "razao_social": "Razão Social completa do CONTRATADO/FORNECEDOR — null se não encontrado",
@@ -400,7 +400,7 @@ Regras gerais:
 - Campos não encontrados devem ser null (nunca invente dados).
 - Em "itens": inclua TODOS os itens da planilha orçamentária; exclua linhas de totais, subtotais e BDI.
 - Se não houver planilha orçamentária, retorne "itens" como array vazio [].
-- Em "wbs_codes": procure no documento por códigos de EAP/WBS — sequências numéricas hierárquicas separadas por ponto (ex: 1.3.12.4.1.3, 2.1, 4.2.3). Inclua todos os que encontrar. Se não houver, retorne [].
+- Em "wbs_codes": procure no documento por códigos de EAP/WBS/Item — sequências numéricas hierárquicas separadas por ponto que aparecem na coluna "Item" ou "WBS" da planilha de serviços (ex: "01.03.19.03", "01.03.19.03.01", "2.1.4"). PRESERVE O FORMATO EXATO como aparece no documento, incluindo zeros à esquerda em cada segmento (se o documento tem "01.03.19.03", retorne "01.03.19.03", NÃO "1.3.19.3"). Inclua tanto os itens-pai (agrupadores) quanto os sub-itens. Se não houver, retorne [].
 
 Regras CRÍTICAS para extração de itens (qtd_total e valor_unitario):
 - Procure a planilha orçamentária em TODAS as tabelas do documento — pode estar em anexo, apêndice ou cláusula específica.
@@ -466,6 +466,18 @@ Regras CRÍTICAS para extração de itens (qtd_total e valor_unitario):
     })).filter(i => i.descricao);
 
     // ── WBS auto-link: busca atividades do cronograma da obra ────────
+    // Normalização resiliente: gera variantes com e sem zeros à esquerda
+    // "01.03.19.03" → também tenta "1.3.19.3" (formato OutlineNumber do MS Project)
+    // "1.3.19.3"   → também tenta "01.03.19.03" (formato WBS customizado do MS Project)
+    function _normWbs(code) {
+      // Remove zeros à esquerda de cada segmento: "01.03.19.03" → "1.3.19.3"
+      return code.split('.').map(s => String(parseInt(s, 10) || 0)).join('.');
+    }
+    function _padWbs(code, pad = 2) {
+      // Adiciona zeros à esquerda em cada segmento: "1.3.19.3" → "01.03.19.03"
+      return code.split('.').map(s => String(parseInt(s, 10) || 0).padStart(pad, '0')).join('.');
+    }
+
     let wbs_matches = [];
     const wbsCodes = Array.isArray(contrato.wbs_codes)
       ? contrato.wbs_codes.filter(c => typeof c === 'string' && /^\d[\d.]+$/.test(c.trim()))
@@ -473,6 +485,17 @@ Regras CRÍTICAS para extração de itens (qtd_total e valor_unitario):
 
     if (obraId && wbsCodes.length > 0) {
       try {
+        // Gera variantes: original + sem zeros + com zeros (pad 2)
+        const wbsVariants = [...new Set(
+          wbsCodes.flatMap(c => {
+            const t = c.trim();
+            return [t, _normWbs(t), _padWbs(t)];
+          })
+        )];
+
+        console.log('[IA/contrato] WBS extraídos pelo Gemini:', wbsCodes);
+        console.log('[IA/contrato] Variantes para busca:', wbsVariants);
+
         const wbsR = await db.query(
           `SELECT ac.id, ac.wbs, ac.nome, ac.nivel, ac.eh_resumo,
                   ac.data_inicio, ac.data_termino, ac.cronograma_id,
@@ -482,8 +505,11 @@ Regras CRÍTICAS para extração de itens (qtd_total e valor_unitario):
             WHERE cr.obra_id = $1
               AND ac.wbs = ANY($2::text[])
             ORDER BY cr.versao DESC, ac.ordem`,
-          [obraId, wbsCodes.map(c => c.trim())]
+          [obraId, wbsVariants]
         );
+
+        console.log(`[IA/contrato] WBS encontrados no DB: ${wbsR.rows.length}`);
+
         wbs_matches = wbsR.rows.map(r => ({
           atividade_id:   r.id,
           wbs:            r.wbs,

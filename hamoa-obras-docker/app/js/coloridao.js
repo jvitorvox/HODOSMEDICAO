@@ -416,6 +416,8 @@ const Coloridao = {
         <th style="padding:8px 10px;text-align:left;font-size:9px;color:var(--text3);letter-spacing:1px;white-space:nowrap">OBRA</th>
         ${thSort('data_inicio','INÍCIO')}
         ${thSort('data_limite','CONTRATAR ATÉ')}
+        <th style="padding:8px 10px;text-align:center;font-size:9px;color:var(--teal);letter-spacing:1px;white-space:nowrap" title="Gatilho Suprimentos — antecedência para contratação (dias)">🛒 GATILHO SUP.</th>
+        <th style="padding:8px 10px;text-align:center;font-size:9px;color:var(--blue);letter-spacing:1px;white-space:nowrap" title="Gatilho Projetos — antecedência para projetos (dias)">📐 GATILHO PROJ.</th>
         ${thSort('urgencia','URGÊNCIA')}
         <th style="padding:8px 10px;text-align:left;font-size:9px;color:var(--text3);letter-spacing:1px">RESPONSÁVEL</th>
         ${thSort('custo','CUSTO EST.')}
@@ -439,6 +441,16 @@ const Coloridao = {
         <td style="padding:8px 10px;text-align:center;white-space:nowrap">
           ${p.data_limite?`<span style="font-size:11px;font-weight:600;color:${p.status==='vermelho'?'var(--red)':p.status==='amarelo'?'#ca8a04':'var(--text2)'}">${fmtDate(p.data_limite)}</span>`:'<span style="color:var(--text3);font-size:11px">—</span>'}
         </td>
+        <td style="padding:8px 10px;text-align:center;white-space:nowrap">
+          ${p.gatilho_suprimentos != null
+            ? `<span style="font-size:12px;font-weight:700;color:var(--teal)">${p.gatilho_suprimentos}d</span>`
+            : '<span style="color:var(--text3);font-size:11px">—</span>'}
+        </td>
+        <td style="padding:8px 10px;text-align:center;white-space:nowrap">
+          ${p.gatilho_projetos != null
+            ? `<span style="font-size:12px;font-weight:700;color:var(--blue)">${p.gatilho_projetos}d</span>`
+            : '<span style="color:var(--text3);font-size:11px">—</span>'}
+        </td>
         <td style="padding:8px 10px;text-align:center">${urgBadge(p)}</td>
         <td style="padding:8px 10px;font-size:11px;color:var(--text2)">
           ${p.responsavel?H.esc(p.responsavel):'<span style="color:var(--text3)">—</span>'}
@@ -454,11 +466,23 @@ const Coloridao = {
                     title="Ver detalhes e contratos desta atividade">
               🔗 Detalhes
             </button>
-            <button onclick="Coloridao._novaRdcAtiv(${p.obra_id},'${String(p.nome||'').replace(/'/g,"\\'").replace(/\n/g,' ')}','${String(p.grupo_pai||'').replace(/'/g,"\\'").replace(/\n/g,' ')}','${p.wbs||''}','${p.data_limite||p.data_inicio||''}')"
+            ${p.rdc_id ? `
+            <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+              <span style="font-size:9px;font-weight:700;letter-spacing:.5px;padding:2px 7px;border-radius:10px;white-space:nowrap;${Coloridao._rdcBadgeStyle(p.rdc_status)}"
+                    title="RDC ${H.esc(p.rdc_codigo||'')} — ${H.esc(p.rdc_status||'')}">
+                🛒 ${H.esc(p.rdc_codigo||'RDC')}
+              </span>
+              <button onclick="Coloridao._abrirRdc(${p.rdc_id})"
+                      style="padding:3px 8px;border-radius:5px;border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.08);color:var(--blue);cursor:pointer;font-size:10px;font-weight:600;white-space:nowrap"
+                      title="Abrir RDC ${H.esc(p.rdc_codigo||'')}">
+                📋 Ver RDC
+              </button>
+            </div>` : `
+            <button onclick="Coloridao._novaRdcAtiv(${p.id},${p.obra_id},'${String(p.nome||'').replace(/'/g,"\\'").replace(/\n/g,' ')}','${String(p.grupo_pai||'').replace(/'/g,"\\'").replace(/\n/g,' ')}','${p.wbs||''}','${p.data_limite||p.data_inicio||''}')"
                     style="padding:3px 8px;border-radius:5px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.08);color:var(--green);cursor:pointer;font-size:10px;font-weight:600;white-space:nowrap"
                     title="Criar Requisição de Compra para esta atividade">
               🛒 Nova RDC
-            </button>
+            </button>`}
           </div>
         </td>
       </tr>`;
@@ -617,13 +641,37 @@ const Coloridao = {
     UI.toast('CSV exportado com sucesso!', 'success');
   },
 
+  // Cores do badge de RDC por status
+  _rdcBadgeStyle(status) {
+    const map = {
+      rascunho:             'background:rgba(150,150,150,.15);color:var(--text3);border:1px solid rgba(150,150,150,.3)',
+      aguardando_aprovacao: 'background:rgba(251,191,36,.18);color:#b45309;border:1px solid rgba(251,191,36,.4)',
+      aprovada:             'background:rgba(20,184,166,.15);color:var(--teal);border:1px solid rgba(20,184,166,.35)',
+      em_processo:          'background:rgba(59,130,246,.15);color:var(--blue);border:1px solid rgba(59,130,246,.35)',
+      contratada:           'background:rgba(34,197,94,.15);color:var(--green);border:1px solid rgba(34,197,94,.35)',
+    };
+    return map[status] || 'background:var(--surface2);color:var(--text2);border:1px solid var(--border)';
+  },
+
+  // Abre detalhe da RDC no módulo Suprimentos
+  _abrirRdc(rdcId) {
+    if (typeof Suprimentos === 'undefined') {
+      UI.toast('Módulo de Suprimentos não disponível.', 'error');
+      return;
+    }
+    // Navega para a aba Suprimentos e abre o detalhe
+    App.navigate('suprimentos');
+    setTimeout(() => Suprimentos.abrirDetalhe(rdcId), 200);
+  },
+
   // Abre o formulário de nova RDC pré-preenchido com dados da atividade
-  _novaRdcAtiv(obraId, nome, grupoPai, wbs, dataPrazo) {
+  _novaRdcAtiv(atividadeId, obraId, nome, grupoPai, wbs, dataPrazo) {
     if (typeof Suprimentos === 'undefined') {
       UI.toast('Módulo de Suprimentos não disponível.', 'error');
       return;
     }
     Suprimentos.novaRdcDeAtividade({
+      id:           atividadeId,
       obra_id:      obraId,
       nome:         nome,
       grupo_pai:    grupoPai,

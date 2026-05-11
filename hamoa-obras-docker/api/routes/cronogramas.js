@@ -238,10 +238,22 @@ async function _parseXML(filePath) {
           const val  = curTaskExtAttr.Value.trim();
           if (!info?.hasAlias || !val) { curTaskExtAttr = {}; continue; }
 
-          // Campo "Gatilho" → grava direto em gatilho_dias (não em campos_extras)
-          if (info.alias.toLowerCase() === 'gatilho') {
+          // Campos de gatilho → gatilho_dias (não em campos_extras)
+          // Aceita: "Gatilho", "Gatilho Suprimentos", "Gatilho Projetos"
+          // Prioridade: "Gatilho Suprimentos" > "Gatilho" > "Gatilho Projetos"
+          const aliasLow = info.alias.toLowerCase();
+          if (aliasLow === 'gatilho suprimentos') {
             const dias = parseInt(val);
-            if (!isNaN(dias) && dias >= 0) current._gatilho_dias = dias;
+            if (!isNaN(dias) && dias >= 0) current._gatilho_dias = dias; // sempre sobrescreve
+            current._extras[info.alias] = val; // salva também para exibição no grid
+          } else if (aliasLow === 'gatilho' || aliasLow === 'gatilho projetos') {
+            const dias = parseInt(val);
+            // só aplica em gatilho_dias se ainda não tiver "Gatilho Suprimentos"
+            if (!isNaN(dias) && dias >= 0 && current._gatilho_dias == null) {
+              current._gatilho_dias = dias;
+            }
+            // salva em campos_extras para exibição no grid
+            current._extras[info.alias] = val;
           } else {
             current._extras[info.alias] = val;
           }
@@ -1308,7 +1320,14 @@ router.get('/coloridao/pendencias', auth, async (req, res) => {
            WHEN a.gatilho_dias IS NOT NULL AND a.data_inicio IS NOT NULL
              THEN (a.data_inicio::date - a.gatilho_dias)::text
            ELSE NULL
-         END AS data_limite
+         END AS data_limite,
+         -- RDC ativa vinculada a esta atividade (a mais recente não cancelada)
+         (SELECT json_build_object('id', r.id, 'status', r.status, 'codigo', r.codigo)
+            FROM rdcs r
+           WHERE r.atividade_id = a.id
+             AND r.status NOT IN ('cancelada')
+           ORDER BY r.created_at DESC
+           LIMIT 1) AS rdc_ativa
        FROM atividades_cronograma a
       WHERE a.cronograma_id = ANY($1::int[])
         AND (a.eh_resumo = false OR a.gatilho_dias IS NOT NULL)
@@ -1345,10 +1364,15 @@ router.get('/coloridao/pendencias', auth, async (req, res) => {
         data_limite:      row.data_limite,
         dias_ate_gatilho: row.dias_ate_gatilho != null ? parseInt(row.dias_ate_gatilho) : null,
         status:           row.status,
-        responsavel:      extras['Responsável'] || extras['Responsavel'] || null,
-        custo_servico:    extras['Custo do serviço'] || extras['Custo do servico'] || null,
-        encarregado:      extras['Encarregado JMD'] || null,
-        peso:             extras['Peso da Atividade'] || null,
+        responsavel:        extras['Responsável'] || extras['Responsavel'] || null,
+        custo_servico:      extras['Custo do serviço'] || extras['Custo do servico'] || null,
+        encarregado:        extras['Encarregado JMD'] || null,
+        peso:               extras['Peso da Atividade'] || null,
+        gatilho_suprimentos: row.gatilho_dias != null ? parseInt(row.gatilho_dias) : null,
+        gatilho_projetos:   extras['Gatilho Projetos'] ? parseInt(extras['Gatilho Projetos']) : null,
+        rdc_id:             row.rdc_ativa?.id    || null,
+        rdc_status:         row.rdc_ativa?.status || null,
+        rdc_codigo:         row.rdc_ativa?.codigo || null,
       };
     });
 

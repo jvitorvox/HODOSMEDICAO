@@ -15,6 +15,10 @@ const Suprimentos = (() => {
   let _contratos = [];          // cache de contratos (para vincular)
   let _itemCounter = 0;         // contador de linhas de itens no form
   let _anexosPendentes = [];    // arquivos escolhidos antes de salvar RDC nova
+  // Metadados opcionais do Coloridão
+  let _rdcAtividadeId = null;
+  let _rdcGrupoPai    = null;
+  let _rdcWbs         = null;
 
   // ── Helpers de formatação ─────────────────────────────────────────────────
   const fmtR$ = v => {
@@ -240,9 +244,12 @@ const Suprimentos = (() => {
 
   // ── Modal: Nova RDC ───────────────────────────────────────────────────────
   async function novaRdc(prefill = {}) {
-    _rdcEmEdicao = null;
-    _itemCounter = 0;
+    _rdcEmEdicao    = null;
+    _itemCounter    = 0;
     _anexosPendentes = [];
+    _rdcAtividadeId = prefill.atividade_id || null;
+    _rdcGrupoPai    = prefill.grupo_pai    || null;
+    _rdcWbs         = prefill.wbs          || null;
 
     H.el('rdc-form-title').textContent = '🛒 NOVA REQUISIÇÃO DE COMPRA';
     H.el('rdc-titulo').value    = prefill.titulo || '';
@@ -260,9 +267,12 @@ const Suprimentos = (() => {
   async function editarRdc(id) {
     try {
       const r = await API.rdc(id);
-      _rdcEmEdicao = id;
-      _itemCounter = 0;
+      _rdcEmEdicao    = id;
+      _itemCounter    = 0;
       _anexosPendentes = [];
+      _rdcAtividadeId = r.atividade_id || null;
+      _rdcGrupoPai    = r.grupo_pai    || null;
+      _rdcWbs         = r.wbs          || null;
 
       H.el('rdc-form-title').textContent = `✏ EDITAR RDC — ${r.codigo}`;
       H.el('rdc-titulo').value    = r.titulo || '';
@@ -477,7 +487,12 @@ const Suprimentos = (() => {
       });
     });
 
-    const payload = { titulo, obra_id, responsavel, data_prazo, valor_estimado, observacoes, itens };
+    const payload = {
+      titulo, obra_id, responsavel, data_prazo, valor_estimado, observacoes, itens,
+      atividade_id: _rdcAtividadeId || null,
+      grupo_pai:    _rdcGrupoPai    || null,
+      wbs:          _rdcWbs         || null,
+    };
 
     // Descobre nome do responsável
     if (responsavel) {
@@ -850,10 +865,13 @@ const Suprimentos = (() => {
   // Chamado pelo botão "🛒 Nova RDC" na Lista de Compras
   function novaRdcDeAtividade(atividade) {
     novaRdc({
-      titulo:       `Contratação — ${atividade.grupo_pai || atividade.nome}`,
-      obra_id:      atividade.obra_id,
-      data_prazo:   atividade.data_gatilho || atividade.data_inicio,
-      observacoes:  `RDC gerada automaticamente a partir da atividade "${atividade.nome}" (WBS: ${atividade.wbs || '—'})`,
+      titulo:        `Contratação — ${atividade.grupo_pai || atividade.nome}`,
+      obra_id:       atividade.obra_id,
+      atividade_id:  atividade.id || null,
+      grupo_pai:     atividade.grupo_pai || null,
+      wbs:           atividade.wbs || null,
+      data_prazo:    atividade.data_limite || atividade.data_inicio || null,
+      observacoes:   `RDC gerada automaticamente a partir da atividade "${atividade.nome}" (WBS: ${atividade.wbs || '—'})`,
     });
   }
 

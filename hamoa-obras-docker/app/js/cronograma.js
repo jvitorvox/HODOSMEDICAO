@@ -46,30 +46,34 @@ const Cronograma = (() => {
   }
 
   // ── Coleta campos personalizados únicos de todas as atividades ─
+  // Campos que não devem aparecer como extra column (têm coluna fixa dedicada)
+  const _FIXED_EXTRA_KEYS = new Set(['gatilho', 'gatilho suprimentos', 'gatilho projetos']);
+
   function _computeExtraFields() {
     const keys = new Set();
     for (const a of _atividades) {
       if (a.campos_extras && typeof a.campos_extras === 'object' && !Array.isArray(a.campos_extras)) {
-        for (const k of Object.keys(a.campos_extras)) keys.add(k);
+        for (const k of Object.keys(a.campos_extras)) {
+          if (!_FIXED_EXTRA_KEYS.has(k.toLowerCase())) keys.add(k);
+        }
       }
     }
     _extraFields = [...keys].sort();
 
-    // Atualiza o cabeçalho da tabela WBS com as colunas extras
+    // Atualiza o cabeçalho da tabela WBS com as colunas extras (ao final da tabela)
     const thead = H.el('cron-wbs-thead');
     if (thead) {
       const tr = thead.querySelector('tr');
       if (tr) {
         // Remove colunas extras anteriores
         tr.querySelectorAll('.wbs-extra-col').forEach(el => el.remove());
-        // Insere antes da última coluna "Possui Contrato?"
-        const lastTh = tr.lastElementChild;
+        // Adiciona extras ao FINAL da linha de cabeçalho
         for (const f of _extraFields) {
           const th = document.createElement('th');
           th.className = 'wbs-extra-col';
           th.style.cssText = 'min-width:120px;text-align:center;white-space:nowrap';
           th.innerHTML = `${H.esc(f)}<div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">campo XML</div>`;
-          tr.insertBefore(th, lastTh);
+          tr.appendChild(th);
         }
       }
     }
@@ -239,7 +243,7 @@ const Cronograma = (() => {
     if (!tbody) return;
 
     _showWBS();
-    tbody.innerHTML = `<tr><td colspan="${11 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">Carregando atividades...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${12 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">Carregando atividades...</td></tr>`;
 
     try {
       // Busca atividades e dados financeiros em paralelo
@@ -257,7 +261,7 @@ const Cronograma = (() => {
       _computeExtraFields();
 
       if (!_atividades.length) {
-        tbody.innerHTML = `<tr><td colspan="${11 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">Nenhuma atividade encontrada neste cronograma.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${12 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">Nenhuma atividade encontrada neste cronograma.</td></tr>`;
         if (countEl) countEl.textContent = '';
         _renderProgressSummary([]);
         return;
@@ -267,7 +271,7 @@ const Cronograma = (() => {
       _renderVinculosPanel();
       _renderWBS();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="${11 + _extraFields.length}" style="color:var(--red);padding:20px">${H.esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${12 + _extraFields.length}" style="color:var(--red);padding:20px">${H.esc(e.message)}</td></tr>`;
     }
   }
 
@@ -652,7 +656,7 @@ const Cronograma = (() => {
     }
 
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="${11 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">${term ? '🔍 Nenhuma atividade encontrada.' : 'Nenhuma atividade.'}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="${12 + _extraFields.length}" style="color:var(--text3);padding:20px;text-align:center">${term ? '🔍 Nenhuma atividade encontrada.' : 'Nenhuma atividade.'}</td></tr>`;
       if (countEl) countEl.textContent = '';
       return;
     }
@@ -819,12 +823,27 @@ const Cronograma = (() => {
       <td class="tc">${_fmtDate(a.data_inicio)}</td>
       <td class="tc">${_fmtDate(a.data_termino)}</td>
       <td class="tc">${a.duracao != null ? a.duracao + 'd' : '—'}</td>
-      <td class="tc" style="font-size:11px;${a.gatilho_dias != null ? 'color:var(--accent);font-weight:600' : 'color:var(--text3)'}">
-        ${a.gatilho_dias != null ? a.gatilho_dias + 'd' : '—'}
-      </td>
+      <!-- Planejado -->
       <td class="tc">${_fmt(pctPlan)}</td>
 
-      <!-- Coluna: Custo Planejado -->
+      <!-- Gatilho Proj. (coluna fixa — lê campos_extras['Gatilho Projetos']) -->
+      ${(() => {
+        const gp = a.campos_extras && a.campos_extras['Gatilho Projetos'] != null ? String(a.campos_extras['Gatilho Projetos']) : null;
+        const gpNum = gp != null ? parseInt(gp) : NaN;
+        return `<td class="tc" style="font-size:11px;${!isNaN(gpNum) && gpNum > 0 ? 'color:var(--blue);font-weight:600' : 'color:var(--text3)'};vertical-align:middle">
+          ${!isNaN(gpNum) && gpNum > 0 ? gpNum + 'd' : (gp != null ? H.esc(gp) : '—')}
+        </td>`;
+      })()}
+
+      <!-- Gatilho Sup. (gatilho_dias — vem de Gatilho Suprimentos no XML) -->
+      <td class="tc" style="font-size:11px;${a.gatilho_dias != null && a.gatilho_dias > 0 ? 'color:var(--teal);font-weight:600' : 'color:var(--text3)'};vertical-align:middle">
+        ${a.gatilho_dias != null && a.gatilho_dias > 0 ? a.gatilho_dias + 'd' : '—'}
+      </td>
+
+      <!-- Possui Contrato? -->
+      <td class="tc" style="vertical-align:middle">${colContrato}</td>
+
+      <!-- Custo Plan. -->
       <td style="text-align:right;font-size:11px;white-space:nowrap;padding-right:10px;vertical-align:middle">
         ${a.custo_planejado != null && parseFloat(a.custo_planejado) > 0
           ? `<span style="font-weight:${isResume ? '700' : '400'};color:${isResume ? 'var(--text)' : 'var(--text2)'}">
@@ -833,10 +852,10 @@ const Cronograma = (() => {
           : `<span style="color:var(--text3)">—</span>`}
       </td>
 
-      <!-- Coluna: Por Medições / Roll-up -->
+      <!-- % Medições -->
       <td style="min-width:190px">${colMedicoes}</td>
 
-      <!-- Coluna: Manual (pct_realizado) -->
+      <!-- % Manual -->
       <td style="min-width:110px;vertical-align:middle">
         <div style="display:flex;align-items:center;gap:6px">
           <span style="${manStyle}">${pctMan > 0 ? _fmt(pctMan) : '—'}</span>
@@ -846,14 +865,11 @@ const Cronograma = (() => {
         ${manHint}
       </td>
 
-      <!-- Colunas: Campos personalizados do XML -->
+      <!-- Colunas extras dinâmicas (outros campos XML) ao final -->
       ${_extraFields.map(f => {
         const val = a.campos_extras && a.campos_extras[f] != null ? String(a.campos_extras[f]) : null;
         return `<td class="tc wbs-extra-col" style="font-size:11px;color:${val != null ? 'var(--text2)' : 'var(--text3)'};vertical-align:middle">${val != null ? H.esc(val) : '—'}</td>`;
       }).join('')}
-
-      <!-- Coluna: Possui Contrato? -->
-      <td class="tc" style="vertical-align:middle">${colContrato}</td>
     </tr>`;
   }
 

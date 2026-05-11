@@ -253,11 +253,19 @@
                   <th style="width:86px;text-align:center">Início</th>
                   <th style="width:86px;text-align:center">Término</th>
                   <th style="width:48px;text-align:center">Dur.</th>
-                  <th style="width:72px;text-align:center">
-                    Gatilho
-                    <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">dias antes</div>
-                  </th>
                   <th style="width:76px;text-align:center">Planejado</th>
+                  <th style="width:82px;text-align:center">
+                    Gatilho Proj.
+                    <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--blue);text-transform:none;margin-top:2px">projetos</div>
+                  </th>
+                  <th style="width:82px;text-align:center">
+                    Gatilho Sup.
+                    <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--teal);text-transform:none;margin-top:2px">suprimentos</div>
+                  </th>
+                  <th style="width:110px;text-align:center">
+                    Possui Contrato?
+                    <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">vínculo ativo</div>
+                  </th>
                   <th style="width:120px;text-align:right">
                     Custo Plan. (R$)
                     <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">importado do MS Project</div>
@@ -269,10 +277,6 @@
                   <th style="min-width:120px">
                     % Manual
                     <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">digitado · fallback sem contrato</div>
-                  </th>
-                  <th style="width:110px;text-align:center">
-                    Possui Contrato?
-                    <div style="font-size:8px;letter-spacing:.3px;font-weight:400;color:var(--text3);text-transform:none;margin-top:2px">vínculo ativo</div>
                   </th>
                 </tr>
               </thead>
@@ -1394,9 +1398,9 @@
 <script src="js/alcadas.js?v=20260507b"></script>
 <script src="js/lbm.js?v=20260507b"></script>
 <script src="js/financeiro.js?v=20260507b"></script>
-<script src="js/cronograma.js?v=20260507b"></script>
-<script src="js/coloridao.js?v=20260507b"></script>
-<script src="js/suprimentos.js?v=20260507c"></script>
+<script src="js/cronograma.js?v=20260511a"></script>
+<script src="js/coloridao.js?v=20260508b"></script>
+<script src="js/suprimentos.js?v=20260508a"></script>
 <script>
 // Expõe todos os módulos como globais após todos os scripts carregarem
 window.Perm        = Perm;
