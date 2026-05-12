@@ -88,6 +88,30 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// ── Validar sessão / restaurar dados do usuário ────────────────────
+// Usado pelo frontend para restaurar sessão após reload sem pedir login novamente.
+router.get('/me', auth, async (req, res) => {
+  try {
+    const r = await db.query(
+      'SELECT id, login, nome, email, perfil, grupos_ad, telefone FROM usuarios WHERE id=$1 AND ativo=true',
+      [req.user.id]
+    );
+    if (!r.rows[0]) return res.status(401).json({ error: 'Usuário inativo ou não encontrado' });
+    const u = r.rows[0];
+    res.json({
+      id:     u.id,
+      login:  u.login,
+      nome:   u.nome,
+      email:  u.email,
+      perfil: u.perfil,
+      grupos: u.grupos_ad || [],
+    });
+  } catch (e) {
+    console.error('[GET /auth/me]', e);
+    res.status(500).json({ error: 'Erro interno' });
+  }
+});
+
 // ── Trocar própria senha (autenticação local) ──────────────────────
 router.put('/senha', auth, async (req, res) => {
   try {

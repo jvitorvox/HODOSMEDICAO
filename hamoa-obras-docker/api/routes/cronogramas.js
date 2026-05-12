@@ -1330,7 +1330,7 @@ router.get('/coloridao/pendencias', auth, async (req, res) => {
            LIMIT 1) AS rdc_ativa
        FROM atividades_cronograma a
       WHERE a.cronograma_id = ANY($1::int[])
-        AND (a.eh_resumo = false OR a.gatilho_dias IS NOT NULL)
+        AND (a.eh_resumo = false OR (a.gatilho_dias IS NOT NULL AND a.gatilho_dias > 0))
         AND NOT EXISTS (
           SELECT 1 FROM contratos_atividades ca WHERE ca.atividade_id = a.id
         )
@@ -1517,18 +1517,21 @@ router.get('/coloridao', auth, async (req, res) => {
          s.root_id        AS grupo_id,
          s.root_nome      AS grupo_nome,
          s.cronograma_id,
-         -- "Rastreável": folha normal OU resumo com gatilho configurado explicitamente
-         COUNT(s.id) FILTER (WHERE NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)                          AS total_tarefas,
-         COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL) AND ca.contrato_id IS NOT NULL) AS com_contrato,
+         -- "Rastreável": descendente (nunca o nó-âncora em si) que é folha OU resumo com gatilho > 0
+         -- s.id != s.root_id exclui o próprio nó-grupo do contador para que bata com a lista do modal
+         COUNT(s.id) FILTER (WHERE s.id != s.root_id AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))) AS total_tarefas,
+         COUNT(s.id) FILTER (WHERE s.id != s.root_id AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0)) AND ca.contrato_id IS NOT NULL) AS com_contrato,
 
          -- Vermelho: sem contrato E atividade já deveria ter iniciado
-         COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+         COUNT(s.id) FILTER (WHERE s.id != s.root_id
+                               AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))
                                AND ca.contrato_id IS NULL
                                AND s.data_inicio IS NOT NULL
                                AND CURRENT_DATE > s.data_inicio::date)       AS vermelho_count,
 
          -- Amarelo: sem contrato, prazo de gatilho vencido, mas atividade não iniciou
-         COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+         COUNT(s.id) FILTER (WHERE s.id != s.root_id
+                               AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))
                                AND ca.contrato_id IS NULL
                                AND s.data_inicio IS NOT NULL
                                AND CURRENT_DATE <= s.data_inicio::date
@@ -1536,7 +1539,8 @@ router.get('/coloridao', auth, async (req, res) => {
                                AND CURRENT_DATE > (s.data_inicio::date - s.gatilho_dias))  AS amarelo_count,
 
          -- Verde: sem contrato, ainda dentro do prazo de gatilho
-         COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+         COUNT(s.id) FILTER (WHERE s.id != s.root_id
+                               AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))
                                AND ca.contrato_id IS NULL
                                AND s.data_inicio IS NOT NULL
                                AND CURRENT_DATE <= s.data_inicio::date
@@ -1544,20 +1548,23 @@ router.get('/coloridao', auth, async (req, res) => {
                                AND CURRENT_DATE <= (s.data_inicio::date - s.gatilho_dias)) AS verde_count,
 
          CASE
-           WHEN COUNT(s.id) FILTER (WHERE NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL) = 0
+           WHEN COUNT(s.id) FILTER (WHERE s.id != s.root_id AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))) = 0
              THEN 'sem_tarefas'
            -- Azul: todas as tarefas rastreáveis têm contrato
-           WHEN COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+           WHEN COUNT(s.id) FILTER (WHERE s.id != s.root_id
+                                     AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))
                                      AND ca.contrato_id IS NULL) = 0
              THEN 'azul'
            -- Vermelho: alguma tarefa sem contrato com início já vencido
-           WHEN COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+           WHEN COUNT(s.id) FILTER (WHERE s.id != s.root_id
+                                     AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))
                                      AND ca.contrato_id IS NULL
                                      AND s.data_inicio IS NOT NULL
                                      AND CURRENT_DATE > s.data_inicio::date) > 0
              THEN 'vermelho'
            -- Amarelo: gatilho vencido, mas atividade ainda não iniciou
-           WHEN COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+           WHEN COUNT(s.id) FILTER (WHERE s.id != s.root_id
+                                     AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))
                                      AND ca.contrato_id IS NULL
                                      AND s.data_inicio IS NOT NULL
                                      AND CURRENT_DATE <= s.data_inicio::date
@@ -1565,7 +1572,8 @@ router.get('/coloridao', auth, async (req, res) => {
                                      AND CURRENT_DATE > (s.data_inicio::date - s.gatilho_dias)) > 0
              THEN 'amarelo'
            -- Verde: dentro do prazo de gatilho
-           WHEN COUNT(s.id) FILTER (WHERE (NOT s.eh_resumo OR s.gatilho_dias IS NOT NULL)
+           WHEN COUNT(s.id) FILTER (WHERE s.id != s.root_id
+                                     AND (NOT s.eh_resumo OR (s.gatilho_dias IS NOT NULL AND s.gatilho_dias > 0))
                                      AND ca.contrato_id IS NULL
                                      AND s.data_inicio IS NOT NULL
                                      AND CURRENT_DATE <= s.data_inicio::date
@@ -1704,30 +1712,50 @@ router.put('/:id', auth, perm('cronogramaEditar'), async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 router.put('/atividades/:id', auth, perm('cronogramaEditar'), async (req, res) => {
   try {
-    const { nome, wbs, data_inicio, data_termino, duracao, pct_planejado, pct_realizado, gatilho_dias } = req.body;
+    const {
+      nome, wbs, data_inicio, data_termino, duracao,
+      pct_planejado, pct_realizado, gatilho_dias,
+      custo_planejado,
+      campos_extras_patch,   // objeto com chaves a mesclar em campos_extras (ex.: {'Gatilho Projetos': 15})
+    } = req.body;
     const clamp = (v, lo, hi) => v != null ? Math.min(hi, Math.max(lo, parseFloat(v))) : null;
+
+    // Monta parte dinâmica de campos_extras (JSONB merge)
+    let extrasExpr = '';
+    let extrasParam = null;
+    if (campos_extras_patch && typeof campos_extras_patch === 'object' && Object.keys(campos_extras_patch).length) {
+      extrasParam = JSON.stringify(campos_extras_patch);
+      extrasExpr = ', campos_extras = COALESCE(campos_extras, \'{}\'::jsonb) || $11::jsonb';
+    }
+
+    const params = [
+      nome  ? nome.trim().slice(0, 500) : null,                                    // $1
+      wbs   ? wbs.trim().slice(0, 50)  : null,                                     // $2
+      data_inicio  || null,                                                          // $3
+      data_termino || null,                                                          // $4
+      duracao  != null ? parseInt(duracao)               : null,                    // $5
+      pct_planejado != null ? clamp(pct_planejado, 0, 100) : null,                  // $6
+      pct_realizado != null ? clamp(pct_realizado, 0, 100) : null,                  // $7
+      parseInt(req.params.id),                                                       // $8
+      gatilho_dias != null && gatilho_dias !== '' ? parseInt(gatilho_dias) : null,  // $9
+      custo_planejado != null && custo_planejado !== '' ? parseFloat(custo_planejado) : null, // $10
+    ];
+    if (extrasParam !== null) params.push(extrasParam); // $11 condicional
+
     const r = await db.query(
       `UPDATE atividades_cronograma SET
-         nome          = COALESCE($1, nome),
-         wbs           = COALESCE($2, wbs),
-         data_inicio   = COALESCE($3::date, data_inicio),
-         data_termino  = COALESCE($4::date, data_termino),
-         duracao       = COALESCE($5::int,  duracao),
-         pct_planejado = COALESCE($6::numeric, pct_planejado),
-         pct_realizado = COALESCE($7::numeric, pct_realizado),
-         gatilho_dias  = $9
+         nome            = COALESCE($1, nome),
+         wbs             = COALESCE($2, wbs),
+         data_inicio     = COALESCE($3::date, data_inicio),
+         data_termino    = COALESCE($4::date, data_termino),
+         duracao         = COALESCE($5::int,  duracao),
+         pct_planejado   = COALESCE($6::numeric, pct_planejado),
+         pct_realizado   = COALESCE($7::numeric, pct_realizado),
+         gatilho_dias    = $9,
+         custo_planejado = COALESCE($10::numeric, custo_planejado)
+         ${extrasExpr}
        WHERE id = $8 RETURNING *`,
-      [
-        nome  ? nome.trim().slice(0, 500) : null,
-        wbs   ? wbs.trim().slice(0, 50)  : null,
-        data_inicio  || null,
-        data_termino || null,
-        duracao  != null ? parseInt(duracao)               : null,
-        pct_planejado != null ? clamp(pct_planejado, 0, 100) : null,
-        pct_realizado != null ? clamp(pct_realizado, 0, 100) : null,
-        parseInt(req.params.id),
-        gatilho_dias != null && gatilho_dias !== '' ? parseInt(gatilho_dias) : null,
-      ]
+      params
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Atividade não encontrada.' });
     res.json(r.rows[0]);
@@ -1767,10 +1795,89 @@ router.get('/:id/export-xml', auth, async (req, res) => {
     if (!cronR.rows.length) return res.status(404).json({ error: 'Cronograma não encontrado.' });
     const cron = cronR.rows[0];
 
+    // Usa a mesma query do grid (/:id/atividades) para exportar TODOS os dados
+    // calculados: pct_medicoes, qtd_contratos, contratos_vinculados, etc.
     const r = await db.query(
-      'SELECT * FROM atividades_cronograma WHERE cronograma_id=$1 ORDER BY ordem',
+      `SELECT
+         a.id, a.cronograma_id, a.parent_id, a.wbs, a.nome,
+         a.data_inicio, a.data_termino, a.duracao, a.nivel,
+         a.pct_planejado, a.pct_realizado, a.eh_resumo, a.ordem,
+         a.custo_planejado, a.gatilho_dias, a.campos_extras,
+         a.uid_externo,
+
+         med_calc.pct_medicoes,
+         med_calc.qtd_contratos,
+         med_calc.qtd_com_medicoes,
+         COALESCE(med_calc.pct_medicoes, a.pct_realizado) AS pct_realizado_calc,
+
+         (SELECT string_agg(
+            COALESCE(NULLIF(f.nome_fantasia,''), f.razao_social) || ' (' || c.numero || ')',
+            '; '
+          )
+          FROM contratos_atividades ca2
+          JOIN contratos   c ON c.id = ca2.contrato_id
+          JOIN fornecedores f ON f.id = c.fornecedor_id
+          WHERE ca2.atividade_id = a.id
+         ) AS contratos_lista
+
+       FROM atividades_cronograma a
+
+       LEFT JOIN LATERAL (
+         SELECT
+           ROUND(
+             CASE
+               WHEN COUNT(ca.contrato_id) = 0 THEN NULL
+               WHEN SUM(c.valor_total) > 0
+                    THEN LEAST(100,
+                           COALESCE(SUM(ex.val_fis), 0)
+                           / NULLIF(SUM(c.valor_total), 0) * 100)
+               ELSE NULL
+             END, 2
+           ) AS pct_medicoes,
+           COUNT(ca.contrato_id)::int AS qtd_contratos,
+           SUM(CASE WHEN ex.contrato_id IS NOT NULL THEN 1 ELSE 0 END)::int AS qtd_com_medicoes
+         FROM contratos_atividades ca
+         JOIN contratos c ON c.id = ca.contrato_id
+         LEFT JOIN (
+           SELECT
+             sub.contrato_id,
+             SUM(COALESCE(NULLIF(sub.val_itens, 0), sub.valor_medicao, 0)) AS val_fis
+           FROM (
+             SELECT
+               m.contrato_id,
+               m.id AS medicao_id,
+               COALESCE(m.valor_medicao, 0) AS valor_medicao,
+               COALESCE(SUM(
+                 mi.qtd_mes * COALESCE(
+                   NULLIF(mi.valor_unitario, 0),
+                   ci.valor_unitario,
+                   (SELECT ci2.valor_unitario
+                      FROM contrato_itens ci2
+                     WHERE ci2.contrato_id = m.contrato_id
+                       AND LOWER(TRIM(ci2.descricao)) = LOWER(TRIM(mi.descricao))
+                     ORDER BY ci2.id DESC LIMIT 1),
+                   0
+                 )
+               ), 0) AS val_itens
+             FROM medicoes m
+             JOIN medicao_itens mi ON mi.medicao_id = m.id
+             LEFT JOIN contrato_itens ci ON ci.id = mi.contrato_item_id
+             WHERE m.status IN ('Aprovado','Em Assinatura','Assinado','Concluído','Pago')
+               AND m.tipo IN ('Normal','Avanco_Fisico')
+             GROUP BY m.contrato_id, m.id, m.valor_medicao
+           ) sub
+           GROUP BY sub.contrato_id
+         ) ex ON ex.contrato_id = c.id
+         WHERE ca.atividade_id = a.id
+       ) med_calc ON true
+
+       WHERE a.cronograma_id = $1
+       ORDER BY a.ordem`,
       [id]
     );
+
+    // Aplica roll-up bottom-up igual ao grid (pct_realizado_calc dos pais)
+    _applyRollup(r.rows);
     const atividades = r.rows;
 
     // ── Helpers de geração XML ─────────────────────────────────
@@ -1778,26 +1885,176 @@ router.get('/:id/export-xml', auth, async (req, res) => {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
-    const toMsDate = (d) => {
-      if (!d) return null;
-      const iso = new Date(d).toISOString().slice(0, 10);
-      return iso + 'T08:00:00';
+    const toMsDate       = (d) => d ? new Date(d).toISOString().slice(0, 10) + 'T08:00:00' : null;
+    const toMsDateFinish = (d) => d ? new Date(d).toISOString().slice(0, 10) + 'T17:00:00' : null;
+    const durStr         = (dias) => dias && dias > 0 ? `PT${dias * 8}H0M0S` : 'PT8H0M0S';
+
+    // ── Mapa estático alias → FieldID (campos conhecidos do projeto JMD/Hamoa) ──
+    // Estes IDs foram extraídos do XML importado original e devem ser preservados
+    // para garantir round-trip correto ao reimportar no MS Project.
+    const ALIAS_FIELD = {
+      'Responsável':                             { id: '188743731', name: 'Texto1'   },
+      'Fornecedor':                              { id: '188743734', name: 'Texto2'   },
+      'Encarregado Fornecedor':                  { id: '188743737', name: 'Texto3'   },
+      'Encarregado JMD':                         { id: '188743740', name: 'Texto4'   },
+      '% Concluído Ponderado':                   { id: '188743743', name: 'Texto5'   },
+      'Peso da Atividade':                       { id: '188743767', name: 'Número1'  },
+      'Avanço Realizado Ponderado':              { id: '188743768', name: 'Número2'  },
+      'Farol de atraso':                         { id: '188743769', name: 'Número3'  },
+      'Farol de Atraso':                         { id: '188743769', name: 'Número3'  },
+      'Custo do serviço':                        { id: '188743786', name: 'Custo1'   },
+      'PPC Prazo Início':                        { id: '188743945', name: 'Data1'    },
+      'PPC Prazo Fim':                           { id: '188743946', name: 'Data2'    },
+      '% previsto baseline ponderado':           { id: '188744000', name: 'Texto14'  },
+      'Atividades Avaliadas pelo PPC':           { id: '188744001', name: 'Texto15'  },
+      '% percentual previsto custo recuperação': { id: '188744003', name: 'Texto17'  },
+      // Gatilho: alias original no XML = "Gatilho" (Texto21)
+      // O sistema também aceita "Gatilho Suprimentos" como sinônimo → mesmo campo
+      'Gatilho':                                 { id: '188744007', name: 'Texto21'  },
+      'Gatilho Suprimentos':                     { id: '188744007', name: 'Texto21'  },
+      // Gatilho Projetos usa Texto23 (próximo disponível após Texto21)
+      'Gatilho Projetos':                        { id: '188744009', name: 'Texto23'  },
+      'Classificação (Atividades, Marcos e Resumo)': { id: '188744016', name: 'Texto30' },
     };
-    const toMsDateFinish = (d) => {
-      if (!d) return null;
-      const iso = new Date(d).toISOString().slice(0, 10);
-      return iso + 'T17:00:00';
-    };
-    const durStr = (dias) => dias && dias > 0 ? `PT${dias * 8}H0M0S` : 'PT8H0M0S';
+
+    // ── Descobre todos os aliases presentes nos campos_extras das atividades ──
+    // Para aliases não mapeados estaticamente, atribui um FieldID dinâmico (>188744020)
+    const allAliases   = new Map(); // alias → { id, name }
+    let dynFieldId     = 188744020; // início da faixa dinâmica (Texto20+)
+    let dynTextIdx     = 20;        // Texto20, Texto21... mas pulando os já usados
+    const USED_STATIC  = new Set(Object.values(ALIAS_FIELD).map(f => f.id));
+
+    for (const a of atividades) {
+      const extras = a.campos_extras;
+      if (!extras || typeof extras !== 'object') continue;
+      for (const alias of Object.keys(extras)) {
+        if (allAliases.has(alias)) continue;
+        if (ALIAS_FIELD[alias]) {
+          allAliases.set(alias, ALIAS_FIELD[alias]);
+        } else {
+          // Atribui FieldID dinâmico para aliases desconhecidos
+          while (USED_STATIC.has(String(dynFieldId))) dynFieldId++;
+          allAliases.set(alias, { id: String(dynFieldId), name: `Texto${dynTextIdx}` });
+          dynFieldId++;
+          dynTextIdx++;
+        }
+      }
+    }
+
+    // Também garante que gatilho_dias tenha entrada no mapa (campo fixo do sistema)
+    if (!allAliases.has('Gatilho Suprimentos')) {
+      allAliases.set('Gatilho Suprimentos', ALIAS_FIELD['Gatilho Suprimentos']);
+    }
+    // Campos fixos do Construtivo (usam slots Texto que estavam sem alias no XML original)
+    const FIELD_PCT_PLAN = { id: '188743750', name: 'Texto10' }; // % Planejado
+    const FIELD_PCT_MED  = { id: '188743997', name: 'Texto11' }; // % por Medições
+    const FIELD_PCT_MAN  = { id: '188743998', name: 'Texto12' }; // % Manual
+    const FIELD_CONTRATO = { id: '188743999', name: 'Texto13' }; // Contrato(s) vinculado(s)
+
+    // ── Seção <ExtendedAttributes> do projeto (declaração dos campos customizados) ─
+    const allFieldsForDecl = new Map();
+    for (const [alias, field] of allAliases) {
+      if (!allFieldsForDecl.has(field.id)) {
+        allFieldsForDecl.set(field.id, { ...field, alias });
+      }
+    }
+    // Adiciona campos fixos do Construtivo na declaração
+    allFieldsForDecl.set(FIELD_PCT_PLAN.id, { ...FIELD_PCT_PLAN, alias: 'Planejado (%)'             });
+    allFieldsForDecl.set(FIELD_PCT_MED.id,  { ...FIELD_PCT_MED,  alias: '% por Medições'            });
+    allFieldsForDecl.set(FIELD_PCT_MAN.id,  { ...FIELD_PCT_MAN,  alias: '% Manual'                  });
+    allFieldsForDecl.set(FIELD_CONTRATO.id, { ...FIELD_CONTRATO, alias: 'Contrato(s) vinculado(s)'  });
+
+    const extAttrDecl = [...allFieldsForDecl.values()].map(f => `    <ExtendedAttribute>
+      <FieldID>${f.id}</FieldID>
+      <FieldName>${escXml(f.name)}</FieldName>
+      <Alias>${escXml(f.alias)}</Alias>
+    </ExtendedAttribute>`).join('\n');
 
     // ── Monta <Task> para cada atividade ──────────────────────
     const taskXml = atividades.map((a, i) => {
-      const uid  = a.uid_externo || (i + 2); // 1 reservado para tarefa raiz
+      const uid  = a.uid_externo || (i + 2);
       const sid  = i + 1;
       const di   = toMsDate(a.data_inicio);
       const df   = toMsDateFinish(a.data_termino);
-      const pct  = Math.round(parseFloat(a.pct_planejado) || 0);
       const outl = a.wbs || String(sid);
+
+      // ── Percentuais ────────────────────────────────────────
+      // PercentComplete (MS Project) = % real executado = pct_realizado_calc
+      //   • se há medições aprovadas → usa pct_medicoes (calculado do banco)
+      //   • senão → usa pct_realizado (% manual)
+      const pctMedicoes = parseFloat(a.pct_medicoes)      || 0;
+      const pctManual   = parseFloat(a.pct_realizado)     || 0;
+      const pctCalc     = parseFloat(a.pct_realizado_calc) || 0;
+      const pctPlan     = parseFloat(a.pct_planejado)     || 0;
+      const pctReal     = Math.round(pctCalc); // valor que vai em <PercentComplete>
+
+      // Custo: MS Project armazena em centavos (valor × 100)
+      const custo   = parseFloat(a.custo_planejado) || 0;
+      const custoMs = Math.round(custo * 100);
+
+      // Contratos vinculados
+      const temContrato   = (parseInt(a.qtd_contratos) || 0) > 0;
+      const contratosDesc = a.contratos_lista || '';
+
+      // ── Campos ExtendedAttribute da tarefa ─────────────────
+      const extAttrs = [];
+
+      // Gatilho Suprimentos (gatilho_dias)
+      if (a.gatilho_dias != null) {
+        const f = ALIAS_FIELD['Gatilho Suprimentos'];
+        extAttrs.push(`      <ExtendedAttribute>
+        <FieldID>${f.id}</FieldID>
+        <Value>${a.gatilho_dias}</Value>
+      </ExtendedAttribute>`);
+      }
+
+      // % Planejado como campo customizado
+      if (pctPlan > 0) {
+        extAttrs.push(`      <ExtendedAttribute>
+        <FieldID>${FIELD_PCT_PLAN.id}</FieldID>
+        <Value>${pctPlan.toFixed(2)}%</Value>
+      </ExtendedAttribute>`);
+      }
+
+      // % por Medições (se houver)
+      if (pctMedicoes > 0) {
+        extAttrs.push(`      <ExtendedAttribute>
+        <FieldID>${FIELD_PCT_MED.id}</FieldID>
+        <Value>${pctMedicoes.toFixed(2)}%</Value>
+      </ExtendedAttribute>`);
+      }
+
+      // % Manual
+      if (pctManual > 0) {
+        extAttrs.push(`      <ExtendedAttribute>
+        <FieldID>${FIELD_PCT_MAN.id}</FieldID>
+        <Value>${pctManual.toFixed(2)}%</Value>
+      </ExtendedAttribute>`);
+      }
+
+      // Possui contrato vinculado?
+      if (temContrato) {
+        extAttrs.push(`      <ExtendedAttribute>
+        <FieldID>${FIELD_CONTRATO.id}</FieldID>
+        <Value>${escXml(contratosDesc || 'Sim')}</Value>
+      </ExtendedAttribute>`);
+      }
+
+      // campos_extras (todos os campos dinâmicos do XML original)
+      const extras = a.campos_extras;
+      if (extras && typeof extras === 'object') {
+        for (const [alias, val] of Object.entries(extras)) {
+          // Gatilho já exportado via gatilho_dias — pula para evitar duplicata
+          if (alias.toLowerCase().startsWith('gatilho') && a.gatilho_dias != null) continue;
+          const field = allAliases.get(alias);
+          if (!field || val == null || String(val).trim() === '') continue;
+          extAttrs.push(`      <ExtendedAttribute>
+        <FieldID>${field.id}</FieldID>
+        <Value>${escXml(String(val))}</Value>
+      </ExtendedAttribute>`);
+        }
+      }
+
       return [
         '    <Task>',
         `      <UID>${uid}</UID>`,
@@ -1809,15 +2066,21 @@ router.get('/:id/export-xml', auth, async (req, res) => {
         di ? `      <Start>${di}</Start>` : '',
         df ? `      <Finish>${df}</Finish>` : '',
         `      <Duration>${durStr(a.duracao)}</Duration>`,
-        `      <PercentComplete>${pct}</PercentComplete>`,
+        // PercentComplete = % real executado (não planejado)
+        `      <PercentComplete>${pctReal}</PercentComplete>`,
         `      <Summary>${a.eh_resumo ? 1 : 0}</Summary>`,
         `      <Active>1</Active>`,
+        // Custo planejado (Cost e FixedCost em centavos, padrão MS Project)
+        custoMs > 0 ? `      <Cost>${custoMs}</Cost>` : '',
+        custoMs > 0 ? `      <FixedCost>${custoMs}</FixedCost>` : '',
+        // Campos customizados (gatilho, campos_extras, pct_planejado)
+        ...extAttrs,
         '    </Task>',
       ].filter(Boolean).join('\n');
     }).join('\n');
 
     // ── Tarefa raiz (UID=0, obrigatória no formato MS Project) ─
-    const projStart = cron.data_inicio ? toMsDate(cron.data_inicio) : '2025-01-01T08:00:00';
+    const projStart  = cron.data_inicio  ? toMsDate(cron.data_inicio)        : '2025-01-01T08:00:00';
     const projFinish = cron.data_termino ? toMsDateFinish(cron.data_termino) : '2026-12-31T17:00:00';
 
     const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1826,6 +2089,9 @@ router.get('/:id/export-xml', auth, async (req, res) => {
   <Title>${escXml(cron.nome)}</Title>
   <StartDate>${projStart}</StartDate>
   <FinishDate>${projFinish}</FinishDate>
+  <ExtendedAttributes>
+${extAttrDecl}
+  </ExtendedAttributes>
   <Tasks>
     <Task>
       <UID>0</UID>

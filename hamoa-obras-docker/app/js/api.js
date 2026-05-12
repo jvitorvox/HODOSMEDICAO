@@ -6,10 +6,11 @@
 // API MODULE (substitui IndexedDB)
 // ══════════════════════════════════════
 const API = (() => {
-  function _getToken() { return sessionStorage.getItem('construtivo_token'); }
-  function _setToken(t) { if(t) sessionStorage.setItem('construtivo_token', t); else sessionStorage.removeItem('construtivo_token'); }
+  // localStorage: persiste entre abas e reloads (sessionStorage era apagado ao fechar/reabrir aba)
+  function _getToken() { return localStorage.getItem('construtivo_token'); }
+  function _setToken(t) { if(t) localStorage.setItem('construtivo_token', t); else localStorage.removeItem('construtivo_token'); }
 
-  // Upload multipart — usa sessionStorage igual ao req() normal
+  // Upload multipart — usa localStorage igual ao req() normal
   // extraFields: objeto opcional com campos adicionais a incluir no FormData
   function _uploadIA(endpoint, file, extraFields) {
     const fd = new FormData();
@@ -52,6 +53,7 @@ const API = (() => {
     login: async (login, senha) => { const r = await req('POST', '/api/auth/login', { login, senha }); _setToken(r.token); return r; },
     logout: () => _setToken(null),
     isLoggedIn: () => !!_getToken(),
+    me: () => req('GET', '/api/auth/me'), // valida token e retorna dados do usuário (para restaurar sessão)
     trocarSenha: (senha_atual, nova_senha) => req('PUT', '/api/auth/senha', { senha_atual, nova_senha }),
     _req: req, // exposto para uso interno de módulos (ex: Configs.audit)
 

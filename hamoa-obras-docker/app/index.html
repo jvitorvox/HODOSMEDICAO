@@ -4,12 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Construtivo AI · Sistema de Gestão de Medições</title>
+<!-- Cache: força revalidação do HTML em toda visita (proxies e CDN) -->
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/variables.css?v=20260507b">
-<link rel="stylesheet" href="css/base.css?v=20260507b">
-<link rel="stylesheet" href="css/components.css?v=20260507b">
-<link rel="stylesheet" href="css/dashboard.css?v=20260507b">
-<link rel="stylesheet" href="css/responsive.css?v=20260507b">
+<!-- !! VERSÃO DO APP: ao atualizar qualquer JS ou CSS, atualize SOMENTE esta constante !! -->
+<script>const APP_V = '20260512b';</script>
+<script>
+  // Injeta ?v= em todos os links/scripts com [data-v]
+  // (executado antes do DOM renderizar — evita FOUC de estilo)
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-v]').forEach(el => {
+      const attr = el.tagName === 'LINK' ? 'href' : 'src';
+      const base = el.getAttribute('data-src') || el.getAttribute(attr) || '';
+      el.setAttribute(attr, base.split('?')[0] + '?v=' + APP_V);
+    });
+  });
+</script>
+<link rel="stylesheet" href="css/variables.css?v=20260512b" data-v data-src="css/variables.css">
+<link rel="stylesheet" href="css/base.css?v=20260512b" data-v data-src="css/base.css">
+<link rel="stylesheet" href="css/components.css?v=20260512b" data-v data-src="css/components.css">
+<link rel="stylesheet" href="css/dashboard.css?v=20260512b" data-v data-src="css/dashboard.css">
+<link rel="stylesheet" href="css/responsive.css?v=20260512b" data-v data-src="css/responsive.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -1012,13 +1029,24 @@
           <input class="fi" id="eat-pct-real" type="number" min="0" max="100" step="0.1" placeholder="0.0">
         </div>
       </div>
-      <div class="fg">
-        <label class="fl">⏱ Gatilho Suprimentos (dias de antecedência)</label>
-        <input class="fi" id="eat-gatilho" type="number" min="0" placeholder="Ex: 30 — deixe em branco se não aplicável"
-               title="Dias de antecedência necessários para suprimentos acionar a compra antes do início desta atividade">
-        <div style="font-size:10px;color:var(--text3);margin-top:3px">
-          Data-limite de compra = Data início − dias informados. Usado no Coloridão & Controle de Obra.
+      <div style="display:flex;gap:12px">
+        <div class="fg" style="flex:1">
+          <label class="fl">⏱ Gatilho Suprimentos (dias)</label>
+          <input class="fi" id="eat-gatilho" type="number" min="0" placeholder="Ex: 30"
+                 title="Dias de antecedência para suprimentos acionar compra antes do início">
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">Data-limite = Início − dias. Usado no Coloridão.</div>
         </div>
+        <div class="fg" style="flex:1">
+          <label class="fl">📐 Gatilho Projetos (dias)</label>
+          <input class="fi" id="eat-gatilho-proj" type="number" min="0" placeholder="Ex: 45"
+                 title="Dias de antecedência para projetos/engenharia entregar antes do início">
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">Data-limite = Início − dias. Usado no controle de projetos.</div>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">💰 Custo Planejado (R$)</label>
+        <input class="fi" id="eat-custo" type="number" min="0" step="0.01" placeholder="0,00"
+               title="Custo previsto para esta atividade">
       </div>
       <div id="eat-campos-extras" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-top:4px"></div>
       <div id="eat-error" style="display:none;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:var(--r);padding:8px 12px;font-size:11px;color:var(--red);margin-top:4px"></div>
@@ -1389,20 +1417,20 @@
   </div>
 </div>
 
-<script src="js/api.js?v=20260507b"></script>
-<script src="js/state.js?v=20260507b"></script>
-<script src="js/app.js?v=20260507b"></script>
-<script src="js/pages.js?v=20260507b"></script>
-<script src="js/medicoes.js?v=20260507b"></script>
-<script src="js/cadastros.js?v=20260507b"></script>
-<script src="js/alcadas.js?v=20260507b"></script>
-<script src="js/lbm.js?v=20260507b"></script>
-<script src="js/financeiro.js?v=20260507b"></script>
-<script src="js/cronograma.js?v=20260511a"></script>
-<script src="js/coloridao.js?v=20260508b"></script>
-<script src="js/suprimentos.js?v=20260508a"></script>
+<script src="js/api.js?v=20260512b" data-v data-src="js/api.js"></script>
+<script src="js/state.js?v=20260512b" data-v data-src="js/state.js"></script>
+<script src="js/app.js?v=20260512b" data-v data-src="js/app.js"></script>
+<script src="js/pages.js?v=20260512b" data-v data-src="js/pages.js"></script>
+<script src="js/medicoes.js?v=20260512b" data-v data-src="js/medicoes.js"></script>
+<script src="js/cadastros.js?v=20260512b" data-v data-src="js/cadastros.js"></script>
+<script src="js/alcadas.js?v=20260512b" data-v data-src="js/alcadas.js"></script>
+<script src="js/lbm.js?v=20260512b" data-v data-src="js/lbm.js"></script>
+<script src="js/financeiro.js?v=20260512b" data-v data-src="js/financeiro.js"></script>
+<script src="js/cronograma.js?v=20260512b" data-v data-src="js/cronograma.js"></script>
+<script src="js/coloridao.js?v=20260512b" data-v data-src="js/coloridao.js"></script>
+<script src="js/suprimentos.js?v=20260512b" data-v data-src="js/suprimentos.js"></script>
 <script>
-// Expõe todos os módulos como globais após todos os scripts carregarem
+// ── Expõe todos os módulos como globais após todos os scripts carregarem ─────
 window.Perm        = Perm;
 window.Medicoes    = Medicoes;
 window.Cadastros   = Cadastros;
@@ -1415,11 +1443,50 @@ window.H           = H;
 window.Cronograma  = Cronograma;
 window.LBM         = LBM;
 window.Suprimentos = Suprimentos;
+
 // Exibe nome do arquivo selecionado no import de cronograma
 document.getElementById('cron-imp-file')?.addEventListener('change', function() {
   const nm = document.getElementById('cron-imp-file-name');
   if (nm) nm.textContent = this.files?.[0]?.name || '';
 });
+
+// ── Restauração automática de sessão ─────────────────────────────────────────
+// Se o usuário já estava logado (token em localStorage), valida com a API
+// e reabre o app direto — sem forçar login novamente a cada reload ou nova aba.
+(async () => {
+  const token = localStorage.getItem('construtivo_token');
+  if (!token) return; // sem token → tela de login normal
+
+  try {
+    const userData = await API.me(); // GET /api/auth/me — valida JWT e retorna dados
+
+    // Restaura State.user (igual ao App.login)
+    const initials = (userData.nome || userData.login).split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+    State.user = {
+      login:    userData.login,
+      name:     userData.nome  || userData.login,
+      role:     userData.perfil,
+      grupos:   userData.grupos || [],
+      initials,
+    };
+    H.el('user-name').textContent       = State.user.name;
+    H.el('user-avatar').textContent     = initials;
+    H.el('user-role-badge').textContent = State.user.role;
+    H.el('user-role-badge').className   = `rbadge r${State.user.role}`;
+
+    // Carrega permissões e abre o app
+    await App._loadPerms(State.user.grupos, State.user.role);
+    App._applyNavPerms();
+    H.el('login-screen').style.display = 'none';
+    H.el('app').style.display = 'flex';
+    await App.navigate('dashboard');
+
+  } catch (e) {
+    // Token inválido ou expirado → apaga e mostra tela de login
+    localStorage.removeItem('construtivo_token');
+    console.info('[Sessão] Token inválido ou expirado — redirecionando para login.');
+  }
+})();
 </script>
 </body>
 </html>

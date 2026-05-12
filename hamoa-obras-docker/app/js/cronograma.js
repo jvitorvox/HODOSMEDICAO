@@ -1138,15 +1138,21 @@ const Cronograma = (() => {
     H.el('eat-resumo-badge').style.display = at.eh_resumo ? 'inline-block' : 'none';
 
     // Força o valor nos inputs via .value (não apenas atributo)
+    const extrasAt = at.campos_extras || {};
+    const gpRaw    = extrasAt['Gatilho Projetos'];
+    const gpVal    = gpRaw != null && gpRaw !== '' ? String(parseInt(gpRaw) || '') : '';
     const fields = {
-      'eat-nome':     at.nome || '',
-      'eat-wbs':      at.wbs || '',
-      'eat-inicio':   at.data_inicio  ? at.data_inicio.slice(0, 10)  : '',
-      'eat-termino':  at.data_termino ? at.data_termino.slice(0, 10) : '',
-      'eat-duracao':  at.duracao != null ? String(at.duracao) : '',
-      'eat-pct-plan': parseFloat(at.pct_planejado || 0).toFixed(1),
-      'eat-pct-real': parseFloat(at.pct_realizado || 0).toFixed(1),
-      'eat-gatilho':  at.gatilho_dias != null ? String(at.gatilho_dias) : '',
+      'eat-nome':          at.nome || '',
+      'eat-wbs':           at.wbs || '',
+      'eat-inicio':        at.data_inicio  ? at.data_inicio.slice(0, 10)  : '',
+      'eat-termino':       at.data_termino ? at.data_termino.slice(0, 10) : '',
+      'eat-duracao':       at.duracao != null ? String(at.duracao) : '',
+      'eat-pct-plan':      parseFloat(at.pct_planejado || 0).toFixed(1),
+      'eat-pct-real':      parseFloat(at.pct_realizado || 0).toFixed(1),
+      'eat-gatilho':       at.gatilho_dias != null ? String(at.gatilho_dias) : '',
+      'eat-gatilho-proj':  gpVal,
+      'eat-custo':         at.custo_planejado != null && parseFloat(at.custo_planejado) > 0
+                             ? parseFloat(at.custo_planejado).toFixed(2) : '',
     };
     for (const [id, val] of Object.entries(fields)) {
       const el = H.el(id);
@@ -1185,30 +1191,43 @@ const Cronograma = (() => {
     if (!_editingAtId) return;
     const at = _atividades.find(a => a.id === _editingAtId);
 
-    const nome      = H.el('eat-nome')?.value.trim();
-    const wbs       = H.el('eat-wbs')?.value.trim();
-    const di        = H.el('eat-inicio')?.value || null;
-    const df        = H.el('eat-termino')?.value || null;
-    const dur       = H.el('eat-duracao')?.value;
-    const pctPlan   = H.el('eat-pct-plan')?.value;
-    const pctReal   = H.el('eat-pct-real')?.value;
-    const gatilho   = H.el('eat-gatilho')?.value;
-    const errEl     = H.el('eat-error');
+    const nome         = H.el('eat-nome')?.value.trim();
+    const wbs          = H.el('eat-wbs')?.value.trim();
+    const di           = H.el('eat-inicio')?.value || null;
+    const df           = H.el('eat-termino')?.value || null;
+    const dur          = H.el('eat-duracao')?.value;
+    const pctPlan      = H.el('eat-pct-plan')?.value;
+    const pctReal      = H.el('eat-pct-real')?.value;
+    const gatilho      = H.el('eat-gatilho')?.value;
+    const gatilhoProj  = H.el('eat-gatilho-proj')?.value;
+    const custo        = H.el('eat-custo')?.value;
+    const errEl        = H.el('eat-error');
 
     if (!nome) {
       if (errEl) { errEl.textContent = 'Nome é obrigatório.'; errEl.style.display = 'block'; }
       return;
     }
 
+    // Monta patch de campos_extras com os campos editáveis
+    const camposExtrasPatch = {};
+    if (gatilhoProj != null && gatilhoProj !== '') {
+      camposExtrasPatch['Gatilho Projetos'] = String(parseInt(gatilhoProj));
+    } else if (gatilhoProj === '') {
+      // Se campo foi apagado, zera explicitamente
+      camposExtrasPatch['Gatilho Projetos'] = null;
+    }
+
     const payload = {
       nome,
-      wbs:           wbs   || null,
-      data_inicio:   di    || null,
-      data_termino:  df    || null,
-      duracao:       dur   ? parseInt(dur)         : null,
-      pct_planejado: pctPlan != null && pctPlan !== '' ? parseFloat(pctPlan) : null,
-      pct_realizado: pctReal != null && pctReal !== '' ? parseFloat(pctReal) : null,
-      gatilho_dias:  gatilho != null && gatilho !== '' ? parseInt(gatilho) : null,
+      wbs:                 wbs   || null,
+      data_inicio:         di    || null,
+      data_termino:        df    || null,
+      duracao:             dur   ? parseInt(dur)         : null,
+      pct_planejado:       pctPlan != null && pctPlan !== '' ? parseFloat(pctPlan) : null,
+      pct_realizado:       pctReal != null && pctReal !== '' ? parseFloat(pctReal) : null,
+      gatilho_dias:        gatilho != null && gatilho !== '' ? parseInt(gatilho) : null,
+      custo_planejado:     custo != null && custo !== '' ? parseFloat(custo) : null,
+      campos_extras_patch: Object.keys(camposExtrasPatch).length ? camposExtrasPatch : undefined,
     };
 
     try {
@@ -1219,6 +1238,8 @@ const Cronograma = (() => {
         Object.assign(_atividades[idx], updated, {
           // pct_realizado_calc pode diferir do pct_realizado se há contratos vinculados
           pct_realizado_calc: updated.pct_realizado ?? _atividades[idx].pct_realizado_calc,
+          // campos_extras: a API retorna o objeto atualizado via RETURNING *
+          campos_extras: updated.campos_extras ?? _atividades[idx].campos_extras,
         });
       }
       UI.closeModal('modal-cron-edit-at');

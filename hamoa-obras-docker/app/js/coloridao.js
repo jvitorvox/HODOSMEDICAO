@@ -876,8 +876,10 @@ const Coloridao = {
                      || ativs.find(a => a.nome === grupoNome && a.eh_resumo);
       if (!grupoNode) { UI.toast('Grupo não encontrado no cronograma', 'error'); return; }
 
-      // Inclui folhas normais + resumos com gatilho_dias configurado (ex: marcos de início)
-      const descendentes = this._getDescendentes(ativs, grupoNode.id).filter(a => !a.eh_resumo || a.gatilho_dias != null);
+      // Inclui folhas normais + resumos com gatilho_dias > 0 explicitamente configurado
+      // Exclui resumos com gatilho_dias = 0 (valor default/vazio — não é um marco real)
+      // Esta condição espelha exatamente o filtro do SQL do heatmap (s.id != s.root_id + gatilho > 0)
+      const descendentes = this._getDescendentes(ativs, grupoNode.id).filter(a => !a.eh_resumo || (a.gatilho_dias != null && a.gatilho_dias > 0));
       const hoje = new Date(); hoje.setHours(0,0,0,0);
 
       // Normaliza datas que podem vir como string ISO completa ("2024-03-04T03:00:00.000Z")
