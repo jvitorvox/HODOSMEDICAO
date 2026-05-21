@@ -1704,8 +1704,8 @@ const Portal = {
     const navMeusPedidos = document.getElementById('nav-meus-pedidos');
     // "Pedido de Compra" só aparece quando ativo no sistema
     if (navPedidos)     navPedidos.style.display     = this._pedidoCompraAtivo ? 'block' : 'none';
-    // "Meus Pedidos" sempre aparece após login (fornecedor pode ver histórico)
-    if (navMeusPedidos) navMeusPedidos.style.display = 'block';
+    // "Meus Pedidos" só aparece quando a funcionalidade está ativa no sistema
+    if (navMeusPedidos) navMeusPedidos.style.display = this._pedidoCompraAtivo ? 'block' : 'none';
   },
 
   // ── Tela: Pedido de Compra ─────────────────────────────────────

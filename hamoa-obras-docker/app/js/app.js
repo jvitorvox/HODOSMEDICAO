@@ -31,11 +31,19 @@ const App = {
 
   /** Resolve as permissões efetivas do usuário a partir do mapa de grupos */
   async _loadPerms(grupos, perfil) {
-    if (perfil === 'ADM') { Perm.grantAll(); return; }
+    // Carrega permissões de grupo
+    if (perfil === 'ADM') { Perm.grantAll(); }
+    else {
+      try {
+        const cfg = await API.config('permissoes');
+        Perm.resolve(grupos, cfg?.valor || {});
+      } catch { Perm.resolve(grupos, {}); }
+    }
+    // Carrega toggle portal_pedido_compra para controle do menu Canteiro
     try {
-      const cfg = await API.config('permissoes');
-      Perm.resolve(grupos, cfg?.valor || {});
-    } catch { Perm.resolve(grupos, {}); }
+      const cfgPortal = await API.config('portal_pedido_compra');
+      State.portalPedidoAtivo = cfgPortal?.valor?.ativo === true;
+    } catch { State.portalPedidoAtivo = false; }
   },
 
   /** Esconde/exibe itens de navegação e submenu de configurações conforme permissões */
@@ -57,6 +65,9 @@ const App = {
       const key = navMap[n.dataset.page];
       if (key) n.style.display = Perm.has(key) ? '' : 'none';
     });
+    // Canteiro: visível apenas se o usuário tem permissão E o toggle está ativo
+    const navCanteiro = H.el('nav-canteiro');
+    if (navCanteiro && !State.portalPedidoAtivo) navCanteiro.style.display = 'none';
     // Submenu de configurações: todos exigem permissão 'configuracoes'
     document.querySelectorAll('.cfg-menu-item[data-cfg]').forEach(i => {
       i.style.display = Perm.has('configuracoes') ? '' : 'none';

@@ -456,8 +456,8 @@ const Configs = {
       {
         label: '🎨 Coloridão & Controle de Obra',
         itens: [
-          ['coloridao', 'Acessar Coloridão & Controle de Obra'],
-          ['canteiro',  'Acessar Canteiro (Pedidos do Portal)'],
+          ['coloridao', 'Acessar Coloridão, Controle de Obra & Acomp. Req. Material'],
+          ['canteiro',  'Acessar Aprov. Req. Material (Pedidos do Portal)'],
         ],
       },
       {
