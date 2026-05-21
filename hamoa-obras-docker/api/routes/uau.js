@@ -268,15 +268,53 @@ router.post('/pedido-compra', auth, async (req, res) => {
       });
     }
 
-    // ── 4. Marca pedido como aprovado no Construtivo ─────────────
+    // ── 4. Aprova cada item do pedido no UAU ─────────────────────
+    // AprovarPedidoCompraMaterialApp — obrigatórios: codigo_empresa, codigo_obra,
+    // insumo, item_ped (sequencial 1..n), num_pedido
+    const aprovarUrl  = `${base}/PedidoCompra/AprovarPedidoCompraMaterialApp`;
+    const numPedidoInt = parseInt(numeroPedido, 10);
+    const aprovacoes  = [];
+
+    for (let i = 0; i < (listaDadosItemPedido || []).length; i++) {
+      const item = listaDadosItemPedido[i];
+      const aprovBody = {
+        codigo_empresa: parseInt(codigoEmpresa),
+        codigo_obra:    String(codigoObra),
+        insumo:         item.codigoInsumo,
+        item_ped:       i + 1,          // sequencial 1-based
+        num_pedido:     numPedidoInt,
+      };
+
+      try {
+        const apR = await fetch(aprovarUrl, {
+          method:  'POST',
+          headers: _headers(cfg, userToken),
+          body:    JSON.stringify(aprovBody),
+        });
+        let apData;
+        try { apData = await apR.json(); } catch { apData = null; }
+        console.log(`[uau/aprovar] item ${i + 1} (${item.codigoInsumo}) → HTTP ${apR.status}`, JSON.stringify(apData));
+        aprovacoes.push({ item: i + 1, insumo: item.codigoInsumo, ok: apR.ok, data: apData });
+      } catch (apErr) {
+        console.error(`[uau/aprovar] item ${i + 1} erro:`, apErr.message);
+        aprovacoes.push({ item: i + 1, insumo: item.codigoInsumo, ok: false, error: apErr.message });
+      }
+    }
+
+    const todosAprovados = aprovacoes.every(a => a.ok);
+    const obsAprovacao   = todosAprovados
+      ? `Itens aprovados automaticamente no UAU`
+      : `Aprovação parcial no UAU — ${aprovacoes.filter(a => !a.ok).length} item(s) não aprovado(s)`;
+
+    // ── 5. Marca pedido como aprovado no Construtivo ─────────────
     await client.query('BEGIN');
     await client.query(
       `UPDATE req_materiais SET status='aprovado', uau_pedido_numero=$2, atualizado_em=NOW() WHERE id=$1`,
       [pedidoId, numeroPedido != null ? String(numeroPedido) : null]
     );
     const obsHistorico = numeroPedido
-      ? `Aprovado e enviado ao UAU — Pedido Nº ${numeroPedido}`
-      : 'Aprovado e enviado ao UAU com sucesso';
+      ? `Aprovado e enviado ao UAU — Pedido Nº ${numeroPedido}. ${obsAprovacao}.`
+      : `Aprovado e enviado ao UAU. ${obsAprovacao}.`;
     await client.query(
       `INSERT INTO req_materiais_historico (rm_id, status_de, status_para, usuario, observacao)
        VALUES ($1,'pendente','aprovado',$2,$3)`,
@@ -285,10 +323,10 @@ router.post('/pedido-compra', auth, async (req, res) => {
     await client.query('COMMIT');
 
     const msgOk = numeroPedido
-      ? `Pedido de compra Nº ${numeroPedido} criado no UAU com sucesso`
-      : 'Pedido de compra enviado ao UAU com sucesso';
-    console.log(`[uau/pedido-compra] Pedido ${pedidoId} enviado ao UAU — Nº ${numeroPedido ?? '(sem número)'}`);
-    return res.json({ ok: true, numeroPedido, message: msgOk });
+      ? `Pedido de compra Nº ${numeroPedido} criado e aprovado no UAU com sucesso`
+      : 'Pedido de compra enviado e aprovado no UAU com sucesso';
+    console.log(`[uau/pedido-compra] Pedido ${pedidoId} → UAU Nº ${numeroPedido ?? '(sem número)'} — aprovações:`, aprovacoes.map(a => `${a.insumo}=${a.ok ? 'OK' : 'ERRO'}`).join(', '));
+    return res.json({ ok: true, numeroPedido, aprovacoes, message: msgOk });
 
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
