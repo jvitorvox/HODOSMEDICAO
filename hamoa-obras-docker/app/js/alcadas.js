@@ -470,7 +470,7 @@ const Configs = {
       {
         label: '🗂 Cadastros & Administração',
         itens: [
-          ['cadastros',      'Cadastros (Obras, Contratos, Fornecedores)'],
+          ['cadastros',      'Cadastros (Obras, Contratos, Fornecedores, Insumos)'],
           ['alcadas',        'Alçadas'],
           ['configuracoes',  'Configurações'],
         ],

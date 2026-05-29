@@ -453,11 +453,6 @@ const Canteiro = {
               title="Apenas o código CAP, sem descrição${it.cap ? ' (do cadastro: '+it.cap+')' : ''}">
           </div>
           <div>
-            <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Data de Entrega *</label>
-            <input class="fi" id="uau-dt-${i}" type="date" value="${dtDef}" style="font-size:13px"
-              title="Será enviada ao UAU no formato MM/DD/AAAA">
-          </div>
-          <div>
             <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Controle Estoque *</label>
             <select class="sel" id="uau-est-${i}" style="font-size:13px">
               <option value="0">Não controla</option>
@@ -471,21 +466,7 @@ const Canteiro = {
             VÍNCULO AO PLANEJAMENTO (SI)
             ${vinculos.length === 0 ? '<span style="font-weight:400;font-size:10px;color:var(--red)"> — cadastre vínculos no contrato para pré-preencher</span>' : ''}
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-            <div>
-              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">
-                Produto PL *
-                ${produtoPl ? '<span style="font-size:9px;color:var(--accent)"> — do cadastro</span>' : ''}
-              </label>
-              <input class="fi" id="uau-prodpl-${i}" value="${produtoPl}" placeholder="Ex: 1" style="font-size:12px${produtoPl ? ';background:var(--surface2)' : ''}">
-            </div>
-            <div>
-              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">
-                Contrato PL *
-                ${contratoPl ? '<span style="font-size:9px;color:var(--accent)"> — do cadastro</span>' : ''}
-              </label>
-              <input class="fi" id="uau-contpl-${i}" value="${contratoPl}" placeholder="Ex: 1" style="font-size:12px${contratoPl ? ';background:var(--surface2)' : ''}">
-            </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div>
               <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">
                 Item PL *
@@ -493,18 +474,13 @@ const Canteiro = {
                   : '<span style="font-size:9px;color:var(--red)"> — importe o cronograma com "wbs erp"</span>'}
               </label>
               <input class="fi" id="uau-itempl-${i}" value="${itemPlDef}" placeholder="Ex: 01.02.03.04" style="font-size:12px${itemPlDef ? ';background:var(--surface2)' : ''}"
-                title="${p.atividade_wbs_erp ? 'WBS ERP: '+p.atividade_wbs_erp : p.atividade_wbs ? 'WBS: '+p.atividade_wbs+' → '+itemPlDef : ''}">
-            </div>
-            ${vinculoHtml}
-            <div>
-              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">Mês PL *</label>
-              <input class="fi" id="uau-mespl-${i}" type="month" value="${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}" style="font-size:12px"
-                title="Mês de referência do planejamento — será enviado ao UAU como MM/AAAA">
+                title="${p.atividade_wbs_erp ? 'WBS ERP: '+p.atividade_wbs_erp : ''}">
             </div>
             <div>
               <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">Qtd. Vínculo *</label>
               <input class="fi" id="uau-qtdpl-${i}" type="number" value="${qtd}" placeholder="${qtd}" style="font-size:12px">
             </div>
+            ${vinculoHtml}
           </div>
         </div>
       </div>`;
@@ -563,6 +539,37 @@ const Canteiro = {
             <span style="color:var(--text3);display:block;margin-bottom:2px">WBS / Atividade</span>
             <span style="color:var(--text2)">${p.atividade_wbs}${p.atividade_nome ? ' — '+p.atividade_nome : ''}</span>
           </div>` : ''}
+        </div>
+      </div>
+
+      <!-- Campos globais aplicados a todos os itens -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;color:var(--text3);letter-spacing:1px;margin-bottom:10px">CAMPOS GLOBAIS — aplicados a todos os itens</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+          <div>
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">Data de Entrega *</label>
+            <input class="fi" id="uau-dt-global" type="date" value="${dtDef}" style="font-size:12px"
+              title="Data de entrega aplicada a todos os itens">
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">Mês PL *</label>
+            <input class="fi" id="uau-mespl-global" type="month" value="${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}" style="font-size:12px"
+              title="Mês do planejamento aplicado a todos os itens">
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">
+              Produto PL *
+              ${produtoPl ? '<span style="font-size:9px;color:var(--accent)"> — do cadastro</span>' : ''}
+            </label>
+            <input class="fi" id="uau-prodpl-global" value="${produtoPl}" placeholder="Ex: 1" style="font-size:12px${produtoPl ? ';background:var(--surface2)' : ''}">
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">
+              Contrato PL *
+              ${contratoPl ? '<span style="font-size:9px;color:var(--accent)"> — do cadastro</span>' : ''}
+            </label>
+            <input class="fi" id="uau-contpl-global" value="${contratoPl}" placeholder="Ex: 1" style="font-size:12px${contratoPl ? ';background:var(--surface2)' : ''}">
+          </div>
         </div>
       </div>
 
@@ -635,41 +642,40 @@ const Canteiro = {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando…'; }
     if (erro) erro.style.display = 'none';
 
+    // Lê campos globais (aplicados a todos os itens)
+    const _normMes = (raw) => {
+      const m1 = raw.match(/^(\d{1,2})[\/\-](\d{4})$/);
+      const m2 = raw.match(/^(\d{4})[\/\-](\d{1,2})$/);
+      if (m1) return String(m1[1]).padStart(2,'0') + '/' + m1[2];
+      if (m2) return String(m2[2]).padStart(2,'0') + '/' + m2[1];
+      return raw;
+    };
+    const dtGlobal   = document.getElementById('uau-dt-global')?.value?.trim() || '';
+    const dtGlobalParts = dtGlobal.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const dtGlobalFmt   = dtGlobalParts ? `${dtGlobalParts[2]}/${dtGlobalParts[3]}/${dtGlobalParts[1]}` : dtGlobal;
+    const mesGlobal  = _normMes(document.getElementById('uau-mespl-global')?.value?.trim() || '');
+    const prodGlobal = parseInt(document.getElementById('uau-prodpl-global')?.value) || 0;
+    const contGlobal = parseInt(document.getElementById('uau-contpl-global')?.value) || 0;
+
     // Monta payload UAU
     const listaDadosItemPedido = itens.map((it, i) => {
       // CAP: extrai apenas o código, removendo descrição após " - " ou " – "
       const capRaw  = document.getElementById(`uau-cap-${i}`)?.value?.trim() || '';
       const cap     = capRaw.split(/\s*[-–]\s*/)[0].trim();
-
-      // Data de entrega: input type=date retorna YYYY-MM-DD → converte para MM/DD/YYYY (formato UAU)
-      const dtInput = document.getElementById(`uau-dt-${i}`)?.value?.trim() || '';
-      const dtParts = dtInput.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      const dtRaw   = dtParts ? `${dtParts[2]}/${dtParts[3]}/${dtParts[1]}` : dtInput;
-      const est     = parseInt(document.getElementById(`uau-est-${i}`)?.value)  || 0;
-      const prodPl  = parseInt(document.getElementById(`uau-prodpl-${i}`)?.value) || 0;
-      const contPl  = parseInt(document.getElementById(`uau-contpl-${i}`)?.value) || 0;
+      const est     = parseInt(document.getElementById(`uau-est-${i}`)?.value) || 0;
       const itemPl  = document.getElementById(`uau-itempl-${i}`)?.value?.trim() || '';
       const srvPl   = document.getElementById(`uau-srvpl-${i}`)?.value?.trim()  || '';
-      // Mês PL: normaliza para MM/AAAA — aceita MM/YYYY, M/YYYY, MM-YYYY, YYYY-MM
-      const mesRaw  = document.getElementById(`uau-mespl-${i}`)?.value?.trim() || '';
-      let mesPl = mesRaw;
-      {
-        const m1 = mesRaw.match(/^(\d{1,2})[\/\-](\d{4})$/);
-        const m2 = mesRaw.match(/^(\d{4})[\/\-](\d{1,2})$/);
-        if (m1) mesPl = String(m1[1]).padStart(2,'0') + '/' + m1[2];
-        else if (m2) mesPl = String(m2[2]).padStart(2,'0') + '/' + m2[1];
-      }
       const insPl   = document.getElementById(`uau-inspl-${i}`)?.value?.trim()  || '';
       const qtdPl   = parseFloat(document.getElementById(`uau-qtdpl-${i}`)?.value) || it.quantidade || 1;
 
       // Vínculo ao planejamento é opcional — só inclui se os campos obrigatórios estiverem preenchidos
-      const temVinculo = prodPl && contPl && itemPl && srvPl && mesPl && insPl;
+      const temVinculo = prodGlobal && contGlobal && itemPl && srvPl && mesGlobal && insPl;
       const listaVinculo = temVinculo ? [{
-        produtoPl:         prodPl,
-        contratoPl:        contPl,
+        produtoPl:         prodGlobal,
+        contratoPl:        contGlobal,
         itemPl,
         servicoPl:         srvPl,
-        mesPl,
+        mesPl:             mesGlobal,
         codigoInsumoPl:    insPl,
         quantidadeVinculo: qtdPl,
       }] : [];
@@ -679,7 +685,7 @@ const Canteiro = {
         CAP:             cap,
         unidade:         it.unidade || 'UN',
         controleEstoque: est,
-        dataEntrega:     dtRaw,
+        dataEntrega:     dtGlobalFmt,
         quantidade:      parseFloat(it.quantidade) || 1,
         observacao:      it.observacao || '',
         listaVinculo,
