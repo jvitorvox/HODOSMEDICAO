@@ -77,7 +77,7 @@ router.get('/', auth, async (req, res) => {
 
       // Progresso por contrato
       (() => {
-        const p2 = [...cParams];
+        const p2  = [];
         const cl2 = obraClause(obras, 'c.obra_id', p2);
         return db.query(`
           SELECT
