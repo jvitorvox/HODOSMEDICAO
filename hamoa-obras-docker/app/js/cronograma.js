@@ -842,6 +842,11 @@ const Cronograma = (() => {
         ${a.gatilho_dias != null && a.gatilho_dias > 0 ? a.gatilho_dias + 'd' : '—'}
       </td>
 
+      <!-- WBS ERP (Planejamento UAU) -->
+      <td class="tc" style="font-size:10px;font-family:var(--font-m);${a.wbs_erp ? 'color:var(--accent);font-weight:600' : 'color:var(--text3)'};vertical-align:middle">
+        ${a.wbs_erp ? H.esc(a.wbs_erp) : '—'}
+      </td>
+
       <!-- Possui Contrato? -->
       <td class="tc" style="vertical-align:middle">${colContrato}</td>
 
@@ -1156,6 +1161,7 @@ const Cronograma = (() => {
       'eat-gatilho-proj':  gpVal,
       'eat-custo':         at.custo_planejado != null && parseFloat(at.custo_planejado) > 0
                              ? parseFloat(at.custo_planejado).toFixed(2) : '',
+      'eat-wbs-erp':       at.wbs_erp || '',
     };
     for (const [id, val] of Object.entries(fields)) {
       const el = H.el(id);
@@ -1204,6 +1210,7 @@ const Cronograma = (() => {
     const gatilho      = H.el('eat-gatilho')?.value;
     const gatilhoProj  = H.el('eat-gatilho-proj')?.value;
     const custo        = H.el('eat-custo')?.value;
+    const wbsErp       = H.el('eat-wbs-erp')?.value.trim();
     const errEl        = H.el('eat-error');
 
     if (!nome) {
@@ -1231,6 +1238,7 @@ const Cronograma = (() => {
       pct_realizado:       pctReal != null && pctReal !== '' ? parseFloat(pctReal) : null,
       gatilho_dias:        gatilho != null && gatilho !== '' ? parseInt(gatilho) : null,
       custo_planejado:     custo != null && custo !== '' ? parseFloat(custo) : null,
+      wbs_erp:             wbsErp || null,
       campos_extras_patch: Object.keys(camposExtrasPatch).length ? camposExtrasPatch : undefined,
     };
 

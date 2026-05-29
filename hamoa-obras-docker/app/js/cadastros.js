@@ -339,7 +339,7 @@ const Cadastros = {
     H.el('cont-empresa').innerHTML='<option value="">Selecione...</option>'+emps.map(e=>`<option value="${e.id}">${e.nome_fantasia||e.razao_social}</option>`).join('');
     H.el('cont-obra').innerHTML='<option value="">Selecione a empresa...</option>';
     H.el('cont-fornecedor').innerHTML='<option value="">Selecione...</option>'+forns.map(f=>`<option value="${f.id}">${f.nome_fantasia||f.razao_social}</option>`).join('');
-    ['cont-numero','cont-objeto','cont-inicio','cont-termino','cont-obs','cont-uau-empresa','cont-uau-contrato'].forEach(id=>{const e=H.el(id);if(e)e.value='';});
+    ['cont-numero','cont-objeto','cont-inicio','cont-termino','cont-obs','cont-uau-empresa','cont-uau-contrato','cont-uau-produto-pl','cont-uau-contrato-pl'].forEach(id=>{const e=H.el(id);if(e)e.value='';});
     H.el('cont-status').value='Vigente';
     H.el('cont-itens').innerHTML='';
     H.el('cont-valor-total-display').textContent='R$ 0,00';
@@ -374,9 +374,11 @@ const Cadastros = {
     H.el('cont-numero').value=c.numero||''; H.el('cont-objeto').value=c.objeto||'';
     H.el('cont-inicio').value=c.inicio||''; H.el('cont-termino').value=c.termino||''; H.el('cont-obs').value=c.obs||'';
     H.el('cont-status').value=c.status||'Vigente';
-    // UAU ERP — chip auto da empresa + campo contrato
+    // UAU ERP — chip auto da empresa + campos de contrato e planejamento
     this._updateEmpresaUAUChip();
     const uauCon = H.el('cont-uau-contrato'); if(uauCon) uauCon.value = c.uau_contrato||'';
+    const uauPrd = H.el('cont-uau-produto-pl'); if(uauPrd) uauPrd.value = c.uau_produto_pl||'';
+    const uauCpl = H.el('cont-uau-contrato-pl'); if(uauCpl) uauCpl.value = c.uau_contrato_pl||'';
     if(H.el('cont-uau-fetch-status')) H.el('cont-uau-fetch-status').textContent='';
     if(H.el('cont-uau-sugestoes'))   H.el('cont-uau-sugestoes').innerHTML='';
     H.el('cont-uau-vinculos-form').style.display = 'none';
@@ -1050,9 +1052,11 @@ const Cadastros = {
       }
     }
 
-    const valor_total    = parseFloat(H.el('cont-valor').value)||0;
-    const uauEmpresaVal  = parseInt(H.el('cont-uau-empresa')?.value)  || null;
-    const uauContratoVal = parseInt(H.el('cont-uau-contrato')?.value) || null;
+    const valor_total     = parseFloat(H.el('cont-valor').value)||0;
+    const uauEmpresaVal   = parseInt(H.el('cont-uau-empresa')?.value)     || null;
+    const uauContratoVal  = parseInt(H.el('cont-uau-contrato')?.value)    || null;
+    const uauProdutoPl    = parseInt(H.el('cont-uau-produto-pl')?.value)  || null;
+    const uauContratoPl   = parseInt(H.el('cont-uau-contrato-pl')?.value) || null;
     // Integração UAU ativa → avisa se campos UAU do contrato estiverem vazios (não bloqueia)
     if (State.uauAtivo && (!uauEmpresaVal || !uauContratoVal)) {
       const faltando = [
@@ -1064,8 +1068,10 @@ const Cadastros = {
     const data={empresa_id,obra_id,fornecedor_id,numero,objeto,valor_total,
       inicio:H.el('cont-inicio').value||null,termino:H.el('cont-termino').value||null,
       status:H.el('cont-status').value,obs:H.el('cont-obs').value,itens,
-      uau_empresa:  uauEmpresaVal,
-      uau_contrato: uauContratoVal,
+      uau_empresa:       uauEmpresaVal,
+      uau_contrato:      uauContratoVal,
+      uau_produto_pl:    uauProdutoPl,
+      uau_contrato_pl:   uauContratoPl,
     };
     try {
       let savedId;

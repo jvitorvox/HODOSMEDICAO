@@ -186,6 +186,20 @@ async function _parseXML(filePath) {
     if (t === '</ExtendedAttributes>') { inExtAttrsSection = false; continue; }
 
     if (inExtAttrsSection && !inTask) {
+      // Formato inline: <ExtendedAttribute><FieldID>X</FieldID><FieldName>Y</FieldName><Alias>Z</Alias>...</ExtendedAttribute>
+      if (t.startsWith('<ExtendedAttribute>') && t.endsWith('</ExtendedAttribute>')) {
+        const fid   = (t.match(/<FieldID>(.*?)<\/FieldID>/)   || [])[1];
+        const fname = (t.match(/<FieldName>(.*?)<\/FieldName>/) || [])[1];
+        const alias = (t.match(/<Alias>(.*?)<\/Alias>/)       || [])[1];
+        if (fid) {
+          fieldMap[fid] = {
+            name:     fname || fid,
+            alias:    alias ? alias.trim() : null,
+            hasAlias: !!alias,
+          };
+        }
+        continue;
+      }
       if (t === '<ExtendedAttribute>') { inExtAttrDef = true; curExtAttrDef = {}; continue; }
       if (t === '</ExtendedAttribute>') {
         inExtAttrDef = false;
@@ -230,6 +244,30 @@ async function _parseXML(filePath) {
       if (inTaskSubBlock > 0) continue;
 
       // Bloco de campo personalizado dentro da tarefa (nível direto)
+      // Formato inline: <ExtendedAttribute><FieldID>X</FieldID><Value>Y</Value></ExtendedAttribute>
+      if (t.startsWith('<ExtendedAttribute>') && t.endsWith('</ExtendedAttribute>') && !inTaskExtAttr) {
+        const fid = (t.match(/<FieldID>(.*?)<\/FieldID>/) || [])[1];
+        const val = (t.match(/<Value>(.*?)<\/Value>/)     || [])[1];
+        if (fid !== undefined && val !== undefined) {
+          const info = fieldMap[fid];
+          const valTrimmed = val.trim();
+          if (info?.hasAlias && valTrimmed) {
+            const aliasLow = info.alias.toLowerCase();
+            if (aliasLow === 'gatilho suprimentos' || aliasLow === 'gatilho contratação prestador' || aliasLow === 'gatilho contratacao prestador') {
+              const dias = parseInt(valTrimmed);
+              if (!isNaN(dias) && dias >= 0) current._gatilho_dias = dias;
+              current._extras[info.alias] = valTrimmed;
+            } else if (aliasLow === 'gatilho' || aliasLow === 'gatilho projetos') {
+              const dias = parseInt(valTrimmed);
+              if (!isNaN(dias) && dias >= 0 && current._gatilho_dias == null) current._gatilho_dias = dias;
+              current._extras[info.alias] = valTrimmed;
+            } else {
+              current._extras[info.alias] = valTrimmed;
+            }
+          }
+        }
+        continue;
+      }
       if (t === '<ExtendedAttribute>') { inTaskExtAttr = true; curTaskExtAttr = {}; continue; }
       if (t === '</ExtendedAttribute>') {
         inTaskExtAttr = false;
@@ -360,7 +398,7 @@ async function _saveAtividades(client, cronogramaId, atividades) {
   // Prepara colunas como arrays paralelos para unnest do PostgreSQL
   const wbss = [], nomes = [], dataInis = [], dataFins = [],
         duracoes = [], niveis = [], pcts = [], ehResumos = [],
-        ordens = [], uids = [], custos = [], camposExtras = [], gatilhos = [];
+        ordens = [], uids = [], custos = [], camposExtras = [], gatilhos = [], wbsErps = [];
 
   let semData = 0, semDuracao = 0;
   for (const a of atividades) {
@@ -381,6 +419,9 @@ async function _saveAtividades(client, cronogramaId, atividades) {
         : null
     );
     gatilhos    .push(a.gatilho_dias != null ? parseInt(a.gatilho_dias) : null);
+    // Campo "wbs erp" do MS Project → código WBS do planejamento UAU (ex: "01.04.11.01")
+    const wbsErpVal = a.campos_extras?.['wbs erp'] || a.campos_extras?.['WBS ERP'] || a.campos_extras?.['wbs_erp'] || null;
+    wbsErps     .push(wbsErpVal ? String(wbsErpVal).trim() || null : null);
 
     if (!a.data_inicio && !a.data_termino) semData++;
     if (!a.duracao) semDuracao++;
@@ -389,11 +430,15 @@ async function _saveAtividades(client, cronogramaId, atividades) {
   if (semData > 0)     avisos.push({ nivel: 'info', msg: `${semData} atividade(s) sem data de início/término` });
   if (semDuracao > 0)  avisos.push({ nivel: 'info', msg: `${semDuracao} atividade(s) sem duração definida` });
 
+  const comWbsErp = wbsErps.filter(Boolean).length;
+  if (comWbsErp > 0)   avisos.push({ nivel: 'info', msg: `${comWbsErp} atividade(s) com WBS ERP (código de planejamento UAU) importadas` });
+
+
   // ── INSERT em bloco único via unnest — 1 roundtrip ao banco ─────────────────
   await client.query(`
     INSERT INTO atividades_cronograma
       (cronograma_id, wbs, nome, data_inicio, data_termino, duracao,
-       nivel, pct_planejado, eh_resumo, ordem, uid_externo, custo_planejado, campos_extras, gatilho_dias)
+       nivel, pct_planejado, eh_resumo, ordem, uid_externo, custo_planejado, campos_extras, gatilho_dias, wbs_erp)
     SELECT $1,
            unnest($2::text[]),    unnest($3::text[]),
            unnest($4::date[]),    unnest($5::date[]),
@@ -402,9 +447,10 @@ async function _saveAtividades(client, cronogramaId, atividades) {
            unnest($10::int[]),    unnest($11::int[]),
            unnest($12::numeric[]),
            unnest($13::text[])::jsonb,
-           unnest($14::int[])
+           unnest($14::int[]),
+           unnest($15::text[])
   `, [cronogramaId, wbss, nomes, dataInis, dataFins,
-      duracoes, niveis, pcts, ehResumos, ordens, uids, custos, camposExtras, gatilhos]);
+      duracoes, niveis, pcts, ehResumos, ordens, uids, custos, camposExtras, gatilhos, wbsErps]);
 
   // ── UPDATE parent_id em bloco único via unnest + self-join ──────────────────
   const childUids = [], parentUids = [];
@@ -585,6 +631,7 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
       let versao;
       // Mapas indexados por uid_externo para preservar dados ao substituir cronograma
       let gatilhoMap   = {}; // uid → gatilho_dias
+      let wbsErpMap    = {}; // uid → wbs_erp
       let contratosMap = {}; // uid → [contrato_id, ...]
 
       if (replaceId) {
@@ -593,14 +640,19 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
         if (!oldR.rows.length) return res.status(404).json({ error: 'Cronograma a substituir não encontrado.' });
         versao = oldR.rows[0].versao;
 
-        // Preserva gatilho_dias indexado por uid_externo
+        // Preserva gatilho_dias e wbs_erp indexados por uid_externo
         const gatR = await client.query(
-          `SELECT uid_externo, gatilho_dias
+          `SELECT uid_externo, gatilho_dias, wbs_erp
              FROM atividades_cronograma
-            WHERE cronograma_id = $1 AND gatilho_dias IS NOT NULL AND uid_externo IS NOT NULL`,
+            WHERE cronograma_id = $1 AND uid_externo IS NOT NULL
+              AND (gatilho_dias IS NOT NULL OR wbs_erp IS NOT NULL)`,
           [replaceId]
         );
-        gatilhoMap = Object.fromEntries(gatR.rows.map(r => [String(r.uid_externo), r.gatilho_dias]));
+        for (const r of gatR.rows) {
+          const key = String(r.uid_externo);
+          if (r.gatilho_dias != null) gatilhoMap[key] = r.gatilho_dias;
+          if (r.wbs_erp)             wbsErpMap[key]  = r.wbs_erp;
+        }
 
         // Preserva vínculos contrato↔atividade indexados por uid_externo
         const conR = await client.query(
@@ -648,6 +700,16 @@ router.post('/importar', auth, perm('cronogramaEditar'), (req, res, next) => {
           );
         }
         console.log(`[importar] Gatilho restaurado (fallback) para atividades sem valor no XML.`);
+      }
+      if (Object.keys(wbsErpMap).length > 0) {
+        for (const [uid, wbs] of Object.entries(wbsErpMap)) {
+          await client.query(
+            `UPDATE atividades_cronograma SET wbs_erp = $1
+              WHERE cronograma_id = $2 AND uid_externo = $3 AND wbs_erp IS NULL`,
+            [wbs, cronogramaId, parseInt(uid)]
+          );
+        }
+        console.log(`[importar] WBS ERP restaurado (fallback) para atividades sem valor no XML.`);
       }
 
       // Garante que toda atividade sem gatilho_dias definido (nem no XML nem no cronograma anterior)
@@ -803,7 +865,7 @@ router.get('/:id/atividades', auth, async (req, res) => {
          a.id, a.cronograma_id, a.parent_id, a.wbs, a.nome,
          a.data_inicio, a.data_termino, a.duracao, a.nivel,
          a.pct_planejado, a.pct_realizado, a.eh_resumo, a.ordem,
-         a.custo_planejado, a.gatilho_dias, a.campos_extras,
+         a.custo_planejado, a.gatilho_dias, a.campos_extras, a.wbs_erp,
 
          -- ── % calculado pelas medições (join lateral evita subquery duplicada) ──
          med_calc.pct_medicoes,
@@ -891,17 +953,6 @@ router.get('/:id/atividades', auth, async (req, res) => {
        ORDER BY a.ordem`,
       [id]
     );
-
-    // ── Diagnóstico: loga atividades com contratos para depuração ──
-    const withContratos = r.rows.filter(x => x.qtd_contratos > 0);
-    if (withContratos.length > 0) {
-      console.log(`[CRON/${id}] Atividades com contratos vinculados:`);
-      withContratos.forEach(x => {
-        console.log(`  id=${x.id} nivel=${x.nivel} wbs=${x.wbs} qtd_contratos=${x.qtd_contratos} qtd_com_medicoes=${x.qtd_com_medicoes} pct_medicoes=${x.pct_medicoes} pct_realizado_calc=${x.pct_realizado_calc}`);
-      });
-    } else {
-      console.log(`[CRON/${id}] Nenhuma atividade tem contrato vinculado em contratos_atividades.`);
-    }
 
     // ── Roll-up bottom-up: computa pct_realizado_calc dos pais a partir dos filhos ──
     const rows = r.rows;
@@ -1298,7 +1349,7 @@ router.get('/coloridao/pendencias', auth, async (req, res) => {
       `SELECT
          a.id, a.nome, a.wbs, a.cronograma_id,
          a.data_inicio, a.data_termino, a.duracao,
-         a.gatilho_dias, a.campos_extras,
+         a.gatilho_dias, a.campos_extras, a.wbs_erp,
          -- Grupo pai mais próximo
          (SELECT p.nome FROM atividades_cronograma p
            WHERE p.id = a.parent_id) AS grupo_pai,
@@ -1718,7 +1769,7 @@ router.put('/atividades/:id', auth, perm('cronogramaEditar'), async (req, res) =
     const {
       nome, wbs, data_inicio, data_termino, duracao,
       pct_planejado, pct_realizado, gatilho_dias,
-      custo_planejado,
+      custo_planejado, wbs_erp,
       campos_extras_patch,   // objeto com chaves a mesclar em campos_extras (ex.: {'Gatilho Projetos': 15})
     } = req.body;
     const clamp = (v, lo, hi) => v != null ? Math.min(hi, Math.max(lo, parseFloat(v))) : null;
@@ -1728,7 +1779,7 @@ router.put('/atividades/:id', auth, perm('cronogramaEditar'), async (req, res) =
     let extrasParam = null;
     if (campos_extras_patch && typeof campos_extras_patch === 'object' && Object.keys(campos_extras_patch).length) {
       extrasParam = JSON.stringify(campos_extras_patch);
-      extrasExpr = ', campos_extras = COALESCE(campos_extras, \'{}\'::jsonb) || $11::jsonb';
+      extrasExpr = ', campos_extras = COALESCE(campos_extras, \'{}\'::jsonb) || $12::jsonb';
     }
 
     const params = [
@@ -1742,8 +1793,9 @@ router.put('/atividades/:id', auth, perm('cronogramaEditar'), async (req, res) =
       parseInt(req.params.id),                                                       // $8
       gatilho_dias != null && gatilho_dias !== '' ? parseInt(gatilho_dias) : null,  // $9
       custo_planejado != null && custo_planejado !== '' ? parseFloat(custo_planejado) : null, // $10
+      wbs_erp != null ? String(wbs_erp).trim() || null : null,                     // $11
     ];
-    if (extrasParam !== null) params.push(extrasParam); // $11 condicional
+    if (extrasParam !== null) params.push(extrasParam); // $12 condicional
 
     const r = await db.query(
       `UPDATE atividades_cronograma SET
@@ -1755,7 +1807,8 @@ router.put('/atividades/:id', auth, perm('cronogramaEditar'), async (req, res) =
          pct_planejado   = COALESCE($6::numeric, pct_planejado),
          pct_realizado   = COALESCE($7::numeric, pct_realizado),
          gatilho_dias    = $9,
-         custo_planejado = COALESCE($10::numeric, custo_planejado)
+         custo_planejado = COALESCE($10::numeric, custo_planejado),
+         wbs_erp         = $11
          ${extrasExpr}
        WHERE id = $8 RETURNING *`,
       params
@@ -1805,7 +1858,7 @@ router.get('/:id/export-xml', auth, async (req, res) => {
          a.id, a.cronograma_id, a.parent_id, a.wbs, a.nome,
          a.data_inicio, a.data_termino, a.duracao, a.nivel,
          a.pct_planejado, a.pct_realizado, a.eh_resumo, a.ordem,
-         a.custo_planejado, a.gatilho_dias, a.campos_extras,
+         a.custo_planejado, a.gatilho_dias, a.campos_extras, a.wbs_erp,
          a.uid_externo,
 
          med_calc.pct_medicoes,

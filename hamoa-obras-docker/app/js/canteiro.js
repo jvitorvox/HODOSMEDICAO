@@ -385,11 +385,13 @@ const Canteiro = {
     })();
     const mesDef = `${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
 
-    // WBS → Item PL: cada segmento com 2 dígitos (ex: 1.2.3.4 → 01.02.03.04)
-    const _fmtWbs = (wbs) => wbs
-      ? wbs.split('.').map(seg => seg.trim().padStart(2, '0')).join('.')
-      : '';
-    const itemPlDef = _fmtWbs(p.atividade_wbs || '');
+    // Item PL: vem do wbs_erp da atividade no cronograma.
+    // Se não preenchido, fica vazio — usuário importa o cronograma com o campo "wbs erp".
+    const itemPlDef = p.atividade_wbs_erp || '';
+
+    // Produto PL e Contrato PL do cadastro do contrato
+    const produtoPl  = p.contrato_uau_produto_pl  || '';
+    const contratoPl = p.contrato_uau_contrato_pl || '';
 
     // Opções do select de vínculo ao planejamento
     const vinculoOpts = vinculos.length > 0
@@ -471,17 +473,27 @@ const Canteiro = {
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
             <div>
-              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">Produto PL *</label>
-              <input class="fi" id="uau-prodpl-${i}" placeholder="Ex: 1" style="font-size:12px">
+              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">
+                Produto PL *
+                ${produtoPl ? '<span style="font-size:9px;color:var(--accent)"> — do cadastro</span>' : ''}
+              </label>
+              <input class="fi" id="uau-prodpl-${i}" value="${produtoPl}" placeholder="Ex: 1" style="font-size:12px${produtoPl ? ';background:var(--surface2)' : ''}">
             </div>
             <div>
-              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">Contrato PL *</label>
-              <input class="fi" id="uau-contpl-${i}" placeholder="Ex: 1" style="font-size:12px">
+              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">
+                Contrato PL *
+                ${contratoPl ? '<span style="font-size:9px;color:var(--accent)"> — do cadastro</span>' : ''}
+              </label>
+              <input class="fi" id="uau-contpl-${i}" value="${contratoPl}" placeholder="Ex: 1" style="font-size:12px${contratoPl ? ';background:var(--surface2)' : ''}">
             </div>
             <div>
-              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">Item PL *</label>
-              <input class="fi" id="uau-itempl-${i}" value="${itemPlDef}" placeholder="Ex: 01.02.03.04" style="font-size:12px"
-                title="${p.atividade_wbs ? 'WBS: '+p.atividade_wbs+' → formatado: '+itemPlDef : ''}">
+              <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">
+                Item PL *
+                ${p.atividade_wbs_erp ? '<span style="font-size:9px;color:var(--accent)"> — WBS ERP do cronograma</span>'
+                  : '<span style="font-size:9px;color:var(--red)"> — importe o cronograma com "wbs erp"</span>'}
+              </label>
+              <input class="fi" id="uau-itempl-${i}" value="${itemPlDef}" placeholder="Ex: 01.02.03.04" style="font-size:12px${itemPlDef ? ';background:var(--surface2)' : ''}"
+                title="${p.atividade_wbs_erp ? 'WBS ERP: '+p.atividade_wbs_erp : p.atividade_wbs ? 'WBS: '+p.atividade_wbs+' → '+itemPlDef : ''}">
             </div>
             ${vinculoHtml}
             <div>

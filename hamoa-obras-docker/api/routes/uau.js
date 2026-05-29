@@ -224,7 +224,6 @@ router.post('/pedido-compra', auth, async (req, res) => {
       listaDadosItemPedido: listaDadosItemPedido || [],
     };
 
-    console.log('[uau/pedido-compra] Payload enviado:', JSON.stringify(payload, null, 2));
 
     const pcUrl = `${base}/PedidoCompra/GravarPedidoDeCompraDoTipoMaterial`;
     const pcR   = await fetch(pcUrl, {
@@ -236,7 +235,6 @@ router.post('/pedido-compra', auth, async (req, res) => {
     let pcData;
     try { pcData = await pcR.json(); } catch { pcData = null; }
 
-    console.log('[uau/pedido-compra] Resposta UAU:', pcR.status, JSON.stringify(pcData));
 
     // UAU retorna array: ["numeroPedido", "codigoErro", "mensagem"]
     //   pcData[0] = número do pedido (ex: "3412")
@@ -339,8 +337,9 @@ router.post('/pedido-compra', auth, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════════
 // GET /api/uau/itens-contrato?empresa=X&contrato=Y
-// Consulta os itens de um contrato no UAU e retorna lista normalizada
-// com Item, CodigoAcompanhamento, Descricao, Unidade e SaldoMedicao.
+// Consulta os itens de um contrato no UAU e retorna lista normalizada.
+// itemPlanejamento (WBS) fica sempre null — a API UAU não expõe o vínculo
+// entre código financeiro e item de planejamento. Usuário preenche manualmente.
 // ════════════════════════════════════════════════════════════════
 router.get('/itens-contrato', auth, async (req, res) => {
   try {
@@ -354,6 +353,7 @@ router.get('/itens-contrato', auth, async (req, res) => {
 
     const empresa  = parseInt(req.query.empresa,  10);
     const contrato = parseInt(req.query.contrato, 10);
+
     if (isNaN(empresa) || isNaN(contrato)) {
       return res.status(400).json({ ok: false, error: 'Parâmetros empresa e contrato são obrigatórios e devem ser numéricos.' });
     }
@@ -377,7 +377,7 @@ router.get('/itens-contrato', auth, async (req, res) => {
       (authParsed?.token || authParsed?.Token || authParsed?.access_token || authParsed?.AccessToken || '') ||
       (typeof authParsed === 'string' && authParsed.length > 20 ? authParsed : '') || '';
 
-    // Consulta itens do contrato
+    // Consulta itens do contrato financeiro
     const itensUrl = `${base}/ContratoMaterialServico/ConsultarItensContrato`;
     const itensR   = await fetch(itensUrl, {
       method:  'POST',
@@ -408,8 +408,15 @@ router.get('/itens-contrato', auth, async (req, res) => {
       preco:                it.Preco_itens  ?? null,
       qtd:                  it.Qtde_itens   ?? null,
       saldo:                it.SaldoMedicao_Itens ?? null,
+      itemPlanejamento:     null,
     })).filter(it => it.item != null);
 
+    // Nota: itemPlanejamento (WBS) não é auto-populado.
+    // A API UAU (ConsultarItensVinculoPlanejamentoServico) retorna sempre []
+    // para contratos sem vínculo formal cadastrado no módulo de Planejamento.
+    // O usuário preenche o campo "Item PL" manualmente na tabela de itens.
+
+    console.log(`[uau/itens-contrato] ${itens.length} itens; ${itens.filter(i=>i.itemPlanejamento).length} com item PL`);
     return res.json({ ok: true, itens, total: itens.length });
 
   } catch (err) {
@@ -891,7 +898,6 @@ router.post('/gerar-processo', auth, async (req, res) => {
     if (observacao) payload.Parametro.HistoricoLancContabilApagar = observacao;
 
     console.log(`[uau/gerar-processo] medicao=${medicaoId} (UAU ${medicao}) empresa=${empresa} contrato=${contrato}`);
-    console.log('[uau/gerar-processo] Payload:', JSON.stringify(payload, null, 2));
 
     const procR = await fetch(`${base}/ProcessoPagamento/GerarProcessoMedicao`, {
       method: 'POST', headers: _headers(cfg, userToken),

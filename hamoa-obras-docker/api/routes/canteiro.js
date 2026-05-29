@@ -290,8 +290,11 @@ router.get('/req-materiais/:id', auth, async (req, res) => {
         c.objeto                                  AS contrato_descricao,
         c.uau_empresa                             AS contrato_uau_empresa,
         c.uau_contrato                            AS contrato_uau_contrato,
+        c.uau_produto_pl                          AS contrato_uau_produto_pl,
+        c.uau_contrato_pl                         AS contrato_uau_contrato_pl,
         a.nome                                    AS atividade_nome,
         a.wbs                                     AS atividade_wbs,
+        a.wbs_erp                                 AS atividade_wbs_erp,
         (SELECT pp.nome FROM atividades_cronograma pp WHERE pp.id = a.parent_id) AS grupo_pai,
         (SELECT COUNT(*) FROM req_materiais_anexos x WHERE x.rm_id = rm.id)      AS total_anexos
       FROM req_materiais rm
