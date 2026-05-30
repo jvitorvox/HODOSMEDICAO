@@ -305,10 +305,19 @@ router.post('/pedido-compra', auth, async (req, res) => {
       : `Aprovação parcial no UAU — ${aprovacoes.filter(a => !a.ok).length} item(s) não aprovado(s)`;
 
     // ── 5. Marca pedido como aprovado no Construtivo ─────────────
+    // Extrai data_entrega do primeiro item do payload (global para todos os itens)
+    const primeiroItem = (listaDadosItemPedido || [])[0];
+    const dataEntregaRaw = primeiroItem?.dataEntrega || null; // formato MM/DD/YYYY
+    let dataEntregaIso = null;
+    if (dataEntregaRaw) {
+      const m = dataEntregaRaw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (m) dataEntregaIso = `${m[3]}-${m[1]}-${m[2]}`; // → YYYY-MM-DD
+    }
+
     await client.query('BEGIN');
     await client.query(
-      `UPDATE req_materiais SET status='aprovado', uau_pedido_numero=$2, atualizado_em=NOW() WHERE id=$1`,
-      [pedidoId, numeroPedido != null ? String(numeroPedido) : null]
+      `UPDATE req_materiais SET status='aprovado', uau_pedido_numero=$2, data_entrega=$3, atualizado_em=NOW() WHERE id=$1`,
+      [pedidoId, numeroPedido != null ? String(numeroPedido) : null, dataEntregaIso]
     );
     const obsHistorico = numeroPedido
       ? `Aprovado e enviado ao UAU — Pedido Nº ${numeroPedido}. ${obsAprovacao}.`

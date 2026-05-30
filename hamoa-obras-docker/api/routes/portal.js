@@ -1350,7 +1350,7 @@ router.get('/pedidos', portalAuth, async (req, res) => {
     const r = await db.query(`
       SELECT
         rm.id, rm.codigo, rm.descricao, rm.wbs, rm.itens, rm.observacao,
-        rm.status, rm.criado_em, rm.atualizado_em,
+        rm.status, rm.uau_pedido_numero, rm.data_entrega, rm.criado_em, rm.atualizado_em,
         o.nome   AS obra_nome,
         COALESCE(e.nome_fantasia, e.razao_social) AS empresa_nome,
         c.numero AS contrato_numero,
@@ -1387,7 +1387,7 @@ router.get('/pedidos/:id', portalAuth, async (req, res) => {
     const r = await db.query(`
       SELECT
         rm.id, rm.codigo, rm.descricao, rm.wbs, rm.itens, rm.observacao,
-        rm.status, rm.criado_em, rm.atualizado_em,
+        rm.status, rm.uau_pedido_numero, rm.data_entrega, rm.criado_em, rm.atualizado_em,
         o.nome   AS obra_nome,
         COALESCE(e.nome_fantasia, e.razao_social) AS empresa_nome,
         c.numero AS contrato_numero,

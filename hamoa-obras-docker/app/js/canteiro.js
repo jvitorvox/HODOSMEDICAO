@@ -60,7 +60,9 @@ const Canteiro = {
 
     try {
       const params = new URLSearchParams({ origem: 'portal_fornecedor', limit: 200 });
-      if (this._filtroStatus)    params.set('status',     this._filtroStatus);
+      // 'integrado' é filtro local (aprovado + uau_pedido_numero) — não passa para a API
+      if (this._filtroStatus && this._filtroStatus !== 'integrado') params.set('status', this._filtroStatus);
+      if (this._filtroStatus === 'integrado') params.set('status', 'aprovado'); // busca aprovados e filtra localmente
       if (this._filtroObraId)    params.set('obra_id',    this._filtroObraId);
       if (this._filtroEmpresaId) params.set('empresa_id', this._filtroEmpresaId);
 
@@ -79,12 +81,13 @@ const Canteiro = {
 
   // ── Stats chips ───────────────────────────────────────────────
   _renderStats() {
-    const total     = this._pedidos.length;
-    const pendente  = this._pedidos.filter(p => p.status === 'pendente').length;
-    const aprovado  = this._pedidos.filter(p => p.status === 'aprovado').length;
-    const reprovado = this._pedidos.filter(p => p.status === 'reprovado').length;
-    const em_compra = this._pedidos.filter(p => p.status === 'em_compra').length;
-    const entregue  = this._pedidos.filter(p => p.status === 'entregue').length;
+    const total       = this._pedidos.length;
+    const pendente    = this._pedidos.filter(p => p.status === 'pendente').length;
+    const aprovado    = this._pedidos.filter(p => p.status === 'aprovado' && !p.uau_pedido_numero).length;
+    const integrado   = this._pedidos.filter(p => p.status === 'aprovado' &&  p.uau_pedido_numero).length;
+    const reprovado   = this._pedidos.filter(p => p.status === 'reprovado').length;
+    const em_compra   = this._pedidos.filter(p => p.status === 'em_compra').length;
+    const entregue    = this._pedidos.filter(p => p.status === 'entregue').length;
 
     const el = H.el('cant-stats');
     if (!el) return;
@@ -96,7 +99,10 @@ const Canteiro = {
         ⏳ Aguardando Gestor <span>${pendente}</span>
       </div>
       <div class="stat-chip info ${this._filtroStatus === 'aprovado' ? 'active' : ''}" onclick="Canteiro._setFiltroStatus('aprovado')">
-        ✅ Aprovado Gestor <span>${aprovado}</span>
+        ✅ Aprovado <span>${aprovado}</span>
+      </div>
+      <div class="stat-chip success ${this._filtroStatus === 'integrado' ? 'active' : ''}" onclick="Canteiro._setFiltroStatus('integrado')">
+        🔗 Integrado ERP <span>${integrado}</span>
       </div>
       <div class="stat-chip danger ${this._filtroStatus === 'reprovado' ? 'active' : ''}" onclick="Canteiro._setFiltroStatus('reprovado')">
         ✗ Reprovado <span>${reprovado}</span>
@@ -132,22 +138,29 @@ const Canteiro = {
       return;
     }
 
-    el.innerHTML = this._pedidos.map(p => this._cardHTML(p)).join('');
+    // Filtro local para 'integrado' (aprovado + uau_pedido_numero)
+    const lista = this._filtroStatus === 'integrado'
+      ? this._pedidos.filter(p => p.status === 'aprovado' && p.uau_pedido_numero)
+      : this._pedidos;
+    el.innerHTML = lista.map(p => this._cardHTML(p)).join('');
   },
 
-  _statusInfo(status) {
+  _statusInfo(status, uauNumero) {
+    if (status === 'aprovado' && uauNumero) {
+      return { label: 'Aprovado e Integrado ERP', cls: 'badge-success', icon: '🔗' };
+    }
     return {
-      pendente:  { label: 'Aguardando Aprovação Gestor',           cls: 'badge-warn',    icon: '⏳' },
-      aprovado:  { label: 'Aprovado pelo Gestor',                  cls: 'badge-info',    icon: '✅' },
-      reprovado: { label: 'Reprovado pelo Gestor',                 cls: 'badge-danger',  icon: '✗'  },
-      em_compra: { label: 'Pedido em Compra',                      cls: 'badge-info',    icon: '🛒' },
-      entregue:  { label: 'Entregue',                              cls: 'badge-success', icon: '📦' },
-      cancelado: { label: 'Reprovado pelo Suprimentos',            cls: 'badge-danger',  icon: '✕'  },
+      pendente:  { label: 'Aguardando Aprovação Gestor',  cls: 'badge-warn',    icon: '⏳' },
+      aprovado:  { label: 'Aprovado pelo Gestor',         cls: 'badge-info',    icon: '✅' },
+      reprovado: { label: 'Reprovado pelo Gestor',        cls: 'badge-danger',  icon: '✗'  },
+      em_compra: { label: 'Pedido em Compra',             cls: 'badge-info',    icon: '🛒' },
+      entregue:  { label: 'Entregue',                     cls: 'badge-success', icon: '📦' },
+      cancelado: { label: 'Reprovado pelo Suprimentos',   cls: 'badge-danger',  icon: '✕'  },
     }[status] || { label: status, cls: 'badge-default', icon: '•' };
   },
 
   _cardHTML(p) {
-    const st    = this._statusInfo(p.status);
+    const st    = this._statusInfo(p.status, p.uau_pedido_numero);
     const itens = this._parseItens(p.itens);
     const total = parseInt(p.total_anexos || 0);
     const dt    = p.criado_em
@@ -528,11 +541,7 @@ const Canteiro = {
           <div>
             <span style="color:var(--text3);display:block;margin-bottom:2px">Contrato</span>
             <span style="color:var(--text2)">${p.contrato_numero ? 'Nº '+p.contrato_numero : '—'}</span>
-            ${p.contrato_uau_contrato ? '&nbsp;'+_tag(codigoContrato, true) : ''}
-          </div>
-          <div>
-            <span style="color:var(--text3);display:block;margin-bottom:2px">Usuário UAU</span>
-            ${_tag(uauLogin || null, !!uauLogin)}
+            ${p.contrato_uau_contrato ? `&nbsp;<span style="color:var(--text3);font-size:11px">· UAU</span>&nbsp;${_tag(codigoContrato, true)}` : ''}
           </div>
           ${p.atividade_wbs ? `
           <div style="grid-column:1/-1">

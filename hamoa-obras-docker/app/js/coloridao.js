@@ -243,7 +243,11 @@ const Coloridao = {
     }
 
     const fmtDate = d => d ? new Date(String(d).slice(0,10) + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
-    const ss = s => this._rmStatusStyle[s] || { color:'var(--text3)', bg:'var(--bg2)', label: s };
+    const ss = (s, rm) => {
+      if (s === 'aprovado' && rm?.uau_pedido_numero)
+        return { color: '#15803d', bg: 'rgba(21,128,61,.1)', label: '🔗 Aprovado e Integrado ERP' };
+      return this._rmStatusStyle[s] || { color:'var(--text3)', bg:'var(--bg2)', label: s };
+    };
 
     // Agrupa por obra
     const porObra = {};
@@ -261,10 +265,10 @@ const Coloridao = {
         </div>`;
 
       for (const rm of items) {
-        const st  = ss(rm.status);
-        // Suprimentos age apenas quando status é 'aprovado' (aprovado pelo gestor)
-        const podeAprovar  = rm.status === 'aprovado';
-        const podeReprovar = rm.status === 'aprovado';
+        const st  = ss(rm.status, rm);
+        // Suprimentos age apenas quando status é 'aprovado' e ainda não integrado ao ERP
+        const podeAprovar  = rm.status === 'aprovado' && !rm.uau_pedido_numero;
+        const podeReprovar = rm.status === 'aprovado' && !rm.uau_pedido_numero;
 
         // Itens da RM (JSONB → array) — portal usa "descricao", interno usa "nome"
         const itens = Array.isArray(rm.itens) ? rm.itens : (rm.itens ? (() => { try { return JSON.parse(rm.itens); } catch { return []; } })() : []);
