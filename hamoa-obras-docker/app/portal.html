@@ -2231,7 +2231,9 @@ const Portal = {
         entregue:  { label: '📦 Entregue',                         cor: '#15803d', bg: '#f0fdf4' },
         cancelado: { label: '✗ Reprovado pelo Suprimentos',        cor: '#dc2626', bg: '#fef2f2' },
       };
-      const st = statusMap[p.status] || { label: p.status, cor: '#64748b', bg: '#f8fafc' };
+      const st = (p.status === 'aprovado' && p.uau_pedido_numero)
+        ? { label: '🔗 Aprovado e Integrado ERP', cor: '#15803d', bg: '#f0fdf4' }
+        : (statusMap[p.status] || { label: p.status, cor: '#64748b', bg: '#f8fafc' });
 
       // Labels dos status para histórico
       const stLabel = s => (statusMap[s]?.label || s);
@@ -2331,7 +2333,25 @@ const Portal = {
           </button>
         </div>` : '';
 
-      bodyEl.innerHTML = infoGrid + itensHtml + histHtml + confirmarHtml;
+      // ── Anexos ──
+      const anexos = p.anexos || [];
+      const anexosHtml = anexos.length ? `
+        <div class="det-secao-titulo">📎 Anexos (${anexos.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+          ${anexos.map(a => {
+            const icon = a.tipo === 'img' ? '🖼️' : a.tipo === 'pdf' ? '📄' : a.tipo === 'video' ? '🎬' : '📎';
+            const url  = a.url_view || '#';
+            return `<a href="${_esc(url)}" target="_blank" rel="noopener"
+              style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;
+                     border:1px solid var(--borda);background:var(--card);font-size:12px;color:var(--azul-md);
+                     text-decoration:none;font-weight:600">
+              ${icon} ${_esc(a.nome)}
+              ${a.tamanho ? `<span style="color:var(--cinza);font-weight:400;font-size:10px">${_esc(a.tamanho)}</span>` : ''}
+            </a>`;
+          }).join('')}
+        </div>` : '';
+
+      bodyEl.innerHTML = infoGrid + itensHtml + anexosHtml + histHtml + confirmarHtml;
 
       // Wiring do botão de confirmar entrega
       const btnConf = document.getElementById('btn-confirmar-entrega');

@@ -219,7 +219,7 @@ const Canteiro = {
 
       <div class="cant-card-footer">
         <div class="cant-anexo-info">
-          ${total > 0 ? `<span class="anx-chip">📎 ${total} anexo${total > 1 ? 's' : ''}</span>` : '<span class="muted">Sem anexos</span>'}
+          ${total > 0 ? `<span class="anx-chip" style="cursor:pointer" onclick="event.stopPropagation();Canteiro._abrirModalDetalhe(${p.id})" title="Clique para ver os anexos">📎 ${total} anexo${total > 1 ? 's' : ''} ↗</span>` : '<span class="muted">Sem anexos</span>'}
           ${p.observacao ? `<span class="anx-chip" title="${H.esc(p.observacao)}">💬 Obs</span>` : ''}
           ${p.uau_pedido_numero ? `<span class="anx-chip" style="background:#e0f2fe;color:#0369a1;font-weight:700" title="Número do pedido no ERP UAU">🔗 UAU Nº ${H.esc(p.uau_pedido_numero)}</span>` : ''}
         </div>

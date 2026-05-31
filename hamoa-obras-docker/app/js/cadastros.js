@@ -525,7 +525,13 @@ const Cadastros = {
                 style="display:block;width:100%;text-align:left;margin-bottom:3px;padding:5px 8px;font-size:11px">
                 <strong>#${c.codigo}</strong>
                 ${c.objeto ? ` — ${H.esc(c.objeto.slice(0,60))}${c.objeto.length>60?'…':''}` : ''}
-                ${c.situacaoLabel ? `<span style="color:var(--text3)"> (${H.esc(c.situacaoLabel)})</span>` : ''}
+                ${(() => {
+                  const parts = [];
+                  if (c.situacaoLabel) parts.push(`Sit: ${c.situacaoLabel}`);
+                  if (c.statusLabel)   parts.push(`Sts: ${c.statusLabel}`);
+                  if (c.estagio)       parts.push(`Est: ${c.estagio}`);
+                  return parts.length ? `<span style="color:var(--text3);font-size:10px"> (${parts.join(' · ')})</span>` : '';
+                })()}
                 ${c.dataInicio ? `<span style="color:var(--text3)"> · ${c.dataInicio}</span>` : ''}
               </button>`).join('');
         }

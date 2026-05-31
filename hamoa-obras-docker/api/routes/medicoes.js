@@ -1680,11 +1680,12 @@ router.post('/:id/evidencias', auth, perm('criarMedicao'), upload.array('files',
   const medicaoId = parseInt(req.params.id);
   if (!medicaoId) return res.status(400).json({ error: 'ID inválido' });
 
-  // Verifica que a medição existe e está em Rascunho (evidências só podem ser alteradas antes de enviar para aprovação)
+  // Permite upload em qualquer status antes de aprovação final
   const mCheck = await db.query('SELECT id, status FROM medicoes WHERE id=$1', [medicaoId]);
   if (!mCheck.rows.length) return res.status(404).json({ error: 'Medição não encontrada' });
-  if (mCheck.rows[0].status !== 'Rascunho')
-    return res.status(422).json({ error: `Não é possível adicionar evidências a uma medição com status "${mCheck.rows[0].status}". Apenas medições em Rascunho podem ser alteradas.` });
+  const statusPermitidos = ['Rascunho','Reprovado','Aguardando N1','Aguardando N2','Aguardando N3'];
+  if (!statusPermitidos.includes(mCheck.rows[0].status))
+    return res.status(422).json({ error: `Não é possível adicionar evidências a uma medição com status "${mCheck.rows[0].status}".` });
 
   const inserted = [];
   for (const file of req.files || []) {

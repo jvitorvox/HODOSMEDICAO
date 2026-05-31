@@ -720,18 +720,22 @@ router.get('/contratos-fornecedor', auth, async (req, res) => {
     }
 
     const SITUACAO_LABEL = ['Andamento', 'Paralisado', 'Cancelado', 'Concluído', 'Em encerramento'];
+    const STATUS_LABEL   = ['Não aprovado', 'Aprovado', 'Em aditivo'];
     const fmtDate = (iso) => {
       if (!iso) return null;
       try { return new Date(iso).toISOString().slice(0, 10); } catch { return null; }
     };
 
     const contratos = contData.map(c => ({
-      empresa:       c.Empresa_cont ?? null,
-      obra:          c.Obra_cont    ?? null,
-      codigo:        c.Cod_cont     ?? null,
-      objeto:        c.Objeto_cont  || null,
-      situacao:      c.Situacao_cont ?? null,
+      empresa:       c.Empresa_cont   ?? null,
+      obra:          c.Obra_cont      ?? null,
+      codigo:        c.Cod_cont       ?? null,
+      objeto:        c.Objeto_cont    || null,
+      situacao:      c.Situacao_cont  ?? null,
       situacaoLabel: SITUACAO_LABEL[c.Situacao_cont] || '',
+      status:        c.Status_cont    ?? null,
+      statusLabel:   STATUS_LABEL[c.Status_cont]    || '',
+      estagio:       c.Estagio_Cont   || null,
       dataInicio:    fmtDate(c.DtInicio_cont),
       dataFim:       fmtDate(c.DtFim_cont),
     }));

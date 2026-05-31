@@ -58,6 +58,9 @@ if (!_corsOrigins.length && process.env.NODE_ENV === 'production') {
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Serve arquivos de upload (evidências, anexos de pedidos) — armazenamento local
+app.use('/uploads', require('express').static('/app/uploads'));
 // Morgan — sem expor Authorization no log
 app.use(morgan(':remote-addr - [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" :response-time ms'));
 

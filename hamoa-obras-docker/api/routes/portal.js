@@ -1406,15 +1406,26 @@ router.get('/pedidos/:id', portalAuth, async (req, res) => {
 
     if (!r.rows[0]) return res.status(404).json({ error: 'Pedido não encontrado.' });
 
-    const hist = await db.query(
-      `SELECT status_de, status_para, usuario, observacao, criado_em
-       FROM req_materiais_historico
-       WHERE rm_id = $1
-       ORDER BY criado_em ASC`,
-      [rmId]
-    );
+    const [hist, anexosR] = await Promise.all([
+      db.query(
+        `SELECT status_de, status_para, usuario, observacao, criado_em
+         FROM req_materiais_historico WHERE rm_id=$1 ORDER BY criado_em ASC`,
+        [rmId]
+      ),
+      db.query(
+        `SELECT id, nome, tipo, tamanho, caminho, provider, url_storage, criado_em
+         FROM req_materiais_anexos WHERE rm_id=$1 ORDER BY criado_em ASC`,
+        [rmId]
+      ),
+    ]);
 
-    res.json({ ...r.rows[0], historico: hist.rows });
+    const storageHelper = require('../helpers/storage');
+    const anexos = await Promise.all(anexosR.rows.map(async a => ({
+      ...a,
+      url_view: await storageHelper.getViewUrl(a),
+    })));
+
+    res.json({ ...r.rows[0], historico: hist.rows, anexos });
   } catch (err) {
     console.error('[portal/pedidos/:id GET]', err);
     res.status(500).json({ error: err.message });
