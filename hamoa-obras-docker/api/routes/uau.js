@@ -1086,5 +1086,50 @@ async function syncFornecedorToUAU(fornRow) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+// POST /api/uau/debug-estrutura-planejamento
+// Endpoint temporário de diagnóstico — chama ConsultarEstruturaPlanejamento
+// e retorna a resposta bruta para descobrir os campos disponíveis.
+// Body: { empresa, obra, produto, contrato, item, servico, sequencia? }
+// ════════════════════════════════════════════════════════════════
+router.post('/debug-estrutura-planejamento', auth, async (req, res) => {
+  try {
+    const cfg = await _getUauCfg();
+    if (!cfg.api_url || !cfg.ativo) return res.status(400).json({ error: 'UAU não ativo' });
+
+    const { empresa, obra, produto, contrato, item, servico, sequencia } = req.body;
+
+    const base = _baseUrl(cfg);
+    const authR = await fetch(`${base}/Autenticador/AutenticarUsuario`, {
+      method: 'POST', headers: _headers(cfg),
+      body: JSON.stringify({ Login: cfg.login, Senha: cfg.senha }),
+    });
+    const authRaw = await authR.text().catch(() => '');
+    let authP; try { authP = JSON.parse(authRaw); } catch { authP = null; }
+    if (!authR.ok) return res.status(401).json({ error: 'Falha auth UAU' });
+    const userToken =
+      authR.headers.get('Authorization') ||
+      (authP?.token || authP?.Token || authP?.access_token || '') ||
+      (typeof authP === 'string' && authP.length > 20 ? authP : '') || '';
+
+    // Tenta múltiplos endpoints para descobrir de onde vêm os insumos
+    const endpoint = req.body.endpoint || 'ConsultarEstruturaPlanejamento';
+    const payload = req.body.payload || { Empresa: empresa, Obra: obra, Produto: produto, Contrato: contrato, Item: item, Servico: servico, Sequencia: sequencia ?? 0 };
+    console.log(`[debug/estrutura] Endpoint: ${endpoint} Payload:`, JSON.stringify(payload));
+
+    const r = await fetch(`${base}/Planejamento/${endpoint}`, {
+      method: 'POST', headers: _headers(cfg, userToken),
+      body: JSON.stringify(payload),
+    });
+    const raw = await r.text().catch(() => '');
+    let parsed; try { parsed = JSON.parse(raw); } catch { parsed = null; }
+
+    console.log(`[debug/estrutura] HTTP ${r.status} | raw: ${raw.slice(0, 500)}`);
+    return res.json({ status: r.status, raw, parsed });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
 module.exports.syncFornecedorToUAU = syncFornecedorToUAU;

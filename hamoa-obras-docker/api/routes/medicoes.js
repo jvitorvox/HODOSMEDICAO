@@ -43,8 +43,12 @@ const upload = multer({
   fileFilter: (req, file, cb) => {
     const ext  = path.extname(file.originalname).toLowerCase();
     const mime = file.mimetype.toLowerCase().split(';')[0].trim();
-    if (ALLOWED_EXT.has(ext) && ALLOWED_MIME.has(mime)) return cb(null, true);
-    cb(new Error(`Tipo de arquivo não permitido: ${file.originalname} (${mime})`));
+    // A extensão é a barreira de segurança (whitelist). O MIME é apenas reforço:
+    // navegadores e SOs frequentemente enviam MIME genérico (application/octet-stream)
+    // ou variações não-padrão (image/jpg) para arquivos válidos. Exigir extensão E mime
+    // (com &&) barrava uploads legítimos. Aceitamos por extensão OU mime conhecido.
+    if (ALLOWED_EXT.has(ext) || ALLOWED_MIME.has(mime)) return cb(null, true);
+    cb(new Error(`Tipo de arquivo não permitido: ${file.originalname} (${mime || 'sem tipo'})`));
   },
 });
 const storageHelper = require('../helpers/storage');

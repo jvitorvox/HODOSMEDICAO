@@ -164,10 +164,17 @@ async function getViewUrl(evidencia) {
         region:      cfg.s3.region || 'sa-east-1',
         credentials: { accessKeyId: cfg.s3.accessKeyId, secretAccessKey: cfg.s3.secretAccessKey },
       });
+      // Content-Disposition inline: imagens/PDF abrem no navegador; demais baixam
+      // com o nome original (em vez do hash da key). filename* usa RFC 5987 p/ acentos.
+      const nomeAmigavel = String(evidencia.nome || 'arquivo').replace(/["\r\n]/g, '');
       return getSignedUrl(
         client,
-        new GetObjectCommand({ Bucket: cfg.s3.bucket, Key: evidencia.caminho }),
-        { expiresIn: 3600 } // válida por 1 hora
+        new GetObjectCommand({
+          Bucket: cfg.s3.bucket,
+          Key:    evidencia.caminho,
+          ResponseContentDisposition: `inline; filename*=UTF-8''${encodeURIComponent(nomeAmigavel)}`,
+        }),
+        { expiresIn: 12 * 3600 } // válida por 12 horas
       );
     } catch (e) {
       console.error('[storage.getViewUrl]', e.message);
