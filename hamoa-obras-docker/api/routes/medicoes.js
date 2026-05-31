@@ -951,6 +951,10 @@ router.post('/:id/aprovar', auth, async (req, res) => {
   const m   = await db.query('SELECT * FROM medicoes WHERE id=$1', [id]);
   if (!m.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
   const med = m.rows[0];
+  // Segurança: valida acesso à obra (fail-closed em erro de banco)
+  const _obrasAprov = await getObrasPermitidas(req, db, { failClosed: true });
+  if (!temAcessoObra(_obrasAprov, med.obra_id))
+    return res.status(403).json({ error: 'Você não tem acesso a esta obra para aprovar medições.' });
   const lvMap = { 'Aguardando N1': 'N1', 'Aguardando N2': 'N2', 'Aguardando N3': 'N3' };
   const nivel = lvMap[med.status];
   if (!nivel) return res.status(400).json({ error: 'Medição não está em alçada de aprovação' });
@@ -1007,8 +1011,8 @@ router.post('/:id/aprovar', auth, async (req, res) => {
   }
 
   await db.query(
-    'INSERT INTO aprovacoes(medicao_id,nivel,acao,usuario,comentario) VALUES($1,$2,$3,$4,$5)',
-    [id, nivel, 'aprovado', req.user.nome, comentario||'']
+    'INSERT INTO aprovacoes(medicao_id,nivel,acao,usuario,usuario_id,comentario) VALUES($1,$2,$3,$4,$5,$6)',
+    [id, nivel, 'aprovado', req.user.nome, req.user?.id || null, comentario||'']
   );
 
   // ── Determina próximo status pulando níveis desativados na alçada ───────────
@@ -1043,11 +1047,7 @@ router.post('/:id/aprovar', auth, async (req, res) => {
     );
   }
 
-  if (novoStatus === 'Aprovado') {
-    const assinCfg = await db.query("SELECT valor FROM configuracoes WHERE chave='assinatura'");
-    const assin = assinCfg.rows[0] ? assinCfg.rows[0].valor : {};
-    if (assin.ativo) novoStatus = 'Em Assinatura';
-  }
+  // (Assinatura eletrônica desativada — "Aprovado" é o estado final antes do financeiro.)
   await db.query('UPDATE medicoes SET status=$1 WHERE id=$2', [novoStatus, id]);
   await audit(req, 'aprovar', 'medicao', id,
     `Medição "${med.codigo}" aprovada nível ${nivel} — novo status: ${novoStatus}`,
@@ -1246,12 +1246,16 @@ router.post('/:id/reprovar', auth, async (req, res) => {
   const lvMap = { 'Aguardando N1': 'N1', 'Aguardando N2': 'N2', 'Aguardando N3': 'N3' };
   const nivel = lvMap[m.rows[0].status];
   if (!nivel) return res.status(400).json({ error: 'Status inválido para reprovação' });
+  // Segurança: valida acesso à obra (fail-closed em erro de banco)
+  const _obrasRep = await getObrasPermitidas(req, db, { failClosed: true });
+  if (!temAcessoObra(_obrasRep, m.rows[0].obra_id))
+    return res.status(403).json({ error: 'Você não tem acesso a esta obra para reprovar medições.' });
   const permKey = `aprovar${nivel}`;
   if (!await checkPerm(req.user?.grupos || [], req.user?.perfil, permKey))
     return res.status(403).json({ error: `Sem permissão para reprovar nível ${nivel}. Contate o administrador.` });
   await db.query(
-    'INSERT INTO aprovacoes(medicao_id,nivel,acao,usuario,comentario) VALUES($1,$2,$3,$4,$5)',
-    [id, nivel, 'reprovado', req.user.nome, motivo]
+    'INSERT INTO aprovacoes(medicao_id,nivel,acao,usuario,usuario_id,comentario) VALUES($1,$2,$3,$4,$5,$6)',
+    [id, nivel, 'reprovado', req.user.nome, req.user?.id || null, motivo]
   );
   await db.query("UPDATE medicoes SET status='Reprovado' WHERE id=$1", [id]);
   await audit(req, 'reprovar', 'medicao', id,

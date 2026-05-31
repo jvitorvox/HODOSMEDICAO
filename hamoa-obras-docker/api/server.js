@@ -295,6 +295,9 @@ async function runMigrations() {
     `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS validacoes JSONB`,
     // v3.16 — código de verificação da NFS-e (identificador municipal, alternativa à chave de 44 díg)
     `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS codigo_verificacao VARCHAR(100)`,
+    // v3.17 — id do usuário aprovador (casamento robusto p/ notificação, em vez de só o nome)
+    `ALTER TABLE aprovacoes ADD COLUMN IF NOT EXISTS usuario_id INTEGER`,
+    `CREATE INDEX IF NOT EXISTS idx_aprovacoes_usuario_id ON aprovacoes(usuario_id)`,
     // v3.12 — amplia CHECK constraint de medicoes.status para incluir 'Assinado' e 'Pago'
     `ALTER TABLE medicoes DROP CONSTRAINT IF EXISTS medicoes_status_check`,
     `ALTER TABLE medicoes ADD CONSTRAINT medicoes_status_check

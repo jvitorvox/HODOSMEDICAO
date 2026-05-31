@@ -273,23 +273,18 @@ async function notificarAprovadoresStatusChange(medicaoId, novoStatus, acao, niv
     const med = medR.rows[0];
     if (!med) return;
 
-    // 2. Busca todos os aprovadores que já atuaram nesta medição
-    const apvR = await dbPool.query(`
-      SELECT DISTINCT usuario FROM aprovacoes
-       WHERE medicao_id = $1
-         AND acao IN ('aprovado','reprovado')
-         AND usuario IS NOT NULL
-         AND usuario <> ''
-         AND usuario <> $2`, [medicaoId, quem]); // exclui quem acabou de agir (já sabe o que fez)
-
-    if (!apvR.rows.length) return;
-
-    // 3. Busca e-mails dos aprovadores pelo nome (campo usuario é o nome do usuário)
-    const nomes = apvR.rows.map(r => r.usuario);
-    const usrR  = await dbPool.query(
-      `SELECT nome, email FROM usuarios WHERE nome = ANY($1) AND email IS NOT NULL AND email <> ''`,
-      [nomes]
-    );
+    // 2+3. Busca e-mails dos aprovadores que já atuaram nesta medição.
+    // Casa por usuario_id (robusto); registros antigos sem id caem no nome.
+    // Exclui quem acabou de agir (já sabe o que fez).
+    const usrR = await dbPool.query(`
+      SELECT DISTINCT u.nome, u.email
+        FROM aprovacoes a
+        JOIN usuarios u
+          ON (a.usuario_id = u.id OR (a.usuario_id IS NULL AND a.usuario = u.nome))
+       WHERE a.medicao_id = $1
+         AND a.acao IN ('aprovado','reprovado')
+         AND u.email IS NOT NULL AND u.email <> ''
+         AND u.nome <> $2`, [medicaoId, quem]);
 
     if (!usrR.rows.length) return;
 
@@ -477,13 +472,15 @@ async function notificarPendenciaAprovacao(med, dbPool) {
           WHERE u.ativo = true
             AND u.email IS NOT NULL AND u.email <> ''
             AND u.grupos_ad IS NOT NULL
-            AND u.grupos_ad && $1::text[]
+            AND EXISTS (
+              SELECT 1 FROM unnest(u.grupos_ad) g WHERE lower(g) = ANY($1::text[])
+            )
             AND (
               u.obras_permitidas IS NULL
               OR u.obras_permitidas = '{}'::integer[]
               OR $2 = ANY(u.obras_permitidas)
             )`,
-        [alcada.grupos, med.obra_id]
+        [alcada.grupos.map(g => String(g).toLowerCase()), med.obra_id]
       );
     } else {
       // Alçada sem grupos (vazio = qualquer aprovador com permissão):
@@ -633,4 +630,92 @@ async function notificarPendenciaAprovacao(med, dbPool) {
   }
 }
 
-module.exports = { sendMail, notificarAprovacaoFornecedor, notificarAprovadoresStatusChange, notificarPendenciaAprovacao };
+/**
+ * Notifica por e-mail os usuários do FINANCEIRO quando o fornecedor envia uma NF
+ * que entra na fila de análise. Destinatários: usuários ativos cujos grupos têm a
+ * permissão "financeiro" e que têm acesso à obra.
+ * @param {number} medicaoId
+ * @param {object} nf      - { numero_nf, valor_nf }
+ * @param {object} dbPool
+ */
+async function notificarFinanceiroNovaNF(medicaoId, nf, dbPool) {
+  try {
+    const medR = await dbPool.query(`
+      SELECT m.id, m.codigo, m.periodo, m.valor_medicao,
+             o.id AS obra_id, o.nome AS obra_nome,
+             e.razao_social AS empresa_nome,
+             f.razao_social AS fornecedor_nome
+        FROM medicoes m
+        JOIN contratos c    ON c.id = m.contrato_id
+        JOIN obras o        ON o.id = c.obra_id
+        JOIN empresas e     ON e.id = c.empresa_id
+        JOIN fornecedores f ON f.id = m.fornecedor_id
+       WHERE m.id = $1`, [medicaoId]);
+    const med = medR.rows[0];
+    if (!med) return;
+
+    // Grupos que têm a permissão "financeiro"
+    const permR = await dbPool.query("SELECT valor FROM configuracoes WHERE chave='permissoes'");
+    const permsMap = permR.rows[0]?.valor || {};
+    const grupos = Object.entries(permsMap)
+      .filter(([, perms]) => perms && perms.financeiro === true)
+      .map(([g]) => g.toLowerCase());
+    if (!grupos.length) {
+      console.warn('[email] Nenhum grupo com permissão "financeiro" — NF não notificada');
+      return;
+    }
+
+    const usrR = await dbPool.query(
+      `SELECT u.nome, u.email FROM usuarios u
+        WHERE u.ativo = true
+          AND u.email IS NOT NULL AND u.email <> ''
+          AND EXISTS (SELECT 1 FROM unnest(u.grupos_ad) g WHERE lower(g) = ANY($1::text[]))
+          AND (u.obras_permitidas IS NULL OR u.obras_permitidas = '{}'::integer[] OR $2 = ANY(u.obras_permitidas))`,
+      [grupos, med.obra_id]
+    );
+    if (!usrR.rows.length) {
+      console.warn(`[email] Nenhum usuário do financeiro com e-mail/acesso à obra ${med.obra_id} — NF não notificada`);
+      return;
+    }
+
+    const fmt = v => parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtPer = p => { if (!p) return '—'; const [y, m] = p.split('-'); const ms = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']; return `${ms[parseInt(m)]}/${y}`; };
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;max-width:560px;margin:40px auto;color:#1e293b">
+  <div style="background:#1e3a5f;padding:24px 32px;border-radius:8px 8px 0 0">
+    <h2 style="color:#fff;margin:0;font-size:18px">CONSTRUTIVO AI</h2>
+    <p style="color:#93c5fd;margin:4px 0 0;font-size:13px">Nova Nota Fiscal para análise</p>
+  </div>
+  <div style="background:#f8fafc;padding:28px 32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
+    <p style="margin-top:0">O fornecedor enviou uma Nota Fiscal que está aguardando análise do financeiro.</p>
+    <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin:16px 0">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr><td style="padding:5px 0;color:#64748b;width:38%">Nota Fiscal</td><td style="padding:5px 0;font-weight:700;color:#1e3a5f">${nf?.numero_nf || '(sem número)'}</td></tr>
+        <tr><td style="padding:5px 0;color:#64748b">Medição</td><td style="padding:5px 0;font-weight:600">${med.codigo || '—'}</td></tr>
+        <tr><td style="padding:5px 0;color:#64748b">Obra</td><td style="padding:5px 0">${med.obra_nome || '—'}</td></tr>
+        <tr><td style="padding:5px 0;color:#64748b">Fornecedor</td><td style="padding:5px 0">${med.fornecedor_nome || '—'}</td></tr>
+        <tr><td style="padding:5px 0;color:#64748b">Período</td><td style="padding:5px 0">${fmtPer(med.periodo)}</td></tr>
+        <tr style="border-top:2px solid #e2e8f0"><td style="padding:10px 0 4px;color:#64748b;font-weight:600">Valor da NF</td><td style="padding:10px 0 4px;font-size:17px;font-weight:700;color:#1e3a5f">R$ ${fmt(nf?.valor_nf ?? med.valor_medicao)}</td></tr>
+      </table>
+    </div>
+    <p style="font-size:13px;color:#374151">Acesse o <strong>CONSTRUTIVO AI &rarr; Financeiro</strong> para analisar e integrar ao ERP.</p>
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0">
+    <p style="font-size:11px;color:#94a3b8;margin:0">CONSTRUTIVO AI — Sistema de Gestão de Obras e Medições<br>Este é um e-mail automático. Não responda diretamente a esta mensagem.</p>
+  </div></body></html>`;
+
+    const subject = `Nova NF para análise — Medição ${med.codigo || ''} (${med.obra_nome || ''})`;
+    for (const u of usrR.rows) {
+      try {
+        await sendMail(u.email, subject, html);
+        console.log(`[email] NF nova notificada ao financeiro → ${u.nome} <${u.email}> — medicao=${medicaoId}`);
+      } catch (e) {
+        console.warn(`[email] Falha ao notificar financeiro ${u.nome}:`, e.message);
+      }
+    }
+  } catch (e) {
+    console.warn('[email] notificarFinanceiroNovaNF erro:', e.message);
+  }
+}
+
+module.exports = { sendMail, notificarAprovacaoFornecedor, notificarAprovadoresStatusChange, notificarPendenciaAprovacao, notificarFinanceiroNovaNF };

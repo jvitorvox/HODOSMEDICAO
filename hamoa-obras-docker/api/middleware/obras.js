@@ -29,9 +29,10 @@ const db = require('../db');
  * @param {object} [dbPool] - Pool do pg (opcional, usa o global se omitido)
  * @returns {Promise<number[]|null>}
  */
-async function getObrasPermitidas(req, dbPool) {
+async function getObrasPermitidas(req, dbPool, opts) {
   if (req.user?.perfil === 'ADM') return null;
   const pool = dbPool || db;
+  const failClosed = opts && opts.failClosed === true;
   try {
     const r = await pool.query(
       'SELECT obras_permitidas FROM usuarios WHERE id=$1',
@@ -42,7 +43,9 @@ async function getObrasPermitidas(req, dbPool) {
     return obras.map(Number);
   } catch (e) {
     console.error('[obras middleware] Erro ao buscar obras permitidas:', e.message);
-    return null; // em caso de erro, não bloqueia (fail open)
+    // failClosed: em endpoints sensíveis (aprovar/integrar) retorna [] = nenhuma obra,
+    // bloqueando por segurança. Padrão (leitura): null = não bloqueia (fail open).
+    return failClosed ? [] : null;
   }
 }
 

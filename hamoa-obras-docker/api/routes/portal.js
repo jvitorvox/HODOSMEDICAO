@@ -29,7 +29,7 @@ const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
 const db        = require('../db');
 const storageHelper = require('../helpers/storage');
-const { sendMail: _sendMail, notificarAprovadoresStatusChange } = require('../helpers/email');
+const { sendMail: _sendMail, notificarAprovadoresStatusChange, notificarFinanceiroNovaNF } = require('../helpers/email');
 const authInterno   = require('../middleware/auth'); // auth JWT interno (backoffice)
 const { perm }      = require('../middleware/perm');
 const { getObrasPermitidas, obraClause } = require('../middleware/obras');
@@ -532,6 +532,11 @@ router.post('/medicoes/:id/nf', portalAuth, uploadNF.single('arquivo'), async (r
 
     const acao = nfExistente.rows[0] ? 'substituída' : 'enviada';
     console.log(`[Portal] NF ${acao} — medicao=${id} fornecedor=${req.fornecedor.fornecedor_id} arquivo=${req.file.originalname}`);
+
+    // Notifica o financeiro que há nova NF para análise (fire-and-forget)
+    notificarFinanceiroNovaNF(id, { numero_nf: numero_nf || null, valor_nf: valor_nf ? parseFloat(valor_nf) : null }, db)
+      .catch(e => console.warn('[Portal] Falha ao notificar financeiro sobre nova NF:', e.message));
+
     res.status(201).json(row.rows[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });
