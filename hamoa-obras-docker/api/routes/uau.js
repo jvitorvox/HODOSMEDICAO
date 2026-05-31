@@ -1234,8 +1234,9 @@ router.post('/vincular-nf', auth, async (req, res) => {
       return res.json({
         ok: true, dryRun: true, processoExiste,
         endpoints: {
-          gerarProcesso: processoExiste ? '(pulado — processo já existe)' : `POST ${base}/ProcessoPagamento/GerarProcessoMedicao`,
-          vincularNf:    `POST ${base}/ProcessoPagamento/GerarNotaFiscalServicoPeloXML`,
+          aprovarMedicao: processoExiste ? '(pulado — processo já existe)' : `POST ${base}/Medicao/AprovarMedicaoContrato`,
+          gerarProcesso:  processoExiste ? '(pulado — processo já existe)' : `POST ${base}/ProcessoPagamento/GerarProcessoMedicao`,
+          vincularNf:     `POST ${base}/ProcessoPagamento/GerarNotaFiscalServicoPeloXML`,
         },
         payloads: {
           gerarProcesso: processoPayload,
@@ -1258,9 +1259,34 @@ router.post('/vincular-nf', auth, async (req, res) => {
       (authP?.token || authP?.Token || authP?.access_token || '') ||
       (typeof authP === 'string' && authP.length > 20 ? authP : '') || '';
 
+    // Extrai mensagem de erro do UAU (os campos variam: Descricao/Mensagem/Message)
+    const _erroUau = (data, raw) => (data && typeof data === 'object'
+      ? (data.Descricao || data.descricao || data.Mensagem || data.mensagem ||
+         data.Message   || data.message   || null)
+      : (typeof data === 'string' ? data : null)) || (raw || '').slice(0, 300);
+
     // 1. Garante o processo de pagamento
     let numeroProcesso = nf.uau_processo_pagamento;
     if (!processoExiste) {
+      // 1a. Aprova a medição no UAU — o processo exige status "1 - Aprovada".
+      //     Best-effort: se já estiver aprovada o UAU retorna erro, mas seguimos —
+      //     o GerarProcessoMedicao abaixo é o gate real.
+      let aprovMsg = '';
+      try {
+        const apR = await fetch(`${base}/Medicao/AprovarMedicaoContrato`, {
+          method: 'POST', headers: _headers(cfg, userToken),
+          body: JSON.stringify({ empresa, contrato, medicao }),
+        });
+        const apRaw = await apR.text().catch(() => '');
+        let apData; try { apData = JSON.parse(apRaw); } catch { apData = apRaw || null; }
+        aprovMsg = _erroUau(apData, apRaw);
+        console.log(`[uau/vincular-nf] AprovarMedicao HTTP ${apR.status} sucesso=${apData?.sucesso} | ${apRaw.slice(0, 200)}`);
+      } catch (e) {
+        aprovMsg = e.message;
+        console.warn(`[uau/vincular-nf] AprovarMedicao exceção: ${e.message}`);
+      }
+
+      // 1b. Gera o processo de pagamento
       console.log(`[uau/vincular-nf] nf=${nfId} gerando processo (medicao UAU ${medicao})`);
       const pR = await fetch(`${base}/ProcessoPagamento/GerarProcessoMedicao`, {
         method: 'POST', headers: _headers(cfg, userToken), body: JSON.stringify(processoPayload),
@@ -1269,7 +1295,11 @@ router.post('/vincular-nf', auth, async (req, res) => {
       let pData; try { pData = JSON.parse(pRaw); } catch { pData = null; }
       console.log(`[uau/vincular-nf] GerarProcesso HTTP ${pR.status} | raw: ${pRaw.slice(0, 300)}`);
       if (!pR.ok) {
-        const err = pData?.Message || pData?.message || pRaw.slice(0, 300);
+        let err = _erroUau(pData, pRaw);
+        // Se o motivo for status da medição (não aprovada), enriquece com o retorno da aprovação
+        if (/aprovad|status/i.test(err) && aprovMsg) {
+          err += ` | Aprovação automática retornou: "${aprovMsg}". Verifique se o usuário de integração UAU tem permissão de aprovação (programa OBMEDCONT).`;
+        }
         return res.status(pR.status).json({ ok: false, error: `UAU (processo): ${err}` });
       }
       numeroProcesso = pData?.NumeroProcesso ?? null;
@@ -1287,9 +1317,7 @@ router.post('/vincular-nf', auth, async (req, res) => {
     let nData; try { nData = JSON.parse(nRaw); } catch { nData = nRaw || null; }
     console.log(`[uau/vincular-nf] VincularNF HTTP ${nR.status} | raw: ${nRaw.slice(0, 300)}`);
     if (!nR.ok) {
-      const err = (nData && typeof nData === 'object'
-        ? (nData.Message || nData.message || nData.Descricao || nData.Mensagem) : null) || nRaw.slice(0, 300);
-      return res.status(nR.status).json({ ok: false, error: `UAU (nota): ${err}`, numeroProcesso });
+      return res.status(nR.status).json({ ok: false, error: `UAU (nota): ${_erroUau(nData, nRaw)}`, numeroProcesso });
     }
 
     // 3. Marca a NF como integrada ao ERP
