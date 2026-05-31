@@ -285,6 +285,7 @@ async function integrarMedicaoUAU(medicaoId, params = {}) {
           acompanhamento:`POST ${base}/AcompanhamentosServicos/AcompanharServicoContratoEmLote`,
           consultarAcomp:`POST ${base}/AcompanhamentosServicos/ConsultarAcompanhamentoContratoServicoPorContratoEServico`,
           manterMedicao: `POST ${base}/Medicao/ManterMedicao`,
+          aprovarMedicao:`POST ${base}/Medicao/AprovarMedicaoContrato`,
         },
         payloads: {
           autenticar: { Login: cfg.login, Senha: '***' },
@@ -632,6 +633,30 @@ async function integrarMedicaoUAU(medicaoId, params = {}) {
 
     console.log(`${tag} Concluído — uau_medicao_id=${uauMedicaoId}`);
 
+    // 11.5 Aprova a medição no UAU — o ManterMedicao cria como "2 - Medida";
+    // aqui levamos para "1 - Aprovada". Best-effort: se falhar (ex.: usuário sem
+    // permissão OBMEDCONT), a medição segue criada e apenas registramos o aviso.
+    let aprovada = false, aprovacaoMensagem = '';
+    if (uauMedicaoId != null && params.aprovar !== false) {
+      try {
+        const apR = await fetch(`${base}/Medicao/AprovarMedicaoContrato`, {
+          method: 'POST', headers: _headers(cfg, userToken),
+          body: JSON.stringify({ empresa: empresaInt, contrato: contratoInt, medicao: parseInt(uauMedicaoId, 10) }),
+        });
+        const apRaw = await apR.text().catch(() => '');
+        let apData; try { apData = JSON.parse(apRaw); } catch { apData = apRaw || null; }
+        const sucessoFlag = (apData && typeof apData === 'object') ? (apData.sucesso ?? apData.Sucesso) : undefined;
+        aprovada = apR.ok && sucessoFlag !== false;
+        aprovacaoMensagem = (apData && typeof apData === 'object'
+          ? (apData.mensagem || apData.Mensagem || apData.Descricao || apData.Message)
+          : (typeof apData === 'string' ? apData : '')) || '';
+        console.log(`${tag} AprovarMedicao HTTP ${apR.status} aprovada=${aprovada} | ${apRaw.slice(0, 200)}`);
+      } catch (e) {
+        aprovacaoMensagem = e.message;
+        console.warn(`${tag} AprovarMedicao exceção: ${e.message}`);
+      }
+    }
+
     // Monta resumo legível para exibição no frontend
     const confirmacao = medData && typeof medData === 'object' && !Array.isArray(medData)
       ? medData
@@ -640,6 +665,8 @@ async function integrarMedicaoUAU(medicaoId, params = {}) {
     return {
       ok: true,
       uauMedicaoId,
+      aprovada,
+      aprovacaoMensagem,
       confirmacao: confirmacao ? {
         numeroMedicao:   confirmacao.NumeroMedicao,
         status:          confirmacao.DescrStatus,

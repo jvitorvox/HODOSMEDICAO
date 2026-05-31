@@ -1144,6 +1144,7 @@ router.post('/vincular-nf', auth, async (req, res) => {
   try {
     const nfId   = parseInt(req.body.nfId, 10);
     const dryRun = req.body.dryRun === true;
+    const vincularNota = req.body.vincularNota !== false; // default: true
     if (!nfId) return res.status(400).json({ ok: false, error: 'nfId é obrigatório' });
 
     const cfg = await _getUauCfg();
@@ -1154,7 +1155,7 @@ router.post('/vincular-nf', auth, async (req, res) => {
     const r = await db.query(`
       SELECT
         pn.id AS nf_id, pn.numero_nf, pn.chave_nfe, pn.valor_nf, pn.status_fin,
-        (pn.dados_nfse IS NOT NULL) AS tem_xml,
+        pn.dados_nfse,
         m.id AS medicao_id, m.codigo AS medicao_codigo, m.uau_medicao_id,
         m.uau_processo_pagamento, m.valor_medicao, m.periodo,
         c.uau_contrato, c.uau_empresa AS contrato_uau_empresa,
@@ -1188,18 +1189,17 @@ router.post('/vincular-nf', auth, async (req, res) => {
     if (!obra)
       return res.status(400).json({ ok: false, error: 'Obra sem código UAU (obras.uau_obra). Configure no cadastro da obra.' });
 
-    // Como referenciar a NFS-e no UAU: Numero+Chave (preferencial) ou ArquivoXML
-    let usaXml = false, arquivoXml = null;
-    if (!nf.chave_nfe) {
-      if (nf.tem_xml) {
-        usaXml = true;
-        const portal  = require('./portal');
-        const dadosR  = await db.query('SELECT dados_nfse FROM portal_nfs WHERE id=$1', [nfId]);
-        arquivoXml    = portal._gerarXmlNFSe(dadosR.rows[0].dados_nfse).xml;
-      } else {
-        return res.status(422).json({ ok: false,
-          error: 'NF sem chave NFS-e e sem XML disponível. Informe a chave da nota ou reenvie a NF com extração por IA.' });
-      }
+    // O UAU localiza a nota emitida por Número + Chave/Código de verificação.
+    // Tenta a coluna chave_nfe e, se vazia, os campos da extração IA (dados_nfse).
+    const dadosNfse = nf.dados_nfse || {};
+    const chaveNfse = nf.chave_nfe
+      || dadosNfse.chaveAcesso
+      || dadosNfse.codigoVerificacao
+      || null;
+    // A chave só é obrigatória quando o usuário opta por vincular a nota.
+    if (vincularNota && !chaveNfse) {
+      return res.status(422).json({ ok: false,
+        error: 'NF sem chave NFS-e / código de verificação. O UAU precisa dela para localizar a nota emitida. Informe a chave da nota, reenvie a NF com extração por IA, ou gere apenas o processo (sem vincular a nota).' });
     }
 
     // Vencimento p/ o processo (usado só quando o processo ainda não existe)
@@ -1224,25 +1224,26 @@ router.post('/vincular-nf', auth, async (req, res) => {
       Processo:           parseInt(processo, 10),
       Parcela:            1,
       VincularADescontos: true,
-      ...(usaXml
-        ? { ArquivoXML: arquivoXml }
-        : { Numero: String(nf.numero_nf || ''), ChaveNFSe: String(nf.chave_nfe) }),
+      Numero:             String(nf.numero_nf || ''),
+      ChaveNFSe:          String(chaveNfse),
     });
 
     // ── DRY-RUN: devolve os payloads sem chamar a API UAU ───────────────────
     if (dryRun) {
       return res.json({
-        ok: true, dryRun: true, processoExiste,
+        ok: true, dryRun: true, processoExiste, vincularNota,
         endpoints: {
           aprovarMedicao: processoExiste ? '(pulado — processo já existe)' : `POST ${base}/Medicao/AprovarMedicaoContrato`,
           gerarProcesso:  processoExiste ? '(pulado — processo já existe)' : `POST ${base}/ProcessoPagamento/GerarProcessoMedicao`,
-          vincularNf:     `POST ${base}/ProcessoPagamento/GerarNotaFiscalServicoPeloXML`,
+          vincularNf:     vincularNota ? `POST ${base}/ProcessoPagamento/GerarNotaFiscalServicoPeloXML` : '(pulado — só gerar processo)',
         },
         payloads: {
           gerarProcesso: processoPayload,
-          vincularNf:    buildNfPayload(nf.uau_processo_pagamento ?? 0),
+          vincularNf:    vincularNota ? buildNfPayload(nf.uau_processo_pagamento ?? 0) : null,
         },
-        nf: { numero: nf.numero_nf, chave: nf.chave_nfe, usaXml, valor },
+        nf: vincularNota
+          ? { numero: nf.numero_nf, chave: chaveNfse, fonteChave: nf.chave_nfe ? 'coluna' : (dadosNfse.chaveAcesso ? 'dados_nfse.chaveAcesso' : (dadosNfse.codigoVerificacao ? 'dados_nfse.codigoVerificacao' : 'NENHUMA')), valor }
+          : { vincularNota: false, valor },
       });
     }
 
@@ -1307,9 +1308,27 @@ router.post('/vincular-nf', auth, async (req, res) => {
       await db.query('UPDATE medicoes SET uau_processo_pagamento=$1 WHERE id=$2', [String(numeroProcesso), nf.medicao_id]);
     }
 
-    // 2. Cadastra + vincula a NFS-e ao processo
+    const usuario = req.user?.login || req.user?.nome || 'sistema';
+
+    // 2. Cadastra + vincula a NFS-e ao processo (opcional — controlado por vincularNota)
+    if (!vincularNota) {
+      // Só gerou o processo; a nota não foi vinculada (ex.: nota ainda não emitida)
+      await db.query(
+        `UPDATE portal_nfs SET status_fin='Em Processamento', processado_em=NOW(),
+           processado_por=$1, processado_obs=$2 WHERE id=$3`,
+        [usuario, `Processo ${numeroProcesso} gerado no UAU (nota não vinculada)`, nfId]
+      );
+      return res.json({
+        ok:             true,
+        numeroProcesso,
+        processoGerado: !processoExiste,
+        notaVinculada:  false,
+        resultado:      `Processo ${numeroProcesso} gerado. Nota não vinculada.`,
+      });
+    }
+
     const nfPayload = buildNfPayload(numeroProcesso);
-    console.log(`[uau/vincular-nf] GerarNotaFiscalServicoPeloXML processo=${numeroProcesso} usaXml=${usaXml}`);
+    console.log(`[uau/vincular-nf] GerarNotaFiscalServicoPeloXML processo=${numeroProcesso} chave=${chaveNfse}`);
     const nR = await fetch(`${base}/ProcessoPagamento/GerarNotaFiscalServicoPeloXML`, {
       method: 'POST', headers: _headers(cfg, userToken), body: JSON.stringify(nfPayload),
     });
@@ -1317,21 +1336,27 @@ router.post('/vincular-nf', auth, async (req, res) => {
     let nData; try { nData = JSON.parse(nRaw); } catch { nData = nRaw || null; }
     console.log(`[uau/vincular-nf] VincularNF HTTP ${nR.status} | raw: ${nRaw.slice(0, 300)}`);
     if (!nR.ok) {
-      return res.status(nR.status).json({ ok: false, error: `UAU (nota): ${_erroUau(nData, nRaw)}`, numeroProcesso });
+      // O processo já foi criado — informa para o usuário não regerar.
+      return res.status(nR.status).json({
+        ok: false,
+        error: `UAU (nota): ${_erroUau(nData, nRaw)}`,
+        numeroProcesso,
+        processoGerado: !processoExiste,
+      });
     }
 
     // 3. Marca a NF como integrada ao ERP
     await db.query(
       `UPDATE portal_nfs SET status_fin='Integrado ERP', processado_em=NOW(),
          processado_por=$1, processado_obs=$2 WHERE id=$3`,
-      [req.user?.login || req.user?.nome || 'sistema',
-       `Vinculada ao UAU — processo ${numeroProcesso}`, nfId]
+      [usuario, `Vinculada ao UAU — processo ${numeroProcesso}`, nfId]
     );
 
     return res.json({
       ok:             true,
       numeroProcesso,
       processoGerado: !processoExiste,
+      notaVinculada:  true,
       resultado:      typeof nData === 'string' ? nData : (nData?.Message || nData?.message || 'NFS-e vinculada'),
     });
   } catch (err) {

@@ -1213,12 +1213,14 @@ router.post('/:id/integrar-uau', auth, async (req, res) => {
     return res.status(400).json({ ok: false, error: result.error });
   }
   return res.json({
-    ok:            true,
-    uauMedicaoId:  result.uauMedicaoId,
-    jaIntegrada:   result.jaIntegrada || false,
-    confirmacao:   result.confirmacao   || null,
-    itensMapeados: result.itensMapeados ?? null,
-    itensSemUau:   result.itensSemUau   || [],
+    ok:                true,
+    uauMedicaoId:      result.uauMedicaoId,
+    jaIntegrada:       result.jaIntegrada || false,
+    aprovada:          result.aprovada || false,
+    aprovacaoMensagem: result.aprovacaoMensagem || '',
+    confirmacao:       result.confirmacao   || null,
+    itensMapeados:     result.itensMapeados ?? null,
+    itensSemUau:       result.itensSemUau   || [],
   });
 });
 

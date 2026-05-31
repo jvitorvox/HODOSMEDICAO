@@ -302,27 +302,41 @@ const Financeiro = {
   async vincularNfUAU(dryRun) {
     const id = this._nfAtual;
     if (!id) return;
-    if (!dryRun && !confirm('Confirma vincular esta NF ao pagamento no UAU?\nIsso gera o processo de pagamento (se ainda não existir) e cadastra a NFS-e no ERP.')) return;
+
+    // Ao confirmar a ação real, pergunta se também vincula a nota fiscal.
+    // OK = gera processo + vincula nota · Cancelar = gera somente o processo.
+    let vincularNota = true;
+    if (!dryRun) {
+      vincularNota = confirm(
+        'Vincular a nota no processo de pagamento?\n\n' +
+        '• OK → gera o processo E vincula a nota fiscal\n' +
+        '• Cancelar → gera SOMENTE o processo (sem a nota)\n\n' +
+        '(Para abortar, feche este aviso e o modal sem clicar de novo.)'
+      );
+    }
 
     const btn = H.el('fin-uau-btn');
-    if (btn && !dryRun) { btn.disabled = true; btn.textContent = '⏳ Vinculando...'; }
+    if (btn && !dryRun) { btn.disabled = true; btn.textContent = '⏳ Processando...'; }
     this._uauFeedback('⏳ Processando…', 'var(--surface2)');
 
     const dataVencimento = H.el('fin-uau-vencimento')?.value || undefined;
     try {
-      const r = await API.uauVincularNf(id, { dryRun, dataVencimento });
+      const r = await API.uauVincularNf(id, { dryRun, dataVencimento, vincularNota });
       if (dryRun) {
         this._uauFeedback(
           `<b>Pré-visualização</b> ${r.processoExiste ? '(processo já existe)' : '(vai gerar processo)'}:` +
           `<pre style="white-space:pre-wrap;font-size:10px;max-height:220px;overflow:auto;margin:6px 0 0">${JSON.stringify(r.payloads, null, 2)}</pre>`,
           'rgba(59,130,246,.10)');
       } else {
-        this._uauFeedback(`✅ NFS-e vinculada — processo <b>${r.numeroProcesso}</b>${r.processoGerado ? ' (processo gerado agora)' : ''}.`, 'rgba(34,197,94,.12)');
-        UI.toast('NF vinculada ao pagamento no UAU!', 'success');
+        const msg = r.notaVinculada
+          ? `✅ NFS-e vinculada — processo <b>${r.numeroProcesso}</b>${r.processoGerado ? ' (gerado agora)' : ''}.`
+          : `✅ Processo <b>${r.numeroProcesso}</b> gerado${r.processoGerado ? ' agora' : ''}. Nota <b>não</b> vinculada.`;
+        this._uauFeedback(msg, 'rgba(34,197,94,.12)');
+        UI.toast(r.notaVinculada ? 'NF vinculada ao pagamento no UAU!' : 'Processo gerado no UAU!', 'success');
         setTimeout(() => { UI.closeModal('modal-fin-status'); this.load(); }, 1600);
       }
     } catch (e) {
-      this._uauFeedback('❌ ' + (e.message || 'Erro ao vincular'), 'rgba(239,68,68,.12)');
+      this._uauFeedback('❌ ' + (e.message || 'Erro ao processar'), 'rgba(239,68,68,.12)');
     } finally {
       if (btn && !dryRun) { btn.disabled = false; btn.textContent = '🔗 Vincular ao pagamento'; }
     }

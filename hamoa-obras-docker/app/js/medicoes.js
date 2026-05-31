@@ -1148,6 +1148,10 @@ const Medicoes = {
            <span style="opacity:.8">${r.itensSemUau.map(n => `• ${n}`).join('<br>')}</span>
          </div>` : '';
 
+    const aprovacaoHtml = r.aprovada
+      ? `<div style="margin:0 0 14px;padding:10px 12px;background:#dcfce7;border:1px solid #86efac;border-radius:7px;font-size:11px;color:#166534">✅ Medição <b>aprovada</b> no UAU (status "1 - Aprovada") — pronta para gerar o processo de pagamento.</div>`
+      : `<div style="margin:0 0 14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;font-size:11px;color:#92400e">⚠ Medição criada como "2 - Medida", mas <b>não foi aprovada automaticamente</b>${r.aprovacaoMensagem ? `:<br><span style="opacity:.85">${r.aprovacaoMensagem}</span>` : '.'}<br>Verifique a permissão de aprovação (programa OBMEDCONT) do usuário de integração UAU.</div>`;
+
     const modal = document.createElement('div');
     modal.id = 'modal-uau-resumo';
     modal.style.cssText = `position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);backdrop-filter:blur(2px)`;
@@ -1166,6 +1170,7 @@ const Medicoes = {
 
         <div style="padding:16px 24px;overflow-y:auto;flex:1">
 
+          ${aprovacaoHtml}
           <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Dados registrados no UAU</div>
           ${_row('Nº Medição UAU', `<strong style="font-size:14px;color:#16a34a">${_fmt(c.numeroMedicao || r.uauMedicaoId)}</strong>`)}
           ${_row('Status', _fmt(c.status))}
