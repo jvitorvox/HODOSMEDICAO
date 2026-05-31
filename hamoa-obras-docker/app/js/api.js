@@ -336,6 +336,7 @@ const API = (() => {
       return req('GET', '/api/portal/nfs/fila' + (qs ? '?' + qs : ''));
     },
     finUpdateStatus: (id, data)   => req('PUT', `/api/portal/nfs/${id}/status`, data),
+    uauVincularNf:   (nfId, opts) => req('POST', '/api/uau/vincular-nf', { nfId, ...(opts || {}) }),
 
     // Download de arquivo e XML NFS-e — abre direto (usa window.open ou <a>)
     finArquivoUrl:  (id)          => `/api/portal/nfs/${id}/arquivo`,

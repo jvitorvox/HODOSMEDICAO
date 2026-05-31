@@ -1131,5 +1131,186 @@ router.post('/debug-estrutura-planejamento', auth, async (req, res) => {
   }
 });
 
+// ════════════════════════════════════════════════════════════════
+// POST /api/uau/vincular-nf
+// Body: { nfId, dryRun?, dataVencimento? }
+// Orquestra o pagamento de uma medição no UAU a partir de uma NF do portal:
+//   1. valida que a medição já está integrada (uau_medicao_id)
+//   2. gera o processo de pagamento se ainda não existir (GerarProcessoMedicao)
+//   3. cadastra+vincula a NFS-e ao processo (GerarNotaFiscalServicoPeloXML)
+//   4. marca portal_nfs.status_fin = 'Integrado ERP'
+// ════════════════════════════════════════════════════════════════
+router.post('/vincular-nf', auth, async (req, res) => {
+  try {
+    const nfId   = parseInt(req.body.nfId, 10);
+    const dryRun = req.body.dryRun === true;
+    if (!nfId) return res.status(400).json({ ok: false, error: 'nfId é obrigatório' });
+
+    const cfg = await _getUauCfg();
+    if (!cfg.api_url || !cfg.ativo) return res.status(400).json({ ok: false, error: 'Integração UAU não está ativa.' });
+    if (!cfg.login || !cfg.senha)   return res.status(400).json({ ok: false, error: 'Login/Senha UAU não configurados.' });
+
+    // Carrega NF + medição + contrato + empresa + obra + fornecedor
+    const r = await db.query(`
+      SELECT
+        pn.id AS nf_id, pn.numero_nf, pn.chave_nfe, pn.valor_nf, pn.status_fin,
+        (pn.dados_nfse IS NOT NULL) AS tem_xml,
+        m.id AS medicao_id, m.codigo AS medicao_codigo, m.uau_medicao_id,
+        m.uau_processo_pagamento, m.valor_medicao, m.periodo,
+        c.uau_contrato, c.uau_empresa AS contrato_uau_empresa,
+        emp.uau_empresa AS empresa_uau_codigo,
+        o.uau_obra,
+        f.uau_codigo_fornecedor, f.razao_social AS fornecedor_nome
+      FROM portal_nfs pn
+      JOIN medicoes   m   ON m.id   = pn.medicao_id
+      JOIN contratos  c   ON c.id   = m.contrato_id
+      JOIN empresas   emp ON emp.id = c.empresa_id
+      JOIN obras      o   ON o.id   = c.obra_id
+      LEFT JOIN fornecedores f ON f.id = pn.fornecedor_id
+      WHERE pn.id = $1`, [nfId]);
+    if (!r.rows[0]) return res.status(404).json({ ok: false, error: 'NF não encontrada.' });
+    const nf = r.rows[0];
+
+    if (!nf.uau_medicao_id) {
+      return res.status(400).json({ ok: false,
+        error: `Medição ${nf.medicao_codigo} ainda não integrada ao UAU. Use "🔗 Integrar ao UAU" na medição antes de vincular a NF.` });
+    }
+
+    const empresa    = parseInt(nf.empresa_uau_codigo || nf.contrato_uau_empresa, 10);
+    const contrato   = parseInt(nf.uau_contrato, 10);
+    const medicao    = parseInt(nf.uau_medicao_id, 10);
+    const fornecedor = parseInt(nf.uau_codigo_fornecedor, 10);
+    const obra       = nf.uau_obra ? String(nf.uau_obra) : null;
+    if (isNaN(empresa) || isNaN(contrato) || isNaN(medicao))
+      return res.status(400).json({ ok: false, error: 'Dados UAU incompletos (empresa/contrato/medição).' });
+    if (isNaN(fornecedor))
+      return res.status(400).json({ ok: false, error: `Fornecedor "${nf.fornecedor_nome || ''}" sem código UAU. Cadastre em Fornecedores → "Cód. Fornecedor UAU".` });
+    if (!obra)
+      return res.status(400).json({ ok: false, error: 'Obra sem código UAU (obras.uau_obra). Configure no cadastro da obra.' });
+
+    // Como referenciar a NFS-e no UAU: Numero+Chave (preferencial) ou ArquivoXML
+    let usaXml = false, arquivoXml = null;
+    if (!nf.chave_nfe) {
+      if (nf.tem_xml) {
+        usaXml = true;
+        const portal  = require('./portal');
+        const dadosR  = await db.query('SELECT dados_nfse FROM portal_nfs WHERE id=$1', [nfId]);
+        arquivoXml    = portal._gerarXmlNFSe(dadosR.rows[0].dados_nfse).xml;
+      } else {
+        return res.status(422).json({ ok: false,
+          error: 'NF sem chave NFS-e e sem XML disponível. Informe a chave da nota ou reenvie a NF com extração por IA.' });
+      }
+    }
+
+    // Vencimento p/ o processo (usado só quando o processo ainda não existe)
+    const valor = parseFloat(nf.valor_nf ?? nf.valor_medicao) || 0;
+    const [anoStr, mesStr] = (nf.periodo || '').split('-');
+    const mesPlan = (anoStr && mesStr) ? `${anoStr}-${mesStr.padStart(2, '0')}-01T00:00:00.000Z` : new Date().toISOString();
+    const dataVenc = req.body.dataVencimento
+      ? new Date(req.body.dataVencimento)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // default +30 dias
+
+    const base           = _baseUrl(cfg);
+    const processoExiste = nf.uau_processo_pagamento != null;
+    const processoPayload = processoExiste ? null : {
+      Empresa: empresa, Contrato: contrato, Medicao: medicao,
+      MesPlanejamento: mesPlan, Parametro: {},
+      Parcelas: [{ Datavencimento: dataVenc.toISOString(), Valor: valor }],
+    };
+    const buildNfPayload = (processo) => ({
+      CodigoFornecedor:   fornecedor,
+      Empresa:            empresa,
+      Obra:               obra,
+      Processo:           parseInt(processo, 10),
+      Parcela:            1,
+      VincularADescontos: true,
+      ...(usaXml
+        ? { ArquivoXML: arquivoXml }
+        : { Numero: String(nf.numero_nf || ''), ChaveNFSe: String(nf.chave_nfe) }),
+    });
+
+    // ── DRY-RUN: devolve os payloads sem chamar a API UAU ───────────────────
+    if (dryRun) {
+      return res.json({
+        ok: true, dryRun: true, processoExiste,
+        endpoints: {
+          gerarProcesso: processoExiste ? '(pulado — processo já existe)' : `POST ${base}/ProcessoPagamento/GerarProcessoMedicao`,
+          vincularNf:    `POST ${base}/ProcessoPagamento/GerarNotaFiscalServicoPeloXML`,
+        },
+        payloads: {
+          gerarProcesso: processoPayload,
+          vincularNf:    buildNfPayload(nf.uau_processo_pagamento ?? 0),
+        },
+        nf: { numero: nf.numero_nf, chave: nf.chave_nfe, usaXml, valor },
+      });
+    }
+
+    // Autentica
+    const authR = await fetch(`${base}/Autenticador/AutenticarUsuario`, {
+      method: 'POST', headers: _headers(cfg),
+      body: JSON.stringify({ Login: cfg.login, Senha: cfg.senha }),
+    });
+    const authRaw = await authR.text().catch(() => '');
+    let authP; try { authP = JSON.parse(authRaw); } catch { authP = null; }
+    if (!authR.ok) return res.status(401).json({ ok: false, error: 'Falha na autenticação UAU' });
+    const userToken =
+      authR.headers.get('Authorization') ||
+      (authP?.token || authP?.Token || authP?.access_token || '') ||
+      (typeof authP === 'string' && authP.length > 20 ? authP : '') || '';
+
+    // 1. Garante o processo de pagamento
+    let numeroProcesso = nf.uau_processo_pagamento;
+    if (!processoExiste) {
+      console.log(`[uau/vincular-nf] nf=${nfId} gerando processo (medicao UAU ${medicao})`);
+      const pR = await fetch(`${base}/ProcessoPagamento/GerarProcessoMedicao`, {
+        method: 'POST', headers: _headers(cfg, userToken), body: JSON.stringify(processoPayload),
+      });
+      const pRaw = await pR.text().catch(() => '');
+      let pData; try { pData = JSON.parse(pRaw); } catch { pData = null; }
+      console.log(`[uau/vincular-nf] GerarProcesso HTTP ${pR.status} | raw: ${pRaw.slice(0, 300)}`);
+      if (!pR.ok) {
+        const err = pData?.Message || pData?.message || pRaw.slice(0, 300);
+        return res.status(pR.status).json({ ok: false, error: `UAU (processo): ${err}` });
+      }
+      numeroProcesso = pData?.NumeroProcesso ?? null;
+      if (!numeroProcesso) return res.status(502).json({ ok: false, error: 'UAU não retornou NumeroProcesso ao gerar o processo.' });
+      await db.query('UPDATE medicoes SET uau_processo_pagamento=$1 WHERE id=$2', [String(numeroProcesso), nf.medicao_id]);
+    }
+
+    // 2. Cadastra + vincula a NFS-e ao processo
+    const nfPayload = buildNfPayload(numeroProcesso);
+    console.log(`[uau/vincular-nf] GerarNotaFiscalServicoPeloXML processo=${numeroProcesso} usaXml=${usaXml}`);
+    const nR = await fetch(`${base}/ProcessoPagamento/GerarNotaFiscalServicoPeloXML`, {
+      method: 'POST', headers: _headers(cfg, userToken), body: JSON.stringify(nfPayload),
+    });
+    const nRaw = await nR.text().catch(() => '');
+    let nData; try { nData = JSON.parse(nRaw); } catch { nData = nRaw || null; }
+    console.log(`[uau/vincular-nf] VincularNF HTTP ${nR.status} | raw: ${nRaw.slice(0, 300)}`);
+    if (!nR.ok) {
+      const err = (nData && typeof nData === 'object'
+        ? (nData.Message || nData.message || nData.Descricao || nData.Mensagem) : null) || nRaw.slice(0, 300);
+      return res.status(nR.status).json({ ok: false, error: `UAU (nota): ${err}`, numeroProcesso });
+    }
+
+    // 3. Marca a NF como integrada ao ERP
+    await db.query(
+      `UPDATE portal_nfs SET status_fin='Integrado ERP', processado_em=NOW(),
+         processado_por=$1, processado_obs=$2 WHERE id=$3`,
+      [req.user?.login || req.user?.nome || 'sistema',
+       `Vinculada ao UAU — processo ${numeroProcesso}`, nfId]
+    );
+
+    return res.json({
+      ok:             true,
+      numeroProcesso,
+      processoGerado: !processoExiste,
+      resultado:      typeof nData === 'string' ? nData : (nData?.Message || nData?.message || 'NFS-e vinculada'),
+    });
+  } catch (err) {
+    console.error('[uau/vincular-nf]', err.message);
+    return res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;
 module.exports.syncFornecedorToUAU = syncFornecedorToUAU;

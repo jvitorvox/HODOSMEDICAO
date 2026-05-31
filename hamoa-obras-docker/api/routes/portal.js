@@ -1663,4 +1663,6 @@ router.get('/insumos', portalAuth, async (req, res) => {
 });
 
 module.exports = router;
+// Exposto para reuso na integração UAU (gera ArquivoXML quando a NF não tem chave)
+module.exports._gerarXmlNFSe = _gerarXmlNFSe;
 

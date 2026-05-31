@@ -772,6 +772,20 @@
         <label class="fl">Observação (opcional)</label>
         <textarea class="fi" id="fin-modal-obs" rows="3" placeholder="Ex: Lançado no TOTVS — NF 000123 — vencimento 30/05/2025"></textarea>
       </div>
+      <div class="fg" id="fin-uau-block" style="display:none;border-top:1px solid var(--border);margin-top:6px;padding-top:12px">
+        <label class="fl">🔗 Pagamento no UAU</label>
+        <div id="fin-uau-feedback" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5;border:1px solid transparent"></div>
+        <div style="margin-bottom:8px">
+          <label class="fl" style="font-size:11px">Vencimento da parcela</label>
+          <input type="date" class="fi" id="fin-uau-vencimento">
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">Usado só quando o processo de pagamento ainda não existe. Padrão: hoje + 30 dias.</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-o btn-sm" onclick="Financeiro.vincularNfUAU(true)">🔍 Pré-visualizar</button>
+          <button class="btn btn-a btn-sm" id="fin-uau-btn" style="background:#16a34a" onclick="Financeiro.vincularNfUAU(false)">🔗 Vincular ao pagamento</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:6px">Gera o processo de pagamento (se necessário) e cadastra a NFS-e no UAU.</div>
+      </div>
     </div>
     <div class="mf">
       <button class="btn btn-o" onclick="UI.closeModal('modal-fin-status')">Cancelar</button>
@@ -1714,7 +1728,7 @@
   </div>
 </div>
 
-<script src="js/api.js?v=20260512b" data-v data-src="js/api.js"></script>
+<script src="js/api.js?v=20260530a" data-v data-src="js/api.js"></script>
 <script src="js/state.js?v=20260512b" data-v data-src="js/state.js"></script>
 <script src="js/app.js?v=20260512b" data-v data-src="js/app.js"></script>
 <script src="js/pages.js?v=20260512b" data-v data-src="js/pages.js"></script>
@@ -1722,7 +1736,7 @@
 <script src="js/cadastros.js?v=20260528c" data-v data-src="js/cadastros.js"></script>
 <script src="js/alcadas.js?v=20260512b" data-v data-src="js/alcadas.js"></script>
 <script src="js/lbm.js?v=20260512b" data-v data-src="js/lbm.js"></script>
-<script src="js/financeiro.js?v=20260512b" data-v data-src="js/financeiro.js"></script>
+<script src="js/financeiro.js?v=20260530b" data-v data-src="js/financeiro.js"></script>
 <script src="js/cronograma.js?v=20260512b" data-v data-src="js/cronograma.js"></script>
 <script src="js/coloridao.js?v=20260512b" data-v data-src="js/coloridao.js"></script>
 <script src="js/suprimentos.js?v=20260512b" data-v data-src="js/suprimentos.js"></script>
