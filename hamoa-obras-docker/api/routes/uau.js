@@ -12,6 +12,7 @@ console.log('[uau] Módulo carregado — v2 (trata retorno 0 como sucesso)');
 
 // ── Helper: lê configuração UAU do banco ─────────────────────────
 const db = require('../db');
+const { notificarAprovadoresStatusChange } = require('../helpers/email');
 
 async function _getUauCfg() {
   const r = await db.query(`SELECT valor FROM configuracoes WHERE chave = 'uau'`);
@@ -1353,6 +1354,12 @@ router.post('/vincular-nf', auth, async (req, res) => {
          processado_por=$1, processado_obs=$2 WHERE id=$3`,
       [usuario, `Vinculada ao UAU — processo ${numeroProcesso}`, nfId]
     );
+
+    // Notifica os aprovadores (mesma paridade do caminho manual de status)
+    notificarAprovadoresStatusChange(
+      nf.medicao_id, 'Integrado ERP', 'integrado_erp', 'Financeiro', usuario,
+      `NF vinculada ao UAU — processo ${numeroProcesso}`, db
+    ).catch(e => console.warn('[uau/vincular-nf] notificação aprovadores:', e.message));
 
     return res.json({
       ok:             true,

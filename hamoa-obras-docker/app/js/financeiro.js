@@ -262,9 +262,6 @@ const Financeiro = {
       if (body) body.innerHTML = this._renderModalBody(nf);
       const venc = H.el('fin-uau-vencimento');
       if (venc) venc.value = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      if (nf.status_fin === 'Integrado ERP' || nf.status_fin === 'Pago') {
-        this._uauFeedback(`✅ Esta NF já está “${this._statusLabel(nf.status_fin)}”${nf.processado_obs ? ' — ' + nf.processado_obs : ''}.`, 'rgba(20,184,166,.12)');
-      }
     } catch (e) {
       if (body) body.innerHTML = `<div style="padding:24px;color:var(--red)">Erro ao carregar: ${e.message}</div>`;
     }
@@ -340,27 +337,33 @@ const Financeiro = {
       : '<div style="font-size:12px;color:var(--green)">✅ Sem divergências registradas.</div>';
     const valSec = sec('Validações da IA', valHtml);
 
-    const statusOpts = ['Pendente','Em Processamento','Integrado ERP','Pago']
-      .map(v => `<option value="${v}" ${v===nf.status_fin?'selected':''}>${this._statusLabel(v)}</option>`).join('');
-    const controles = `
-      <div style="border-top:2px solid var(--border);margin-top:6px;padding-top:12px">
-        ${sec('Atualizar status (manual)', `
-          <select class="fi" id="fin-modal-status" style="margin-bottom:8px">${statusOpts}</select>
-          <textarea class="fi" id="fin-modal-obs" rows="2" placeholder="Observação (opcional)"></textarea>`)}
-        <div id="fin-uau-block" style="border-top:1px solid var(--border);margin-top:6px;padding-top:12px">
-          <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🔗 Aprovar e Integrar (UAU)</div>
-          <div id="fin-uau-feedback" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
-          <div style="margin-bottom:8px">
-            <label class="fl" style="font-size:11px">Vencimento da parcela</label>
-            <input type="date" class="fi" id="fin-uau-vencimento">
-            <div style="font-size:10px;color:var(--text3);margin-top:3px">Usado só quando o processo ainda não existe. Padrão: hoje + 30 dias.</div>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-o btn-sm" onclick="Financeiro.vincularNfUAU(true)">🔍 Pré-visualizar</button>
-            <button class="btn btn-a btn-sm" id="fin-uau-btn" style="background:#16a34a" onclick="Financeiro.vincularNfUAU(false)">🔗 Aprovar e Integrar</button>
-          </div>
-          <div style="font-size:10px;color:var(--text3);margin-top:6px">Gera o processo de pagamento (se necessário), pergunta se vincula a nota, e marca como “Aprovado e Integrado” — o fornecedor acompanha pelo portal.</div>
+    // Ação contextual conforme o estado da NF
+    let acaoHtml;
+    if (nf.status_fin === 'Pago') {
+      acaoHtml = `<div style="padding:12px 14px;border-radius:8px;background:rgba(34,197,94,.10);color:var(--green);font-size:13px;font-weight:600">✅ Pagamento confirmado. Nenhuma ação pendente.</div>`;
+    } else if (nf.status_fin === 'Integrado ERP') {
+      acaoHtml = `
+        <div id="fin-uau-feedback" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:10px">✅ Aprovado e integrado no UAU${nf.uau_processo_pagamento?` — processo <b>${esc(nf.uau_processo_pagamento)}</b>`:''}. Quando o pagamento for efetivado, registre abaixo.</div>
+        <button class="btn btn-a btn-sm" id="fin-pago-btn" style="background:#15803d" onclick="Financeiro.marcarPago()">💲 Marcar como Pago</button>`;
+    } else {
+      acaoHtml = `
+        <div id="fin-uau-feedback" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+        <div style="margin-bottom:8px">
+          <label class="fl" style="font-size:11px">Vencimento da parcela</label>
+          <input type="date" class="fi" id="fin-uau-vencimento">
+          <div style="font-size:10px;color:var(--text3);margin-top:3px">Usado só quando o processo ainda não existe. Padrão: hoje + 30 dias.</div>
         </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-o btn-sm" onclick="Financeiro.vincularNfUAU(true)">🔍 Pré-visualizar</button>
+          <button class="btn btn-a btn-sm" id="fin-uau-btn" style="background:#16a34a" onclick="Financeiro.vincularNfUAU(false)">🔗 Aprovar e Integrar</button>
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:6px">Gera o processo de pagamento (se necessário), pergunta se vincula a nota, e marca como “Aprovado e Integrado” — o fornecedor acompanha pelo portal.</div>`;
+    }
+    const controles = `
+      <div id="fin-uau-block" style="border-top:2px solid var(--border);margin-top:6px;padding-top:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Ação</div>
+        ${acaoHtml}
       </div>`;
 
     return header + medSec + uauSec + alcSec + notaSec + valSec + controles;
@@ -414,7 +417,25 @@ const Financeiro = {
     } catch (e) {
       this._uauFeedback('❌ ' + (e.message || 'Erro ao processar'), 'rgba(239,68,68,.12)');
     } finally {
-      if (btn && !dryRun) { btn.disabled = false; btn.textContent = '🔗 Vincular ao pagamento'; }
+      if (btn && !dryRun) { btn.disabled = false; btn.textContent = '🔗 Aprovar e Integrar'; }
+    }
+  },
+
+  // ── Marcar a NF como Paga (propaga p/ medição + notifica aprovadores) ──
+  async marcarPago() {
+    const id = this._nfAtual;
+    if (!id) return;
+    if (!confirm('Confirmar que esta NF foi PAGA?\nIsso marca a medição como Paga e notifica os aprovadores.')) return;
+    const btn = H.el('fin-pago-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Registrando...'; }
+    try {
+      await API.finUpdateStatus(id, { status_fin: 'Pago' });
+      UI.toast('NF marcada como Paga!', 'success');
+      UI.closeModal('modal-fin-status');
+      await this.load();
+    } catch (e) {
+      this._uauFeedback('❌ ' + (e.message || 'Erro ao marcar como pago'), 'rgba(239,68,68,.12)');
+      if (btn) { btn.disabled = false; btn.textContent = '💲 Marcar como Pago'; }
     }
   },
 
@@ -459,19 +480,4 @@ const Financeiro = {
     this.load();
   },
 
-  async salvarStatus() {
-    const id        = this._nfAtual;
-    const status    = H.el('fin-modal-status').value;
-    const obs       = H.el('fin-modal-obs').value.trim();
-    if (!id || !status) return;
-
-    try {
-      await API.finUpdateStatus(id, { status_fin: status, processado_obs: obs || null });
-      UI.toast('Status atualizado!', 'success');
-      UI.closeModal('modal-fin-status');
-      await this.load(); // recarrega tabela + stats
-    } catch(e) {
-      UI.toast('Erro: ' + e.message, 'error');
-    }
-  },
 };
