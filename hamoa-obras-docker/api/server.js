@@ -293,6 +293,8 @@ async function runMigrations() {
     `CREATE INDEX IF NOT EXISTS idx_portal_nfs_status_fin ON portal_nfs(status_fin)`,
     // v3.11 — validações cruzadas salvas no upload da NF pelo fornecedor
     `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS validacoes JSONB`,
+    // v3.16 — código de verificação da NFS-e (identificador municipal, alternativa à chave de 44 díg)
+    `ALTER TABLE portal_nfs ADD COLUMN IF NOT EXISTS codigo_verificacao VARCHAR(100)`,
     // v3.12 — amplia CHECK constraint de medicoes.status para incluir 'Assinado' e 'Pago'
     `ALTER TABLE medicoes DROP CONSTRAINT IF EXISTS medicoes_status_check`,
     `ALTER TABLE medicoes ADD CONSTRAINT medicoes_status_check

@@ -441,7 +441,7 @@ router.get('/medicoes/:id', portalAuth, async (req, res) => {
 router.post('/medicoes/:id/nf', portalAuth, uploadNF.single('arquivo'), async (req, res) => {
   try {
     const id     = parseInt(req.params.id);
-    const { numero_nf, valor_nf, chave_nfe, obs, dados_nfse: dadosNfseRaw, validacoes: validacoesRaw } = req.body;
+    const { numero_nf, valor_nf, chave_nfe, codigo_verificacao, obs, dados_nfse: dadosNfseRaw, validacoes: validacoesRaw } = req.body;
     let dadosNfse = null;
     if (dadosNfseRaw) {
       try { dadosNfse = typeof dadosNfseRaw === 'string' ? JSON.parse(dadosNfseRaw) : dadosNfseRaw; } catch {}
@@ -517,13 +517,14 @@ router.post('/medicoes/:id/nf', portalAuth, uploadNF.single('arquivo'), async (r
     const row = await db.query(
       `INSERT INTO portal_nfs
          (medicao_id, fornecedor_id, nome_arquivo, caminho, provider, url_storage,
-          numero_nf, valor_nf, chave_nfe, obs, dados_nfse, validacoes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+          numero_nf, valor_nf, chave_nfe, codigo_verificacao, obs, dados_nfse, validacoes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [id, req.fornecedor.fornecedor_id, req.file.originalname,
        result.caminho, result.provider, result.url_storage,
        numero_nf || null,
        valor_nf  ? parseFloat(valor_nf) : null,
        chave_nfe || null,
+       codigo_verificacao || null,
        obs       || null,
        dadosNfse   ? JSON.stringify(dadosNfse)   : null,
        validacoes  ? JSON.stringify(validacoes)   : null]
@@ -864,6 +865,35 @@ Campos a extrair (use null se não encontrar):
       }
     }
 
+    // ── Campos obrigatórios para o XML ABRASF / integração ERP ───────────────
+    const _falta = v => v == null || String(v).trim() === '';
+    const obrigatorios = [
+      ['numero',                        dados.numero,                        'Número da nota/RPS'],
+      ['dataEmissao',                   dados.dataEmissao,                   'Data de emissão'],
+      ['prestador.cnpj',                dados.prestador?.cnpj,               'CNPJ do prestador'],
+      ['prestador.inscricaoMunicipal',  dados.prestador?.inscricaoMunicipal, 'Inscrição municipal do prestador'],
+      ['servico.itemListaServico',      dados.servico?.itemListaServico,     'Item da lista de serviço (LC 116)'],
+      ['servico.codigoMunicipio',       dados.servico?.codigoMunicipio || dados.prestador?.codigoMunicipio, 'Código IBGE do município de prestação'],
+      ['valores.valorServicos',         dados.valores?.valorServicos,        'Valor dos serviços'],
+    ];
+    for (const [campo, valor, label] of obrigatorios) {
+      if (_falta(valor)) {
+        validacoes.push({ campo, nivel: 'aviso',
+          msg: `Campo obrigatório para o XML não identificado: ${label}. Preencha manualmente antes de enviar.` });
+      }
+    }
+    // Chave de acesso OU código de verificação — necessário para localizar a nota no ERP
+    if (_falta(dados.chaveAcesso) && _falta(dados.codigoVerificacao)) {
+      validacoes.push({ campo: 'codigoVerificacao', nivel: 'aviso',
+        msg: 'Nota sem chave de acesso e sem código de verificação. Informe um deles — é necessário para a integração com o ERP (pagamento).' });
+    }
+    // Formato do código IBGE (7 dígitos), quando informado
+    const ibge = soDigitos(dados.servico?.codigoMunicipio || dados.prestador?.codigoMunicipio);
+    if (ibge && ibge.length !== 7) {
+      validacoes.push({ campo: 'servico.codigoMunicipio', nivel: 'aviso',
+        msg: `Código IBGE do município ("${ibge}") não tem 7 dígitos. Verifique.` });
+    }
+
     res.json({ ok: true, dados, validacoes });
 
   } catch (e) {
@@ -1088,6 +1118,57 @@ router.get('/nfs/fila', authInterno, perm('financeiro'), async (req, res) => {
 
     res.json(r.rows);
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/portal/nfs/:id/detalhe
+ * Painel de análise da NF (financeiro): NF + medição + códigos UAU +
+ * trilha de aprovação nas alçadas + URL de visualização do anexo.
+ */
+router.get('/nfs/:id/detalhe', authInterno, perm('financeiro'), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const r = await db.query(`
+      SELECT pn.id, pn.numero_nf, pn.valor_nf, pn.chave_nfe, pn.codigo_verificacao,
+             pn.obs, pn.status_fin, pn.processado_em, pn.processado_por, pn.processado_obs,
+             pn.enviado_em, pn.validacoes, pn.dados_nfse,
+             pn.provider, pn.caminho, pn.url_storage, pn.nome_arquivo,
+             m.id AS medicao_id, m.codigo AS medicao_codigo, m.status AS medicao_status,
+             m.valor_medicao, m.periodo, m.tipo AS medicao_tipo,
+             m.uau_medicao_id, m.uau_processo_pagamento, m.uau_integrado_em,
+             f.razao_social AS fornecedor_nome, f.cnpj AS fornecedor_cnpj,
+             f.uau_codigo_fornecedor,
+             o.id AS obra_id, o.nome AS obra_nome, o.uau_obra,
+             e.razao_social AS empresa_nome,
+             c.numero AS contrato_numero, c.uau_contrato
+        FROM portal_nfs pn
+        JOIN medicoes     m ON m.id = pn.medicao_id
+        JOIN fornecedores f ON f.id = pn.fornecedor_id
+        JOIN contratos    c ON c.id = m.contrato_id
+        JOIN obras        o ON o.id = c.obra_id
+        JOIN empresas     e ON e.id = c.empresa_id
+       WHERE pn.id = $1`, [id]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'NF não encontrada.' });
+    const nf = r.rows[0];
+
+    // Restrição por obras permitidas do usuário interno
+    const obrasPermitidas = await getObrasPermitidas(req, db);
+    if (obrasPermitidas && obrasPermitidas.length && !obrasPermitidas.includes(nf.obra_id)) {
+      return res.status(403).json({ error: 'Sem acesso a esta obra.' });
+    }
+
+    const aprovacoes = (await db.query(
+      `SELECT nivel, acao, usuario, comentario, data_hora
+         FROM aprovacoes WHERE medicao_id = $1 ORDER BY data_hora`, [nf.medicao_id]
+    )).rows;
+
+    const url_view = await storageHelper.getViewUrl(nf);
+
+    res.json({ ...nf, aprovacoes, url_view });
+  } catch (e) {
+    console.error('[Portal/financeiro] NF detalhe:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

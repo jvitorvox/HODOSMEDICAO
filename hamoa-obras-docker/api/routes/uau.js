@@ -1154,7 +1154,7 @@ router.post('/vincular-nf', auth, async (req, res) => {
     // Carrega NF + medição + contrato + empresa + obra + fornecedor
     const r = await db.query(`
       SELECT
-        pn.id AS nf_id, pn.numero_nf, pn.chave_nfe, pn.valor_nf, pn.status_fin,
+        pn.id AS nf_id, pn.numero_nf, pn.chave_nfe, pn.codigo_verificacao, pn.valor_nf, pn.status_fin,
         pn.dados_nfse,
         m.id AS medicao_id, m.codigo AS medicao_codigo, m.uau_medicao_id,
         m.uau_processo_pagamento, m.valor_medicao, m.periodo,
@@ -1193,6 +1193,7 @@ router.post('/vincular-nf', auth, async (req, res) => {
     // Tenta a coluna chave_nfe e, se vazia, os campos da extração IA (dados_nfse).
     const dadosNfse = nf.dados_nfse || {};
     const chaveNfse = nf.chave_nfe
+      || nf.codigo_verificacao
       || dadosNfse.chaveAcesso
       || dadosNfse.codigoVerificacao
       || null;
@@ -1242,7 +1243,8 @@ router.post('/vincular-nf', auth, async (req, res) => {
           vincularNf:    vincularNota ? buildNfPayload(nf.uau_processo_pagamento ?? 0) : null,
         },
         nf: vincularNota
-          ? { numero: nf.numero_nf, chave: chaveNfse, fonteChave: nf.chave_nfe ? 'coluna' : (dadosNfse.chaveAcesso ? 'dados_nfse.chaveAcesso' : (dadosNfse.codigoVerificacao ? 'dados_nfse.codigoVerificacao' : 'NENHUMA')), valor }
+          ? { numero: nf.numero_nf, chave: chaveNfse,
+              fonteChave: nf.chave_nfe ? 'chave_nfe' : (nf.codigo_verificacao ? 'codigo_verificacao' : (dadosNfse.chaveAcesso ? 'dados_nfse.chaveAcesso' : (dadosNfse.codigoVerificacao ? 'dados_nfse.codigoVerificacao' : 'NENHUMA'))), valor }
           : { vincularNota: false, valor },
       });
     }

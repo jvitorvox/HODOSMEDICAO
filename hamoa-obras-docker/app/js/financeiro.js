@@ -26,11 +26,16 @@ const Financeiro = {
     }[s] || '#f1f5f9';
   },
 
+  // Rótulo exibido (o valor armazenado continua 'Integrado ERP')
+  _statusLabel(s) {
+    return s === 'Integrado ERP' ? 'Aprovado e Integrado' : (s || '—');
+  },
+
   _statusBadge(s) {
     const c = this._statusColor(s);
     const b = this._statusBg(s);
     return `<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.3px;color:${c};background:${b}">
-      <span style="width:5px;height:5px;border-radius:50%;background:${c};flex-shrink:0"></span>${s || '—'}
+      <span style="width:5px;height:5px;border-radius:50%;background:${c};flex-shrink:0"></span>${this._statusLabel(s)}
     </span>`;
   },
 
@@ -79,7 +84,7 @@ const Financeiro = {
         <div class="sc-sub">R$ ${fmt(s.valor_em_proc)}</div>
       </div>
       <div class="sc" style="--sc-color:var(--teal)">
-        <div class="sc-lbl">Integrado ERP</div>
+        <div class="sc-lbl">Aprovado e Integrado</div>
         <div class="sc-val" style="color:var(--teal)">${s.integrado_erp || 0}</div>
         <div class="sc-sub">R$ ${fmt(s.valor_integrado)}</div>
       </div>
@@ -245,49 +250,120 @@ const Financeiro = {
     this._downloadAutenticado(`/api/portal/nfs/${nfId}/xml`, `nfse-${numeroNf || nfId}.xml`);
   },
 
-  // ── Modal de atualização de status ────────────────────────────
-  abrirModal(id) {
+  // ── Painel de análise da NF ───────────────────────────────────
+  async abrirModal(id) {
     this._nfAtual = id;
-    H.el('fin-modal-nf-numero').textContent = '…';
-    H.el('fin-modal-forn').textContent = '…';
-    H.el('fin-modal-obs').value = '';
-
-    // Lê dados da linha correspondente (workaround sem re-fetch)
-    const btn = H.el('fin-table').querySelector(`button[onclick="Financeiro.abrirModal(${id})"]`);
-    if (btn) {
-      const tr = btn.closest('tr');
-      const cells = tr?.querySelectorAll('td');
-      if (cells) {
-        // Coluna 1 = NF/Arquivo: primeiro div é o número
-        H.el('fin-modal-nf-numero').textContent = cells[1]?.querySelector('div')?.textContent?.trim() || String(id);
-        // Coluna 2 = Fornecedor: primeiro div é o nome
-        H.el('fin-modal-forn').textContent = cells[2]?.querySelector('div')?.textContent?.trim() || '';
-        // Status: texto do badge (outer span contém o texto do status)
-        const statusAtual = cells[0]?.querySelector('span[style*="border-radius:20px"]')?.textContent?.trim();
-        const sel = H.el('fin-modal-status');
-        if (sel && statusAtual) {
-          Array.from(sel.options).forEach(o => { o.selected = o.value === statusAtual; });
-        }
-      }
-    }
-
-    // Prepara o bloco de integração UAU (reseta feedback + botão)
-    const nf  = (this._nfsPorId || {})[id];
-    const fb  = H.el('fin-uau-feedback');
-    const blk = H.el('fin-uau-block');
-    if (fb)  { fb.style.display = 'none'; fb.innerHTML = ''; }
-    if (blk) blk.style.display = '';
-    // Vencimento padrão: hoje + 30 dias (editável pelo usuário)
-    const venc = H.el('fin-uau-vencimento');
-    if (venc) {
-      const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      venc.value = d.toISOString().slice(0, 10);
-    }
-    if (nf && (nf.status_fin === 'Integrado ERP' || nf.status_fin === 'Pago')) {
-      this._uauFeedback(`✅ NF já integrada ao ERP${nf.processado_obs ? ' — ' + nf.processado_obs : ''}.`, 'rgba(20,184,166,.12)');
-    }
-
+    const body = H.el('fin-modal-body');
+    if (body) body.innerHTML = '<div style="padding:48px;text-align:center;color:var(--text3)">⏳ Carregando…</div>';
     UI.openModal('modal-fin-status');
+    try {
+      const nf = await API.finNfDetalhe(id);
+      this._nfDetalhe = nf;
+      if (body) body.innerHTML = this._renderModalBody(nf);
+      const venc = H.el('fin-uau-vencimento');
+      if (venc) venc.value = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      if (nf.status_fin === 'Integrado ERP' || nf.status_fin === 'Pago') {
+        this._uauFeedback(`✅ Esta NF já está “${this._statusLabel(nf.status_fin)}”${nf.processado_obs ? ' — ' + nf.processado_obs : ''}.`, 'rgba(20,184,166,.12)');
+      }
+    } catch (e) {
+      if (body) body.innerHTML = `<div style="padding:24px;color:var(--red)">Erro ao carregar: ${e.message}</div>`;
+    }
+  },
+
+  _renderModalBody(nf) {
+    const esc   = v => (v == null ? '' : String(v)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const money = v => v == null ? '—' : 'R$ ' + parseFloat(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const dt    = v => v ? new Date(v).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+    const per   = v => { if (!v) return '—'; const [y,m] = v.split('-'); const ms=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']; return `${ms[parseInt(m)]||m}/${y}`; };
+    const cnpj  = v => { const d=String(v||'').replace(/\D/g,''); return d.length===14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5') : (esc(v)||'—'); };
+
+    const row = (label, val, strong) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:11px;color:var(--text3)">${label}</span>
+      <span style="font-size:12px;color:var(--text1);text-align:right;${strong?'font-weight:700':''}">${val}</span></div>`;
+    const sec = (titulo, conteudo) => `<div style="margin-bottom:14px">
+      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">${titulo}</div>
+      ${conteudo}</div>`;
+
+    const header = `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid var(--border)">
+      <div style="min-width:0">
+        <div style="font-size:15px;font-weight:700;color:var(--text1)">NF ${esc(nf.numero_nf)||'(sem número)'} · ${money(nf.valor_nf)}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">${esc(nf.fornecedor_nome)} · ${cnpj(nf.fornecedor_cnpj)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">📄 ${esc(nf.nome_arquivo)} · enviada ${dt(nf.enviado_em)}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">${this._statusBadge(nf.status_fin)}</div>
+    </div>`;
+
+    const medSec = sec('Medição',
+      row('Código', esc(nf.medicao_codigo), true) +
+      row('Status no Construtivo', esc(nf.medicao_status)) +
+      row('Tipo', esc(nf.medicao_tipo || 'Normal')) +
+      row('Valor da medição', money(nf.valor_medicao)) +
+      row('Período', per(nf.periodo)) +
+      row('Obra', esc(nf.obra_nome)) +
+      row('Empresa', esc(nf.empresa_nome)) +
+      row('Contrato', esc(nf.contrato_numero || '—')));
+
+    const uauSec = sec('Integração UAU (ERP)',
+      row('Nº Medição UAU', nf.uau_medicao_id ? `<b>${esc(nf.uau_medicao_id)}</b>` : '<span style="color:var(--yellow)">não integrada</span>') +
+      row('Nº Processo de Pagamento', nf.uau_processo_pagamento ? `<b>${esc(nf.uau_processo_pagamento)}</b>` : '—') +
+      row('Cód. Fornecedor UAU', esc(nf.uau_codigo_fornecedor || '—')) +
+      row('Integrada em', dt(nf.uau_integrado_em)));
+
+    const aprs = nf.aprovacoes || [];
+    const aprHtml = aprs.length
+      ? aprs.map(a => `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+          <span class="rbadge r${esc(a.nivel)}" style="font-size:9px;padding:1px 6px">${esc(a.nivel)}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;color:var(--text1);font-weight:600">${esc(a.usuario)} <span style="font-weight:400;color:var(--text3)">· ${a.acao==='aprovado'?'aprovou':esc(a.acao)}</span></div>
+            ${a.comentario ? `<div style="font-size:10px;color:var(--text3)">💬 ${esc(a.comentario)}</div>` : ''}
+          </div>
+          <span style="font-size:10px;color:var(--text3);white-space:nowrap">${dt(a.data_hora)}</span>
+        </div>`).join('')
+      : '<div style="font-size:12px;color:var(--text3);font-style:italic">Nenhuma aprovação registrada.</div>';
+    const alcSec = sec('Trilha de aprovação (alçadas)', aprHtml);
+
+    const d = nf.dados_nfse || {};
+    const chave = nf.chave_nfe || nf.codigo_verificacao || d.chaveAcesso || d.codigoVerificacao || '—';
+    const nomeEsc = esc(nf.nome_arquivo).replace(/'/g, "\\'");
+    const notaSec = sec('Nota fiscal',
+      row('Número', esc(nf.numero_nf || '—')) +
+      row('Chave / Cód. verificação', esc(chave)) +
+      `<div style="display:flex;gap:8px;margin-top:10px">
+        ${nf.url_view ? `<button class="btn btn-o btn-sm" onclick="window.open('${esc(nf.url_view)}','_blank')">📄 Abrir nota</button>` : ''}
+        <button class="btn btn-o btn-sm" onclick="Financeiro.baixarArquivo(${nf.id}, '${nomeEsc}')">⬇ Baixar</button>
+      </div>`);
+
+    const vals = nf.validacoes || [];
+    const valHtml = vals.length
+      ? vals.map(v => `<div style="display:flex;gap:8px;padding:6px 8px;border-radius:6px;margin-bottom:4px;background:${v.nivel==='erro'?'rgba(239,68,68,.08)':'rgba(234,179,8,.08)'}">
+          <span>${v.nivel==='erro'?'❌':'⚠️'}</span><span style="font-size:11px;color:var(--text2)">${esc(v.msg)}</span></div>`).join('')
+      : '<div style="font-size:12px;color:var(--green)">✅ Sem divergências registradas.</div>';
+    const valSec = sec('Validações da IA', valHtml);
+
+    const statusOpts = ['Pendente','Em Processamento','Integrado ERP','Pago']
+      .map(v => `<option value="${v}" ${v===nf.status_fin?'selected':''}>${this._statusLabel(v)}</option>`).join('');
+    const controles = `
+      <div style="border-top:2px solid var(--border);margin-top:6px;padding-top:12px">
+        ${sec('Atualizar status (manual)', `
+          <select class="fi" id="fin-modal-status" style="margin-bottom:8px">${statusOpts}</select>
+          <textarea class="fi" id="fin-modal-obs" rows="2" placeholder="Observação (opcional)"></textarea>`)}
+        <div id="fin-uau-block" style="border-top:1px solid var(--border);margin-top:6px;padding-top:12px">
+          <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🔗 Aprovar e Integrar (UAU)</div>
+          <div id="fin-uau-feedback" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+          <div style="margin-bottom:8px">
+            <label class="fl" style="font-size:11px">Vencimento da parcela</label>
+            <input type="date" class="fi" id="fin-uau-vencimento">
+            <div style="font-size:10px;color:var(--text3);margin-top:3px">Usado só quando o processo ainda não existe. Padrão: hoje + 30 dias.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-o btn-sm" onclick="Financeiro.vincularNfUAU(true)">🔍 Pré-visualizar</button>
+            <button class="btn btn-a btn-sm" id="fin-uau-btn" style="background:#16a34a" onclick="Financeiro.vincularNfUAU(false)">🔗 Aprovar e Integrar</button>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px">Gera o processo de pagamento (se necessário), pergunta se vincula a nota, e marca como “Aprovado e Integrado” — o fornecedor acompanha pelo portal.</div>
+        </div>
+      </div>`;
+
+    return header + medSec + uauSec + alcSec + notaSec + valSec + controles;
   },
 
   // ── Integração UAU: gera processo (se preciso) e vincula a NFS-e ──

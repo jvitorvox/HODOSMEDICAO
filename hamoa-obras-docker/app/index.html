@@ -748,48 +748,12 @@
 
 <!-- Modal: Atualizar status NF -->
 <div class="mo" id="modal-fin-status">
-  <div class="md sm">
-    <div class="mh"><div class="mh-title">Atualizar Status da NF</div><button class="mc-btn" onclick="UI.closeModal('modal-fin-status')">✕</button></div>
-    <div class="mb">
-      <div class="fg">
-        <label class="fl">Número NF</label>
-        <div style="font-size:14px;font-weight:600;padding:4px 0" id="fin-modal-nf-numero">—</div>
-      </div>
-      <div class="fg">
-        <label class="fl">Fornecedor</label>
-        <div style="font-size:13px;color:var(--text2);padding:4px 0" id="fin-modal-forn">—</div>
-      </div>
-      <div class="fg">
-        <label class="fl">Novo Status *</label>
-        <select class="fi" id="fin-modal-status">
-          <option value="Pendente">Pendente</option>
-          <option value="Em Processamento">Em Processamento</option>
-          <option value="Integrado ERP">Integrado ERP</option>
-          <option value="Pago">Pago</option>
-        </select>
-      </div>
-      <div class="fg">
-        <label class="fl">Observação (opcional)</label>
-        <textarea class="fi" id="fin-modal-obs" rows="3" placeholder="Ex: Lançado no TOTVS — NF 000123 — vencimento 30/05/2025"></textarea>
-      </div>
-      <div class="fg" id="fin-uau-block" style="display:none;border-top:1px solid var(--border);margin-top:6px;padding-top:12px">
-        <label class="fl">🔗 Pagamento no UAU</label>
-        <div id="fin-uau-feedback" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5;border:1px solid transparent"></div>
-        <div style="margin-bottom:8px">
-          <label class="fl" style="font-size:11px">Vencimento da parcela</label>
-          <input type="date" class="fi" id="fin-uau-vencimento">
-          <div style="font-size:10px;color:var(--text3);margin-top:3px">Usado só quando o processo de pagamento ainda não existe. Padrão: hoje + 30 dias.</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-o btn-sm" onclick="Financeiro.vincularNfUAU(true)">🔍 Pré-visualizar</button>
-          <button class="btn btn-a btn-sm" id="fin-uau-btn" style="background:#16a34a" onclick="Financeiro.vincularNfUAU(false)">🔗 Vincular ao pagamento</button>
-        </div>
-        <div style="font-size:10px;color:var(--text3);margin-top:6px">Gera o processo de pagamento (se necessário) e cadastra a NFS-e no UAU.</div>
-      </div>
-    </div>
+  <div class="md" style="max-width:660px;width:94vw">
+    <div class="mh"><div class="mh-title">Análise da Nota Fiscal</div><button class="mc-btn" onclick="UI.closeModal('modal-fin-status')">✕</button></div>
+    <div class="mb" id="fin-modal-body" style="max-height:74vh;overflow:auto"></div>
     <div class="mf">
-      <button class="btn btn-o" onclick="UI.closeModal('modal-fin-status')">Cancelar</button>
-      <button class="btn btn-a" onclick="Financeiro.salvarStatus()">Salvar</button>
+      <button class="btn btn-o" onclick="UI.closeModal('modal-fin-status')">Fechar</button>
+      <button class="btn btn-a" onclick="Financeiro.salvarStatus()">Salvar status</button>
     </div>
   </div>
 </div>
@@ -1728,7 +1692,7 @@
   </div>
 </div>
 
-<script src="js/api.js?v=20260530a" data-v data-src="js/api.js"></script>
+<script src="js/api.js?v=20260531a" data-v data-src="js/api.js"></script>
 <script src="js/state.js?v=20260512b" data-v data-src="js/state.js"></script>
 <script src="js/app.js?v=20260512b" data-v data-src="js/app.js"></script>
 <script src="js/pages.js?v=20260512b" data-v data-src="js/pages.js"></script>
@@ -1736,7 +1700,7 @@
 <script src="js/cadastros.js?v=20260528c" data-v data-src="js/cadastros.js"></script>
 <script src="js/alcadas.js?v=20260512b" data-v data-src="js/alcadas.js"></script>
 <script src="js/lbm.js?v=20260512b" data-v data-src="js/lbm.js"></script>
-<script src="js/financeiro.js?v=20260530d" data-v data-src="js/financeiro.js"></script>
+<script src="js/financeiro.js?v=20260531a" data-v data-src="js/financeiro.js"></script>
 <script src="js/cronograma.js?v=20260512b" data-v data-src="js/cronograma.js"></script>
 <script src="js/coloridao.js?v=20260512b" data-v data-src="js/coloridao.js"></script>
 <script src="js/suprimentos.js?v=20260512b" data-v data-src="js/suprimentos.js"></script>

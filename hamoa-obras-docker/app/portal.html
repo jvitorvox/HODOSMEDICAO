@@ -889,7 +889,10 @@ const Portal = {
         if (sf === 'Pago') {
           return `<div class="nf-bar nf-bar-paga">✅ Nota Fiscal paga</div>`;
         }
-        if (sf === 'Em Processamento' || sf === 'Integrado ERP') {
+        if (sf === 'Integrado ERP') {
+          return `<div class="nf-bar nf-bar-processando">✅ NF aprovada e integrada ao ERP — pagamento em andamento</div>`;
+        }
+        if (sf === 'Em Processamento') {
           return `<div class="nf-bar nf-bar-processando">⚙️ NF em processamento financeiro</div>`;
         }
         if (div) {
@@ -1056,7 +1059,8 @@ const Portal = {
         'Pago':             ['var(--verde,#15803d)',    'rgba(34,197,94,.15)'],
       };
       const [c, b] = map[s] || ['#888', '#f1f5f9'];
-      return `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;color:${c};background:${b}">${s}</span>`;
+      const label = s === 'Integrado ERP' ? 'Aprovado e Integrado' : s;
+      return `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;color:${c};background:${b}">${label}</span>`;
     };
 
     const nfsHtml = m.nfs?.length
@@ -1159,9 +1163,13 @@ const Portal = {
                 <label>Valor da NF (R$)</label>
                 <input type="number" id="nf-valor-${m.id}" placeholder="${this._fmtNum(m.valor_medicao)}" step="0.01">
               </div>
-              <div class="form-group full">
-                <label>Chave de Acesso NFS-e (opcional)</label>
+              <div class="form-group">
+                <label>Chave de Acesso (NF-e · 44 díg) — se houver</label>
                 <input type="text" id="nf-chave-${m.id}" placeholder="44 dígitos" maxlength="44">
+              </div>
+              <div class="form-group">
+                <label>Código de Verificação (NFS-e)</label>
+                <input type="text" id="nf-codverif-${m.id}" placeholder="Código de verificação municipal">
               </div>
               <div class="form-group full">
                 <label>Observações (opcional)</label>
@@ -1201,16 +1209,40 @@ const Portal = {
                     <input type="text" id="nfe-tom-cnpj-${m.id}">
                   </div>
                   <div class="form-group">
-                    <label>Município</label>
-                    <input type="text" id="nfe-tom-mun-${m.id}">
+                    <label>Inscrição Municipal</label>
+                    <input type="text" id="nfe-tom-im-${m.id}">
                   </div>
                   <div class="form-group full">
                     <label>Razão Social / Nome</label>
                     <input type="text" id="nfe-tom-razao-${m.id}">
                   </div>
                   <div class="form-group full">
-                    <label>Endereço Completo</label>
+                    <label>Endereço (logradouro)</label>
                     <input type="text" id="nfe-tom-end-${m.id}">
+                  </div>
+                  <div class="form-group">
+                    <label>Número</label>
+                    <input type="text" id="nfe-tom-num-${m.id}">
+                  </div>
+                  <div class="form-group">
+                    <label>Bairro</label>
+                    <input type="text" id="nfe-tom-bairro-${m.id}">
+                  </div>
+                  <div class="form-group">
+                    <label>Município</label>
+                    <input type="text" id="nfe-tom-mun-${m.id}">
+                  </div>
+                  <div class="form-group">
+                    <label>Cód. Município (IBGE)</label>
+                    <input type="text" id="nfe-tom-ibge-${m.id}" placeholder="7 dígitos">
+                  </div>
+                  <div class="form-group">
+                    <label>UF</label>
+                    <input type="text" id="nfe-tom-uf-${m.id}" maxlength="2" placeholder="Ex: MT">
+                  </div>
+                  <div class="form-group">
+                    <label>CEP</label>
+                    <input type="text" id="nfe-tom-cep-${m.id}" placeholder="00000-000">
                   </div>
                 </div>
               </div>
@@ -1225,6 +1257,24 @@ const Portal = {
                   <div class="form-group">
                     <label>Cód. IBGE Município Prestação</label>
                     <input type="text" id="nfe-serv-ibge-${m.id}" placeholder="Ex: 3550308">
+                  </div>
+                  <div class="form-group">
+                    <label>Optante Simples Nacional?</label>
+                    <select class="nf-select" id="nfe-serv-simples-${m.id}">
+                      <option value="2">Não</option>
+                      <option value="1">Sim</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Natureza da Operação</label>
+                    <select class="nf-select" id="nfe-serv-natureza-${m.id}">
+                      <option value="1">1 - Tributação no município</option>
+                      <option value="2">2 - Tributação fora do município</option>
+                      <option value="3">3 - Isenção</option>
+                      <option value="4">4 - Imune</option>
+                      <option value="5">5 - Exigibilidade susp. (judicial)</option>
+                      <option value="6">6 - Exigibilidade susp. (administrativa)</option>
+                    </select>
                   </div>
                   <div class="form-group full">
                     <label>Discriminação do Serviço</label>
@@ -1262,6 +1312,26 @@ const Portal = {
                   <div class="form-group">
                     <label>Deduções (R$)</label>
                     <input type="number" id="nfe-val-deducoes-${m.id}" step="0.01" placeholder="0,00">
+                  </div>
+                  <div class="form-group">
+                    <label>PIS (R$)</label>
+                    <input type="number" id="nfe-val-pis-${m.id}" step="0.01" placeholder="0,00">
+                  </div>
+                  <div class="form-group">
+                    <label>COFINS (R$)</label>
+                    <input type="number" id="nfe-val-cofins-${m.id}" step="0.01" placeholder="0,00">
+                  </div>
+                  <div class="form-group">
+                    <label>INSS (R$)</label>
+                    <input type="number" id="nfe-val-inss-${m.id}" step="0.01" placeholder="0,00">
+                  </div>
+                  <div class="form-group">
+                    <label>IR (R$)</label>
+                    <input type="number" id="nfe-val-ir-${m.id}" step="0.01" placeholder="0,00">
+                  </div>
+                  <div class="form-group">
+                    <label>CSLL (R$)</label>
+                    <input type="number" id="nfe-val-csll-${m.id}" step="0.01" placeholder="0,00">
                   </div>
                 </div>
               </div>
@@ -1361,6 +1431,7 @@ const Portal = {
       if (dados.numero)           document.getElementById(`nf-numero-${id}`).value = dados.numero;
       if (dados.valores?.valorServicos) document.getElementById(`nf-valor-${id}`).value = dados.valores.valorServicos;
       if (dados.chaveAcesso)      document.getElementById(`nf-chave-${id}`).value  = dados.chaveAcesso;
+      if (dados.codigoVerificacao) { const cv = document.getElementById(`nf-codverif-${id}`); if (cv) cv.value = dados.codigoVerificacao; }
       // Pré-preenche obs com código da medição (rastreabilidade)
       const obsEl = document.getElementById(`nf-obs-${id}`);
       const codigoMed = dados._medicao?.codigo || '';
@@ -1379,15 +1450,23 @@ const Portal = {
       set('prest-razao', dados.prestador?.razaoSocial);
 
       // Tomador
-      set('tom-cnpj',  dados.tomador?.cnpj || dados.tomador?.cpf);
-      set('tom-razao', dados.tomador?.razaoSocial);
-      set('tom-end',   dados.tomador?.endereco);
-      set('tom-mun',   dados.tomador?.municipio);
+      set('tom-cnpj',   dados.tomador?.cnpj || dados.tomador?.cpf);
+      set('tom-im',     dados.tomador?.inscricaoMunicipal);
+      set('tom-razao',  dados.tomador?.razaoSocial);
+      set('tom-end',    dados.tomador?.endereco);
+      set('tom-num',    dados.tomador?.numero);
+      set('tom-bairro', dados.tomador?.bairro);
+      set('tom-mun',    dados.tomador?.municipio);
+      set('tom-ibge',   dados.tomador?.codigoMunicipio);
+      set('tom-uf',     dados.tomador?.uf);
+      set('tom-cep',    dados.tomador?.cep);
 
       // Serviço
-      set('serv-disc', dados.servico?.discriminacao);
-      set('serv-item', dados.servico?.itemListaServico);
-      set('serv-ibge', dados.servico?.codigoMunicipio);
+      set('serv-disc',     dados.servico?.discriminacao);
+      set('serv-item',     dados.servico?.itemListaServico);
+      set('serv-ibge',     dados.servico?.codigoMunicipio);
+      set('serv-simples',  dados.optanteSimplesNacional);
+      set('serv-natureza', dados.naturezaOperacao);
 
       // Valores
       set('val-bruto',    dados.valores?.valorServicos);
@@ -1395,6 +1474,11 @@ const Portal = {
       set('val-iss',      dados.valores?.valorIss);
       set('val-liquido',  dados.valores?.valorLiquido);
       set('val-deducoes', dados.valores?.valorDeducoes);
+      set('val-pis',      dados.valores?.valorPis);
+      set('val-cofins',   dados.valores?.valorCofins);
+      set('val-inss',     dados.valores?.valorInss);
+      set('val-ir',       dados.valores?.valorIr);
+      set('val-csll',     dados.valores?.valorCsll);
       // issRetido: "1" = retido, "2" = não retido
       const selRetido = document.getElementById(`nfe-val-retido-${id}`);
       if (selRetido) selRetido.value = dados.valores?.issRetido === '1' ? 'S' : 'N';
@@ -1481,26 +1565,21 @@ const Portal = {
     }
   },
 
-  // ── Geração de XML NFS-e ABRASF 2.01 ─────────────────────────
-  async baixarXmlNFSe(id) {
-    const btn = document.getElementById(`btn-xml-${id}`);
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>';
-
-    // Lê valores atuais do formulário (podem ter sido editados após extração IA)
-    const gv = (fieldId) => {
-      const el = document.getElementById(`nfe-${fieldId}-${id}`);
-      return el ? el.value : null;
-    };
-
-    // Monta payload no formato camelCase que o backend espera
-    // (mesma estrutura retornada pelo Gemini / usada pelo /nf/xml)
+  // ── Monta o objeto de dados da NF a partir do formulário (com edições) ──
+  // Usado tanto no download do XML quanto no envio (para salvar dados_nfse com as correções)
+  _montarDadosNF(id) {
+    const gv  = (fieldId) => { const el = document.getElementById(`nfe-${fieldId}-${id}`); return el ? el.value : null; };
+    const num = (fieldId, baseVal) => { const v = gv(fieldId); return parseFloat((v == null || v === '') ? (baseVal ?? 0) : v) || 0; };
     const base = this._nfDados[id] || {};
     const retidoSel = document.getElementById(`nfe-val-retido-${id}`)?.value;
-    const dadosXml = {
+    return {
       ...base,
-      numero:      document.getElementById(`nf-numero-${id}`)?.value || base.numero || '',
-      dataEmissao: gv('rps-data') || base.dataEmissao || new Date().toISOString().slice(0,10),
+      numero:                 document.getElementById(`nf-numero-${id}`)?.value || base.numero || '',
+      dataEmissao:            gv('rps-data') || base.dataEmissao || new Date().toISOString().slice(0,10),
+      chaveAcesso:            document.getElementById(`nf-chave-${id}`)?.value    || base.chaveAcesso || '',
+      codigoVerificacao:      document.getElementById(`nf-codverif-${id}`)?.value || base.codigoVerificacao || '',
+      optanteSimplesNacional: gv('serv-simples')  || base.optanteSimplesNacional || '2',
+      naturezaOperacao:       gv('serv-natureza') || base.naturezaOperacao || '1',
       prestador: {
         ...(base.prestador || {}),
         cnpj:                gv('prest-cnpj')  || base.prestador?.cnpj  || '',
@@ -1509,10 +1588,16 @@ const Portal = {
       },
       tomador: {
         ...(base.tomador || {}),
-        cnpj:        gv('tom-cnpj')  || base.tomador?.cnpj  || '',
-        razaoSocial: gv('tom-razao') || base.tomador?.razaoSocial || '',
-        endereco:    gv('tom-end')   || base.tomador?.endereco || '',
-        municipio:   gv('tom-mun')   || base.tomador?.municipio || '',
+        cnpj:               gv('tom-cnpj')   || base.tomador?.cnpj  || '',
+        inscricaoMunicipal: gv('tom-im')     || base.tomador?.inscricaoMunicipal || '',
+        razaoSocial:        gv('tom-razao')  || base.tomador?.razaoSocial || '',
+        endereco:           gv('tom-end')    || base.tomador?.endereco || '',
+        numero:             gv('tom-num')    || base.tomador?.numero || '',
+        bairro:             gv('tom-bairro') || base.tomador?.bairro || '',
+        municipio:          gv('tom-mun')    || base.tomador?.municipio || '',
+        codigoMunicipio:    gv('tom-ibge')   || base.tomador?.codigoMunicipio || '',
+        uf:                 gv('tom-uf')     || base.tomador?.uf || '',
+        cep:                gv('tom-cep')    || base.tomador?.cep || '',
       },
       servico: {
         ...(base.servico || {}),
@@ -1522,20 +1607,54 @@ const Portal = {
       },
       valores: {
         ...(base.valores || {}),
-        valorServicos: parseFloat(gv('val-bruto')    || base.valores?.valorServicos || 0),
-        aliquota:      parseFloat(gv('val-aliq')     || base.valores?.aliquota      || 0),
-        valorIss:      parseFloat(gv('val-iss')      || base.valores?.valorIss      || 0),
+        valorServicos: num('val-bruto',    base.valores?.valorServicos),
+        aliquota:      num('val-aliq',     base.valores?.aliquota),
+        valorIss:      num('val-iss',      base.valores?.valorIss),
         issRetido:     retidoSel === 'S' ? '1' : '2',
-        valorLiquido:  parseFloat(gv('val-liquido')  || base.valores?.valorLiquido  || 0),
-        valorDeducoes: parseFloat(gv('val-deducoes') || base.valores?.valorDeducoes || 0),
+        valorLiquido:  num('val-liquido',  base.valores?.valorLiquido),
+        valorDeducoes: num('val-deducoes', base.valores?.valorDeducoes),
+        valorPis:      num('val-pis',      base.valores?.valorPis),
+        valorCofins:   num('val-cofins',   base.valores?.valorCofins),
+        valorInss:     num('val-inss',     base.valores?.valorInss),
+        valorIr:       num('val-ir',       base.valores?.valorIr),
+        valorCsll:     num('val-csll',     base.valores?.valorCsll),
       },
       rps: {
         ...(base.rps || {}),
         numero: gv('rps-num')   || base.rps?.numero || '',
         serie:  gv('rps-serie') || base.rps?.serie  || 'A1',
+        tipo:   base.rps?.tipo  || '1',
       },
     };
-    const payload = { dados: dadosXml };
+  },
+
+  // ── Valida campos obrigatórios do ABRASF a partir do formulário (após edição) ──
+  // Retorna array de mensagens de campos faltantes (vazio = ok)
+  _validarObrigatoriosNF(id) {
+    const d = this._montarDadosNF(id);
+    const dig = v => String(v || '').replace(/\D/g, '');
+    const faltas = [];
+    if (!d.numero)                       faltas.push('Número da nota/RPS');
+    if (!(parseFloat(d.valores?.valorServicos) > 0)) faltas.push('Valor bruto (> 0)');
+    if (!d.prestador?.cnpj)               faltas.push('CNPJ do prestador');
+    if (!d.prestador?.inscricaoMunicipal) faltas.push('Inscrição municipal do prestador');
+    if (!d.servico?.itemListaServico)     faltas.push('Item da lista de serviço (LC 116)');
+    const ibge = dig(d.servico?.codigoMunicipio);
+    if (!ibge)            faltas.push('Cód. IBGE do município de prestação');
+    else if (ibge.length !== 7) faltas.push('Cód. IBGE do município (deve ter 7 dígitos)');
+    if (!d.dataEmissao)  faltas.push('Data de emissão');
+    if (!d.chaveAcesso && !d.codigoVerificacao) faltas.push('Chave de acesso OU código de verificação');
+    return faltas;
+  },
+
+  // ── Geração de XML NFS-e ABRASF 2.01 ─────────────────────────
+  async baixarXmlNFSe(id) {
+    const btn = document.getElementById(`btn-xml-${id}`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    // Lê valores atuais do formulário (podem ter sido editados após extração IA)
+    const payload = { dados: this._montarDadosNF(id) };
 
     try {
       const r = await fetch(`${API_BASE}/nf/xml`, {
@@ -1594,20 +1713,28 @@ const Portal = {
       return;
     }
 
+    // Bloqueia envio se faltam campos obrigatórios do ABRASF (avalia o formulário já editado)
+    const faltas = this._validarObrigatoriosNF(id);
+    if (faltas.length > 0) {
+      this._toast('Preencha os campos obrigatórios: ' + faltas.join(', '), 'erro');
+      return;
+    }
+
     const btn = document.getElementById(`btn-nf-${id}`);
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Enviando...';
 
     try {
+      // Monta os dados já com as edições do formulário (corrige o que a IA errou)
+      const dadosNF = this._montarDadosNF(id);
       const fd = new FormData();
-      fd.append('arquivo',    file);
-      fd.append('numero_nf',  document.getElementById(`nf-numero-${id}`)?.value || '');
-      fd.append('valor_nf',   document.getElementById(`nf-valor-${id}`)?.value  || '');
-      fd.append('chave_nfe',  document.getElementById(`nf-chave-${id}`)?.value  || '');
-      fd.append('obs',        document.getElementById(`nf-obs-${id}`)?.value    || '');
-      // Inclui dados NFS-e extraídos pela IA (se disponíveis) para uso do backoffice
-      if (this._nfDados[id]) {
-        fd.append('dados_nfse', JSON.stringify(this._nfDados[id]));
-      }
+      fd.append('arquivo',            file);
+      fd.append('numero_nf',          document.getElementById(`nf-numero-${id}`)?.value   || '');
+      fd.append('valor_nf',           document.getElementById(`nf-valor-${id}`)?.value    || '');
+      fd.append('chave_nfe',          document.getElementById(`nf-chave-${id}`)?.value    || '');
+      fd.append('codigo_verificacao', document.getElementById(`nf-codverif-${id}`)?.value || '');
+      fd.append('obs',                document.getElementById(`nf-obs-${id}`)?.value      || '');
+      // Salva os dados NFS-e (com correções do fornecedor) para o backoffice e a integração ERP
+      fd.append('dados_nfse', JSON.stringify(dadosNF));
       // Inclui validações para exibição no painel financeiro do backoffice
       if (this._nfValidacoes[id] && this._nfValidacoes[id].length) {
         fd.append('validacoes', JSON.stringify(this._nfValidacoes[id]));
